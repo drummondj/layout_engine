@@ -8,6 +8,7 @@ schema = Schema(
     classes=[
         Klass(
             name="Technology",
+            tcl_category="Technology",
             description="Technology information such as layers and site definitions",
             # Session-singleton anchor for get_layers/get_vias/get_sites/
             # get_via_rules/get_non_default_rules' own default (-of
@@ -229,6 +230,7 @@ schema = Schema(
         ),
         Klass(
             name="PropertyDefinition",
+            tcl_category="Technology",
             description="One LEF PROPERTYDEFINITIONS entry - declares a property name's data type (and optional value range) before any PROPERTY statement is allowed to use it",
             fields=[
                 Field(name="technology", description="Parent technology", type="Technology", parent="property_definitions"),
@@ -243,6 +245,7 @@ schema = Schema(
         ),
         Klass(
             name="Layer",
+            tcl_category="Technology",
             description="A routing layer",
             fields=[
                 Field(
@@ -545,6 +548,7 @@ schema = Schema(
         ),
         Klass(
             name="AntennaModel",
+            tcl_category="Technology",
             description="One LEF ANTENNAMODEL OXIDE1-4 block within a LAYER - each scalar and its PWL list are mutually exclusive",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="antenna_models"),
@@ -597,6 +601,7 @@ schema = Schema(
         ),
         Klass(
             name="ArraySpacing",
+            tcl_category="Technology",
             description="LEF ARRAYSPACING (CUT layers, at most one per layer)",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="array_spacing"),
@@ -607,6 +612,7 @@ schema = Schema(
         ),
         Klass(
             name="TwoWidthsSpacingEntry",
+            tcl_category="Technology",
             description="One WIDTH row of a LEF SPACINGTABLE TWOWIDTHS block (5.7) - Layer.spacing_table_two_widths holds every row",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="spacing_table_two_widths"),
@@ -617,6 +623,7 @@ schema = Schema(
         ),
         Klass(
             name="PreferEnclosureEntry",
+            tcl_category="Technology",
             description="One LEF PREFERENCLOSURE entry (CUT layers) - a layer can have several",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="prefer_enclosures"),
@@ -631,6 +638,7 @@ schema = Schema(
         # WIDTH[+EXCEPTEXTRACUT], LENGTH).
         Klass(
             name="EnclosureEntry",
+            tcl_category="Technology",
             description="One LEF ENCLOSURE entry (CUT layers, 5.6) - a layer can have several.",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="enclosures"),
@@ -658,6 +666,7 @@ schema = Schema(
         # same owner class).
         Klass(
             name="LayerDensityEntry",
+            tcl_category="Technology",
             description="One LEF ACCURRENTDENSITY/DCCURRENTDENSITY block (PEAK, AVERAGE, or RMS) - either a plain scalar or a table, never both.",
             fields=[
                 Field(name="ac_layer", description="Owning Layer, if this entry belongs to its ac_current_density list", type="Layer", parent="ac_current_density"),
@@ -681,6 +690,7 @@ schema = Schema(
         ),
         Klass(
             name="MacroSitePlacement",
+            tcl_category="Abstract",
             description="One LEF MACRO SITE array placement (Abstract.site_placements) - a macro can have several",
             fields=[
                 Field(name="abstract", description="Parent abstract", type="Abstract", parent="site_placements"),
@@ -695,6 +705,7 @@ schema = Schema(
         ),
         Klass(
             name="Site",
+            tcl_category="Technology",
             description="A site definition (LEF SITE) - the placement grid unit a MACRO's own SITE statement (Abstract.site, a plain name reference) refers to",
             fields=[
                 Field(
@@ -713,6 +724,7 @@ schema = Schema(
         ),
         Klass(
             name="NonDefaultRuleLayer",
+            tcl_category="Technology",
             description="One LAYER override within a NONDEFAULTRULE",
             fields=[
                 Field(name="non_default_rule", description="Parent non-default rule", type="NonDefaultRule", parent="layers"),
@@ -728,6 +740,7 @@ schema = Schema(
         ),
         Klass(
             name="NonDefaultRuleVia",
+            tcl_category="Technology",
             description="A VIA defined inline within a NONDEFAULTRULE - the same content as a technology-level Via, but owned by the rule",
             fields=[
                 Field(name="non_default_rule", description="Parent non-default rule", type="NonDefaultRule", parent="vias"),
@@ -750,6 +763,7 @@ schema = Schema(
         ),
         Klass(
             name="NonDefaultRule",
+            tcl_category="Technology",
             description="An alternate per-net routing rule (LEF NONDEFAULTRULE) - layer width/spacing overrides plus optional embedded or referenced vias",
             fields=[
                 Field(
@@ -770,6 +784,7 @@ schema = Schema(
         ),
         Klass(
             name="MinimumCut",
+            tcl_category="Technology",
             description="One LEF MINIMUMCUT rule (CUT layers)",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="minimum_cuts"),
@@ -783,6 +798,7 @@ schema = Schema(
         ),
         Klass(
             name="MinStep",
+            tcl_category="Technology",
             description="One LEF MINSTEP rule (ROUTING layers)",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="min_steps"),
@@ -803,6 +819,7 @@ schema = Schema(
         ),
         Klass(
             name="InfluenceSpacingEntry",
+            tcl_category="Technology",
             description="One row of a LEF SPACINGTABLE INFLUENCE table (ROUTING layers)",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="spacing_table_influence"),
@@ -823,6 +840,7 @@ schema = Schema(
         ),
         Klass(
             name="SpacingRule",
+            tcl_category="Technology",
             description="One LEF SPACING statement for a layer - ROUTING and CUT layers use disjoint sets of modifiers.",
             fields=[
                 Field(name="layer", description="Parent layer", type="Layer", parent="spacing_rules"),
@@ -866,6 +884,7 @@ schema = Schema(
             # (mutually exclusive, same pattern as Shape's
             # terminal_port/obstruction/... parents).
             name="ViaLayer",
+            tcl_category="Technology",
             description="One layer's geometry within a VIA - LEF VIA geometry supports RECT/POLYGON only, no PATH/ITERATE.",
             fields=[
                 Field(
@@ -940,6 +959,7 @@ schema = Schema(
         # gap convention as everywhere else in this schema.
         Klass(
             name="ViaRuleReference",
+            tcl_category="Technology",
             description="A VIA's own reference to a VIARULE with explicit cut geometry (LEF 5.6 VIARULE-inside-VIA) - not the same thing as a VIARULE block itself, see ViaRule. Owned by exactly one of Via/LayoutVia.",
             fields=[
                 Field(
@@ -1038,6 +1058,7 @@ schema = Schema(
         ),
         Klass(
             name="ViaRuleLayer",
+            tcl_category="Technology",
             description="One layer's rule within a VIARULE - 2 (non-GENERATE) or 3 (GENERATE, the 3rd being the cut layer) per ViaRule",
             fields=[
                 Field(
@@ -1130,6 +1151,7 @@ schema = Schema(
         ),
         Klass(
             name="Via",
+            tcl_category="Technology",
             description="A fixed/default via definition (LEF VIA)",
             fields=[
                 Field(
@@ -1189,6 +1211,7 @@ schema = Schema(
         ),
         Klass(
             name="ViaRule",
+            tcl_category="Technology",
             description="A via generation rule (LEF VIARULE, GENERATE or not)",
             fields=[
                 Field(
@@ -1500,6 +1523,7 @@ schema = Schema(
             # class pair, which codegen's Klass.link() tells apart by each
             # field's own `parent=` name, not by type alone.
             name="Shape",
+            tcl_category="General",
             description="A shape on a layer.",
             has_pool=True,
             compact_lists=True,
@@ -1773,6 +1797,7 @@ schema = Schema(
         ),
         Klass(
             name="Library",
+            tcl_category="General",
             description="A library containing designs",
             fields=[
                 Field(
@@ -1793,6 +1818,7 @@ schema = Schema(
         ),
         Klass(
             name="Design",
+            tcl_category="General",
             description="A library cell or logical module",
             fields=[
                 Field(
@@ -1831,6 +1857,7 @@ schema = Schema(
         ),
         Klass(
             name="Abstract",
+            tcl_category="Abstract",
             description="A physical abstract view (LEF)",
             # "Current view" anchor for get_terminals/get_terminal_ports/
             # get_obstructions/get_shapes' own default (-of omitted) scope
@@ -1977,6 +2004,7 @@ schema = Schema(
         ),
         Klass(
             name="MacroDensityLayer",
+            tcl_category="Abstract",
             description="One layer's DENSITY rects within a MACRO's DENSITY statement",
             fields=[
                 Field(name="abstract", description="Parent abstract", type="Abstract", parent="densities"),
@@ -1987,6 +2015,7 @@ schema = Schema(
         ),
         Klass(
             name="Foreign",
+            tcl_category="Abstract",
             description="A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)",
             fields=[
                 Field(
@@ -2060,6 +2089,7 @@ schema = Schema(
         ),
         Klass(
             name="Terminal",
+            tcl_category="Abstract",
             description="Top-level pin name of an abstract",
             # Name uniqueness is enforced per-Abstract by the generated
             # unique_per_parent index (create_terminal returns an invalid
@@ -2192,6 +2222,7 @@ schema = Schema(
         ),
         Klass(
             name="PinAntennaModel",
+            tcl_category="Abstract",
             description="One LEF PIN ANTENNAMODEL OXIDE1-4 block - each field is a list of (value, layer) entries",
             fields=[
                 Field(name="terminal", description="Parent terminal", type="Terminal", parent="antenna_models"),
@@ -2204,6 +2235,7 @@ schema = Schema(
         ),
         Klass(
             name="TerminalPort",
+            tcl_category="Abstract",
             description="Physical connection for a Terminal",
             fields=[
                 Field(
@@ -2224,6 +2256,7 @@ schema = Schema(
         ),
         Klass(
             name="Obstruction",
+            tcl_category="Abstract",
             description="An abstract routing blockage",
             fields=[
                 Field(
@@ -2243,6 +2276,7 @@ schema = Schema(
         ),
         Klass(
             name="Schematic",
+            tcl_category="Schematic",
             description="A logical connectivity view (netlist)",
             # "Current view" anchor for get_instances/get_ports/get_nets'
             # own default (-of omitted) scope - see
@@ -2301,6 +2335,7 @@ schema = Schema(
         # that hasn't been read yet, or unreadable source.
         Klass(
             name="Instance",
+            tcl_category="Schematic",
             description="An instance of another design, or a placeholder for source code that could not be fully read",
             # Name uniqueness is enforced per-Schematic by the generated
             # unique_per_parent index (create_instance returns an invalid
@@ -2390,6 +2425,7 @@ schema = Schema(
         # so the reference runs Port -> PortBus, not the other way).
         Klass(
             name="PortBus",
+            tcl_category="Schematic",
             description="A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])",
             fields=[
                 Field(
@@ -2422,6 +2458,7 @@ schema = Schema(
         ),
         Klass(
             name="Port",
+            tcl_category="Schematic",
             description="Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus",
             fields=[
                 Field(
@@ -2469,6 +2506,7 @@ schema = Schema(
         # direction, why there's no stored bit-list on NetBus itself).
         Klass(
             name="NetBus",
+            tcl_category="Schematic",
             description="A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])",
             fields=[
                 Field(
@@ -2501,6 +2539,7 @@ schema = Schema(
         ),
         Klass(
             name="Net",
+            tcl_category="Schematic",
             description="Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus",
             fields=[
                 Field(
@@ -2534,6 +2573,7 @@ schema = Schema(
         ),
         Klass(
             name="Pin",
+            tcl_category="Schematic",
             description="Logical connection point on an Instance (Verilog instance port connection)",
             fields=[
                 Field(
@@ -2658,6 +2698,7 @@ schema = Schema(
             # deferred to when SystemVerilog/Schematic linking lands - Net
             # here only holds routing geometry.
             name="Layout",
+            tcl_category="Layout",
             description="A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.",
             has_current_access=True,
             fields=[
@@ -2677,6 +2718,7 @@ schema = Schema(
         ),
         Klass(
             name="Row",
+            tcl_category="Layout",
             description="A placement row (DEF ROW)",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="rows"),
@@ -2692,6 +2734,7 @@ schema = Schema(
         ),
         Klass(
             name="Track",
+            tcl_category="Layout",
             description="A routing track pattern (DEF TRACKS)",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="tracks"),
@@ -2706,6 +2749,7 @@ schema = Schema(
         ),
         Klass(
             name="GCellGrid",
+            tcl_category="Layout",
             description="A global-routing gcell grid line (DEF GCELLGRID)",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="gcell_grids"),
@@ -2727,6 +2771,7 @@ schema = Schema(
         # error.
         Klass(
             name="Placement",
+            tcl_category="Layout",
             description="A placed physical instance (DEF COMPONENTS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="placements"),
@@ -2758,6 +2803,7 @@ schema = Schema(
         # selection and Move need no pin transform.
         Klass(
             name="PhysicalPortSegment",
+            tcl_category="Layout",
             description="One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).",
             fields=[
                 Field(name="physical_port", description="Parent physical port", type="PhysicalPort", parent="segments"),
@@ -2780,6 +2826,7 @@ schema = Schema(
         # signal Route does).
         Klass(
             name="PhysicalPort",
+            tcl_category="Layout",
             description="A chip-boundary I/O pin (DEF PINS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="physical_ports"),
@@ -2796,6 +2843,7 @@ schema = Schema(
         ),
         Klass(
             name="Blockage",
+            tcl_category="Layout",
             description="A routing or placement blockage (DEF BLOCKAGES)",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="blockages"),
@@ -2811,6 +2859,7 @@ schema = Schema(
         ),
         Klass(
             name="LayoutVia",
+            tcl_category="Layout",
             description="A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="vias"),
@@ -2830,6 +2879,7 @@ schema = Schema(
             # ERROR, since a Route with no logical Net is orphaned
             # physical routing geometry with no meaning.
             name="Route",
+            tcl_category="Layout",
             description="The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="routes"),
@@ -2845,6 +2895,7 @@ schema = Schema(
         ),
         Klass(
             name="Wire",
+            tcl_category="Layout",
             description="A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.",
             compact_lists=True,
             fields=[
@@ -2885,6 +2936,7 @@ schema = Schema(
         ),
         Klass(
             name="Region",
+            tcl_category="Layout",
             description="A placement region (DEF REGIONS)",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="regions"),

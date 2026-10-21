@@ -393,6 +393,11 @@ class Schema:
         return [klass for klass in self.classes if klass.is_enum]
 
 
+# The sections of the Tcl command reference, in order (Klass.tcl_category,
+# and the hand-written commands' table in le_tcl_procs.tcl).
+TCL_CATEGORIES = ("Technology", "Abstract", "Layout", "Schematic", "GUI", "Settings", "General")
+
+
 @dataclass
 class Klass:
     """
@@ -444,6 +449,10 @@ class Klass:
     # session-singleton (Technology) - not every class needs this, only
     # ones other classes' defaults should anchor to.
     has_current_access: bool = False
+
+    # The section of the Tcl command reference (docs/TCL_COMMANDS.md) this
+    # class's generated commands appear under: one of TCL_CATEGORIES.
+    tcl_category: Optional[str] = None
 
     # Draws this class in the Layout view (see Render). Only an extension's
     # classes use it so far.
@@ -1390,12 +1399,16 @@ class Klass:
     def tcl_help_attributes(self) -> str:
         """
         The optional attributes argument of this class's register_command_help
-        calls (with a leading space), or "": an extension's class records its
-        extension, so the core command reference can leave it out.
+        calls (with a leading space), or "": its section of the command
+        reference, and, for an extension's class, its extension, so the core
+        reference can leave it out.
         """
-        if self.extension is None:
-            return ""
-        return " {extension " + self.extension + "}"
+        attributes = []
+        if self.extension is not None:
+            attributes += ["extension", self.extension]
+        if self.tcl_category is not None:
+            attributes += ["category", self.tcl_category]
+        return " {" + " ".join(attributes) + "}" if attributes else ""
 
     def create_tcl_help_options(self) -> str:
         """

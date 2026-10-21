@@ -46,6 +46,10 @@ surface anyway, so rebuilding before running this is enough.
    leaves out everything they add (their commands, the owner options and
    purposes they add to core commands), so the output is the core
    reference whatever `LE_EXTENSION_DIRS` the tree was configured with.
+   Commands are grouped into sections: a class's `tcl_category` in
+   `schema.py`, a hand-written command's entry in `::command_categories`
+   (`le_tcl_procs.tcl`). A new command needs one - `le_tcl_help` fails
+   without it.
 
 3. **Commit the result.** `docs/TCL_COMMANDS.md` is a real, committed
    file (unlike the generated code, which lives in the build tree) -

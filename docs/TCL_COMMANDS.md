@@ -4,58 +4,21 @@
 
 Every Tcl command le_shell provides. Objects are named by tokens such as `layer:M1`, `terminal:A` or `shape:12` - what the `get_` commands return and every other command accepts. Every command also takes `-help`, which returns its usage; `help <pattern>` lists matching commands and `man <command>` shows one in full. All lengths and coordinates - including points `{x y}`, rectangles and `-filter` comparisons - are in microns (`um`), and areas in square microns (`um2`).
 
-## arm_move
+## Contents
 
-`arm_move [-help]`
+- [Technology](#technology) (89 commands)
+- [Abstract](#abstract) (35 commands)
+- [Layout](#layout) (53 commands)
+- [Schematic](#schematic) (32 commands)
+- [GUI](#gui) (36 commands)
+- [Settings](#settings) (25 commands)
+- [General](#general) (40 commands)
 
-Arms the Move tool, as Ctrl-M does in the GUI: click to set the start point, move the mouse, and click again to move the selection. Stays armed for another move until Escape. Edit mode only, with something selected; refused when placements are selected together with other objects.
+## Technology
 
-## arm_resize
+[`create_antenna_model`](#create_antenna_model), [`create_array_spacing`](#create_array_spacing), [`create_enclosure_entry`](#create_enclosure_entry), [`create_influence_spacing_entry`](#create_influence_spacing_entry), [`create_layer`](#create_layer), [`create_layer_density_entry`](#create_layer_density_entry), [`create_min_step`](#create_min_step), [`create_minimum_cut`](#create_minimum_cut), [`create_non_default_rule`](#create_non_default_rule), [`create_non_default_rule_layer`](#create_non_default_rule_layer), [`create_non_default_rule_via`](#create_non_default_rule_via), [`create_prefer_enclosure_entry`](#create_prefer_enclosure_entry), [`create_property_definition`](#create_property_definition), [`create_site`](#create_site), [`create_spacing_rule`](#create_spacing_rule), [`create_technology`](#create_technology), [`create_two_widths_spacing_entry`](#create_two_widths_spacing_entry), [`create_via`](#create_via), [`create_via_layer`](#create_via_layer), [`create_via_rule`](#create_via_rule), [`create_via_rule_layer`](#create_via_rule_layer), [`create_via_rule_reference`](#create_via_rule_reference), [`current_technology`](#current_technology), [`delete_antenna_model`](#delete_antenna_model), [`delete_array_spacing`](#delete_array_spacing), [`delete_enclosure_entry`](#delete_enclosure_entry), [`delete_influence_spacing_entry`](#delete_influence_spacing_entry), [`delete_layer`](#delete_layer), [`delete_layer_density_entry`](#delete_layer_density_entry), [`delete_min_step`](#delete_min_step), [`delete_minimum_cut`](#delete_minimum_cut), [`delete_non_default_rule`](#delete_non_default_rule), [`delete_non_default_rule_layer`](#delete_non_default_rule_layer), [`delete_non_default_rule_via`](#delete_non_default_rule_via), [`delete_prefer_enclosure_entry`](#delete_prefer_enclosure_entry), [`delete_property_definition`](#delete_property_definition), [`delete_site`](#delete_site), [`delete_spacing_rule`](#delete_spacing_rule), [`delete_technology`](#delete_technology), [`delete_two_widths_spacing_entry`](#delete_two_widths_spacing_entry), [`delete_via`](#delete_via), [`delete_via_layer`](#delete_via_layer), [`delete_via_rule`](#delete_via_rule), [`delete_via_rule_layer`](#delete_via_rule_layer), [`delete_via_rule_reference`](#delete_via_rule_reference), [`get_antenna_models`](#get_antenna_models), [`get_array_spacings`](#get_array_spacings), [`get_enclosure_entries`](#get_enclosure_entries), [`get_influence_spacing_entries`](#get_influence_spacing_entries), [`get_layer_density_entries`](#get_layer_density_entries), [`get_layers`](#get_layers), [`get_min_steps`](#get_min_steps), [`get_minimum_cuts`](#get_minimum_cuts), [`get_non_default_rule_layers`](#get_non_default_rule_layers), [`get_non_default_rule_vias`](#get_non_default_rule_vias), [`get_non_default_rules`](#get_non_default_rules), [`get_prefer_enclosure_entries`](#get_prefer_enclosure_entries), [`get_property_definitions`](#get_property_definitions), [`get_sites`](#get_sites), [`get_spacing_rules`](#get_spacing_rules), [`get_technologies`](#get_technologies), [`get_two_widths_spacing_entries`](#get_two_widths_spacing_entries), [`get_via_layers`](#get_via_layers), [`get_via_rule_layers`](#get_via_rule_layers), [`get_via_rule_references`](#get_via_rule_references), [`get_via_rules`](#get_via_rules), [`get_vias`](#get_vias), [`update_antenna_model`](#update_antenna_model), [`update_array_spacing`](#update_array_spacing), [`update_enclosure_entry`](#update_enclosure_entry), [`update_influence_spacing_entry`](#update_influence_spacing_entry), [`update_layer`](#update_layer), [`update_layer_density_entry`](#update_layer_density_entry), [`update_min_step`](#update_min_step), [`update_minimum_cut`](#update_minimum_cut), [`update_non_default_rule`](#update_non_default_rule), [`update_non_default_rule_layer`](#update_non_default_rule_layer), [`update_non_default_rule_via`](#update_non_default_rule_via), [`update_prefer_enclosure_entry`](#update_prefer_enclosure_entry), [`update_property_definition`](#update_property_definition), [`update_site`](#update_site), [`update_spacing_rule`](#update_spacing_rule), [`update_technology`](#update_technology), [`update_two_widths_spacing_entry`](#update_two_widths_spacing_entry), [`update_via`](#update_via), [`update_via_layer`](#update_via_layer), [`update_via_rule`](#update_via_rule), [`update_via_rule_layer`](#update_via_rule_layer), [`update_via_rule_reference`](#update_via_rule_reference)
 
-`arm_resize [-help]`
-
-Arms the Resize tool, as Ctrl-R does in the GUI: hovering an edge of a selected rect or polygon, or a path segment, highlights it; click it, move the mouse, and click again to resize (one undoable edit). Escape cancels a resize, or disarms the tool. Edit mode only; not available while placements are selected.
-
-## clear_rulers
-
-`clear_rulers [-help]`
-
-Removes every ruler, finished or not.
-
-## close_gui
-
-`close_gui [-help]`
-
-Closes the window show_gui opened, without asking - nothing is lost, and show_gui reopens it. The window's own close button instead asks whether to close the window or exit. Interactive le_shell only - an error in a batch script.
-
-## command_history
-
-`command_history [-help]`
-
-Lists this session's typed commands, numbered, in the order they were entered - including ones that failed. Up/Down at the prompt recall them.
-
-## create_abstract
-
-`create_abstract -design <token> [-type <str>] [-size <Point>] [-origin <Point>] [-bbox <Rect>] [-symmetry <Symmetry>] [-site <str>] [-eeq <str>] [-leq <str>] [-power <double>] [-source <str>] [-is_fixed_mask <bool>] [-help]`
-
-Creates a Abstract and returns its token. Abstract: A physical abstract view (LEF)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-design` | `token` | yes | Parent Design token |
-| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) |
-| `-size` | `Point` | no | The width and height of the block |
-| `-origin` | `Point` | no | The origin of the block |
-| `-bbox` | `Rect` | no | The bbox of the boundary |
-| `-symmetry` | `Symmetry` | no | The symmetry of the abstract |
-| `-site` | `str` | no | The name of the SITE - mutually exclusive with site_placements |
-| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) |
-| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) |
-| `-power` | `double` | no | Macro-level power consumption, in the LEF file's own declared units (LEF POWER) |
-| `-source` | `str` | no | How this macro was created - USER, GENERATE or BLOCK (LEF SOURCE, obsolete since 5.6 but still parsed) |
-| `-is_fixed_mask` | `bool` | no | Whether FIXEDMASK was specified (LEF 5.8) |
-
-## create_antenna_model
+### create_antenna_model
 
 `create_antenna_model -layer <token> -oxide <str> [-area_ratio <double>] [-cum_area_ratio <double>] [-area_factor <double>] [-area_factor_diffuse_only <bool>] [-side_area_ratio <double>] [-cum_side_area_ratio <double>] [-side_area_factor <double>] [-side_area_factor_diffuse_only <bool>] [-diff_area_ratio <double>] [-cum_diff_area_ratio <double>] [-diff_side_area_ratio <double>] [-cum_diff_side_area_ratio <double>] [-help]`
 
@@ -78,7 +41,7 @@ Creates a AntennaModel and returns its token. AntennaModel: One LEF ANTENNAMODEL
 | `-diff_side_area_ratio` | `double` | no | LEF ANTENNADIFFSIDEAREARATIO (scalar form) |
 | `-cum_diff_side_area_ratio` | `double` | no | LEF ANTENNACUMDIFFSIDEAREARATIO (scalar form) |
 
-## create_array_spacing
+### create_array_spacing
 
 `create_array_spacing -layer <token> [-long_array <bool>] [-via_width <um>] -cut_spacing <um> [-help]`
 
@@ -91,35 +54,7 @@ Creates a ArraySpacing and returns its token. ArraySpacing: LEF ARRAYSPACING (CU
 | `-via_width` | `um` | no | Optional WIDTH, in microns |
 | `-cut_spacing` | `um` | yes | CUTSPACING, in microns |
 
-## create_blockage
-
-`create_blockage -layout <token> -placement <token> -kind <BlockageKind> [-layer_name <str>] [-spacing <um>] [-design_rule_width <um>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
-
-Creates a Blockage and returns its token. Blockage: A routing or placement blockage (DEF BLOCKAGES)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-placement` | `token` | yes | The placed instance this blockage is scoped to, if any |
-| `-kind` | `BlockageKind` | yes | Whether this is a routing-layer or placement blockage |
-| `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
-| `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
-| `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
-| `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
-| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) |
-
-## create_design
-
-`create_design -library <token> -name <str> [-help]`
-
-Creates a Design and returns its token. Design: A library cell or logical module
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-library` | `token` | yes | Parent Library token |
-| `-name` | `str` | yes | The name of the design, unique within its library |
-
-## create_enclosure_entry
+### create_enclosure_entry
 
 `create_enclosure_entry -layer <token> [-location <str>] -overhang1 <um> -overhang2 <um> [-width <um>] [-except_extra_cut <um>] [-min_length <um>] [-help]`
 
@@ -135,37 +70,7 @@ Creates a EnclosureEntry and returns its token. EnclosureEntry: One LEF ENCLOSUR
 | `-except_extra_cut` | `um` | no | Optional WIDTH ... EXCEPTEXTRACUT (5.7), in microns - only meaningful alongside width |
 | `-min_length` | `um` | no | Optional LENGTH (5.7), in microns - mutually exclusive with width |
 
-## create_foreign
-
-`create_foreign [-via <token>] [-non_default_rule_via <token>] [-abstract <token>] [-layout_via <token>] -name <str> [-origin <Point>] [-orient <Orientation>] [-help]`
-
-Creates a Foreign and returns its token. Foreign: A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-via` | `token` | no | Parent Via token - give exactly one of the parent flags |
-| `-non_default_rule_via` | `token` | no | Parent NonDefaultRuleVia token - give exactly one of the parent flags |
-| `-abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
-| `-layout_via` | `token` | no | Parent LayoutVia token - give exactly one of the parent flags |
-| `-name` | `str` | yes | The foreign cell name (usually the same as the design name) |
-| `-origin` | `Point` | no | The foreign origin - optional in LEF FOREIGN; if not given, no point was written (it is not (0,0)) |
-| `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
-
-## create_g_cell_grid
-
-`create_g_cell_grid -layout <token> [-is_x <bool>] -start <um> -count <int> -step <um> [-help]`
-
-Creates a GCellGrid and returns its token. GCellGrid: A global-routing gcell grid line (DEF GCELLGRID)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
-| `-start` | `um` | yes | Starting coordinate, in microns (DEF GCELLGRID DO start) |
-| `-count` | `int` | yes | Number of grid lines (DEF GCELLGRID DO ... n) |
-| `-step` | `um` | yes | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
-
-## create_influence_spacing_entry
+### create_influence_spacing_entry
 
 `create_influence_spacing_entry -layer <token> -width <um> -distance <um> -spacing <um> [-help]`
 
@@ -178,24 +83,7 @@ Creates a InfluenceSpacingEntry and returns its token. InfluenceSpacingEntry: On
 | `-distance` | `um` | yes | The influence distance, in microns |
 | `-spacing` | `um` | yes | The resulting spacing, in microns |
 
-## create_instance
-
-`create_instance -schematic <token> [-reference_design <token>] -name <str> [-reference_name <str>] [-location <Point>] [-rtl_text <str>] [-source_file <str>] [-diagnostic_summary <str>] [-help]`
-
-Creates a Instance and returns its token. Instance: An instance of another design, or a placeholder for source code that could not be fully read
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | yes | Parent Schematic token |
-| `-reference_design` | `token` | no | The referenced design, once resolved - never set for a placeholder instance (see rtl_text) |
-| `-name` | `str` | yes | The name of the instance - unique within its schematic |
-| `-reference_name` | `str` | no | The name of the referenced design, if known |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance |
-| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read |
-| `-source_file` | `str` | no | The file rtl_text came from, if known |
-| `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
-
-## create_layer
+### create_layer
 
 `create_layer -technology <token> -name <str> -type <str> -direction <RoutingDirection> [-width <um>] [-pitch <um>] [-offset <um>] [-area <um2>] [-resistance <double>] [-capacitance <double>] [-height <um>] [-thickness <um>] [-wire_extension <um>] [-shrinkage <um>] [-cap_multiplier <double>] [-edge_cap <double>] [-antenna_length <um>] [-default_mask <int>] [-pitch_xy <Point>] [-offset_xy <Point>] [-diag_pitch <um>] [-diag_pitch_xy <Point>] [-diag_spacing <um>] [-diag_width <um>] [-diag_min_edge_length <um>] [-max_width <um>] [-min_width <um>] [-protrusion_width1 <um>] [-protrusion_length <um>] [-protrusion_width2 <um>] [-split_wire_width <um>] [-minimum_density <double>] [-maximum_density <double>] [-density_check_step <um>] [-density_check_window <DensityCheckWindow>] [-fill_active_spacing <um>] [-help]`
 
@@ -240,7 +128,7 @@ Creates a Layer and returns its token. Layer: A routing layer
 | `-density_check_window` | `DensityCheckWindow` | no | LEF DENSITYCHECKWINDOW (length, width), in microns |
 | `-fill_active_spacing` | `um` | no | LEF FILLACTIVESPACING, in microns |
 
-## create_layer_density_entry
+### create_layer_density_entry
 
 `create_layer_density_entry [-ac_layer <token>] [-dc_layer <token>] -type <str> [-one_entry <double>] [-help]`
 
@@ -253,66 +141,7 @@ Creates a LayerDensityEntry and returns its token. LayerDensityEntry: One LEF AC
 | `-type` | `str` | yes | PEAK, AVERAGE, or RMS |
 | `-one_entry` | `double` | no | Plain-scalar form value, in the LEF file's declared units |
 
-## create_layout
-
-`create_layout -design <token> [-help]`
-
-Creates a Layout and returns its token. Layout: A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-design` | `token` | yes | Parent Design token |
-
-## create_layout_via
-
-`create_layout_via -layout <token> -name <str> [-help]`
-
-Creates a LayoutVia and returns its token. LayoutVia: A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-name` | `str` | yes | The name of the via |
-
-## create_library
-
-`create_library -name <str> [-help]`
-
-Creates a Library and returns its token. Library: A library containing designs
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-name` | `str` | yes | The name of the library |
-
-## create_macro_density_layer
-
-`create_macro_density_layer -abstract <token> -layer_name <str> [-help]`
-
-Creates a MacroDensityLayer and returns its token. MacroDensityLayer: One layer's DENSITY rects within a MACRO's DENSITY statement
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-abstract` | `token` | yes | Parent Abstract token |
-| `-layer_name` | `str` | yes | The name of the layer |
-
-## create_macro_site_placement
-
-`create_macro_site_placement -abstract <token> -site_name <str> [-origin <Point>] -orient <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
-
-Creates a MacroSitePlacement and returns its token. MacroSitePlacement: One LEF MACRO SITE array placement (Abstract.site_placements) - a macro can have several
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-abstract` | `token` | yes | Parent Abstract token |
-| `-site_name` | `str` | yes | The name of the site |
-| `-origin` | `Point` | no | In microns |
-| `-orient` | `Orientation` | yes | The orientation of this placement |
-| `-num_x` | `int` | no | Optional LEF DO n |
-| `-num_y` | `int` | no | Optional LEF BY m |
-| `-step_x` | `um` | no | Optional LEF STEP x, in microns |
-| `-step_y` | `um` | no | Optional LEF STEP y, in microns |
-
-## create_min_step
+### create_min_step
 
 `create_min_step -layer <token> -distance <um> [-min_step_type <str>] [-lengthsum <um>] [-max_edges <int>] [-help]`
 
@@ -326,7 +155,7 @@ Creates a MinStep and returns its token. MinStep: One LEF MINSTEP rule (ROUTING 
 | `-lengthsum` | `um` | no | MINSTEP ... LENGTHSUM value, in microns |
 | `-max_edges` | `int` | no | MINSTEP ... MAXEDGES value (5.7) |
 
-## create_minimum_cut
+### create_minimum_cut
 
 `create_minimum_cut -layer <token> -cuts <int> -width <um> [-within <um>] [-connection <str>] [-length <um>] [-distance <um>] [-help]`
 
@@ -342,33 +171,7 @@ Creates a MinimumCut and returns its token. MinimumCut: One LEF MINIMUMCUT rule 
 | `-length` | `um` | no | MINIMUMCUT ... LENGTH value, in microns |
 | `-distance` | `um` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in microns |
 
-## create_net
-
-`create_net -schematic <token> [-bus <token>] -name <str> [-bit_index <int>] [-help]`
-
-Creates a Net and returns its token. Net: Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | yes | Parent Schematic token |
-| `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
-| `-name` | `str` | yes | The name of the net - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit net, plain for a scalar net - unique within its schematic |
-| `-bit_index` | `int` | no | Which bit of .bus this Net represents |
-
-## create_net_bus
-
-`create_net_bus -schematic <token> -name <str> -msb <int> -lsb <int> [-help]`
-
-Creates a NetBus and returns its token. NetBus: A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | yes | Parent Schematic token |
-| `-name` | `str` | yes | The bus's own base name (without a bit index) - unique within its schematic |
-| `-msb` | `int` | yes | Most-significant bit index (Verilog [msb:lsb]) |
-| `-lsb` | `int` | yes | Least-significant bit index |
-
-## create_non_default_rule
+### create_non_default_rule
 
 `create_non_default_rule -technology <token> -name <str> [-hard_spacing <bool>] [-help]`
 
@@ -380,7 +183,7 @@ Creates a NonDefaultRule and returns its token. NonDefaultRule: An alternate per
 | `-name` | `str` | yes | The name of the rule |
 | `-hard_spacing` | `bool` | no | Whether HARDSPACING was specified (5.6) |
 
-## create_non_default_rule_layer
+### create_non_default_rule_layer
 
 `create_non_default_rule_layer -non_default_rule <token> -layer_name <str> [-width <um>] [-spacing <um>] [-wire_extension <um>] [-resistance <double>] [-capacitance <double>] [-edge_cap <double>] [-diag_width <um>] [-help]`
 
@@ -398,7 +201,7 @@ Creates a NonDefaultRuleLayer and returns its token. NonDefaultRuleLayer: One LA
 | `-edge_cap` | `double` | no | Overridden edge capacitance, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
 | `-diag_width` | `um` | no | Overridden diagonal width, in microns (LEF 5.6) - read-only, not written back by write_lef |
 
-## create_non_default_rule_via
+### create_non_default_rule_via
 
 `create_non_default_rule_via -non_default_rule <token> -name <str> [-is_default <bool>] [-resistance <double>] [-help]`
 
@@ -411,120 +214,7 @@ Creates a NonDefaultRuleVia and returns its token. NonDefaultRuleVia: A VIA defi
 | `-is_default` | `bool` | no | Whether this via is marked DEFAULT |
 | `-resistance` | `double` | no | Resistance, in the LEF file's own declared units |
 
-## create_obstruction
-
-`create_obstruction -abstract <token> [-help]`
-
-Creates a Obstruction and returns its token. Obstruction: An abstract routing blockage
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-abstract` | `token` | yes | Parent Abstract token |
-
-## create_physical_port
-
-`create_physical_port -layout <token> [-net <token>] -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
-
-Creates a PhysicalPort and returns its token. PhysicalPort: A chip-boundary I/O pin (DEF PINS).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` |
-| `-name` | `str` | yes | The name of the pin - unique within its layout |
-| `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
-| `-direction` | `SignalDirection` | no | The direction of the pin |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
-| `-placement_status` | `PlacementStatus` | no | Placement status |
-| `-location` | `Point` | no | The pin's location, in microns |
-| `-orientation` | `Orientation` | no | Placement orientation |
-
-## create_physical_port_segment
-
-`create_physical_port_segment -physical_port <token> [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
-
-Creates a PhysicalPortSegment and returns its token. PhysicalPortSegment: One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-physical_port` | `token` | yes | Parent PhysicalPort token |
-| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - for a simple (non-multi-port) pin the placement is on the parent PhysicalPort instead |
-| `-location` | `Point` | no | This segment's own location, in microns |
-| `-orientation` | `Orientation` | no | This segment's own orientation |
-
-## create_pin
-
-`create_pin -instance <token> [-net <token>] -name <str> [-direction <SignalDirection>] [-raw_expression <str>] [-help]`
-
-Creates a Pin and returns its token. Pin: Logical connection point on an Instance (Verilog instance port connection)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-instance` | `token` | yes | Parent Instance token |
-| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) is that bit's Net (see Net.bus/.bit_index) |
-| `-name` | `str` | yes | The pin name as connected in source, e.g. the A in .A(net23) |
-| `-direction` | `SignalDirection` | no | The pin's direction, if known |
-| `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
-
-## create_pin_antenna_model
-
-`create_pin_antenna_model -terminal <token> -oxide <str> [-help]`
-
-Creates a PinAntennaModel and returns its token. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - each field is a list of (value, layer) entries
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-terminal` | `token` | yes | Parent Terminal token |
-| `-oxide` | `str` | yes | OXIDE1, OXIDE2, OXIDE3, or OXIDE4 |
-
-## create_placement
-
-`create_placement -layout <token> -reference_design <token> [-instance <token>] -name <str> [-physical_only <bool>] -placement_status <PlacementStatus> [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
-
-Creates a Placement and returns its token. Placement: A placed physical instance (DEF COMPONENTS).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-reference_design` | `token` | yes | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
-| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - never set for a physical_only Placement |
-| `-name` | `str` | yes | The name of the instance - unique within its layout |
-| `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
-| `-placement_status` | `PlacementStatus` | yes | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns |
-| `-orientation` | `Orientation` | no | Placement orientation |
-| `-weight` | `double` | no | DEF COMPONENTS WEIGHT |
-| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) |
-
-## create_port
-
-`create_port -schematic <token> [-bus <token>] [-net <token>] -name <str> -direction <SignalDirection> [-bit_index <int>] [-help]`
-
-Creates a Port and returns its token. Port: Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | yes | Parent Schematic token |
-| `-bus` | `token` | no | The PortBus this Port is one bit of, if it is part of a multi-bit port |
-| `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
-| `-name` | `str` | yes | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
-| `-direction` | `SignalDirection` | yes | The direction of the port |
-| `-bit_index` | `int` | no | Which bit of .bus this Port represents |
-
-## create_port_bus
-
-`create_port_bus -schematic <token> -name <str> -msb <int> -lsb <int> [-help]`
-
-Creates a PortBus and returns its token. PortBus: A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | yes | Parent Schematic token |
-| `-name` | `str` | yes | The bus's own base name (without a bit index) - unique within its schematic |
-| `-msb` | `int` | yes | Most-significant bit index (Verilog [msb:lsb]) |
-| `-lsb` | `int` | yes | Least-significant bit index |
-
-## create_prefer_enclosure_entry
+### create_prefer_enclosure_entry
 
 `create_prefer_enclosure_entry -layer <token> [-location <str>] -overhang1 <um> -overhang2 <um> [-min_width <um>] [-help]`
 
@@ -538,7 +228,7 @@ Creates a PreferEnclosureEntry and returns its token. PreferEnclosureEntry: One 
 | `-overhang2` | `um` | yes | In microns |
 | `-min_width` | `um` | no | Optional WIDTH, in microns |
 
-## create_property_definition
+### create_property_definition
 
 `create_property_definition -technology <token> -owner_type <str> -name <str> -data_type <str> [-range_min <double>] [-range_max <double>] [-default_number <double>] [-default_string <str>] [-help]`
 
@@ -555,90 +245,7 @@ Creates a PropertyDefinition and returns its token. PropertyDefinition: One LEF 
 | `-default_number` | `double` | no | Default value, if data_type is I(nteger)/R(eal) |
 | `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) |
 
-## create_region
-
-`create_region -layout <token> -name <str> [-region_type <str>] [-rects <Rect...>] [-help]`
-
-Creates a Region and returns its token. Region: A placement region (DEF REGIONS)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-name` | `str` | yes | The name of the region - unique within its layout |
-| `-region_type` | `str` | no | FENCE or GUIDE (DEF REGIONS TYPE) |
-| `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
-
-## create_route
-
-`create_route -layout <token> [-net <token>] -name <str> [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
-
-Creates a Route and returns its token. Route: The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
-| `-name` | `str` | yes | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
-| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
-| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
-| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
-
-## create_row
-
-`create_row -layout <token> -name <str> -site_name <str> [-origin <Point>] -orientation <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
-
-Creates a Row and returns its token. Row: A placement row (DEF ROW)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-name` | `str` | yes | The name of the row |
-| `-site_name` | `str` | yes | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name, not a reference to a Site |
-| `-origin` | `Point` | no | The row's origin, in microns |
-| `-orientation` | `Orientation` | yes | The row's orientation |
-| `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
-| `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
-| `-step_x` | `um` | no | Step in X between repeats, in microns (DEF ROW STEP) |
-| `-step_y` | `um` | no | Step in Y between repeats, in microns (DEF ROW STEP) |
-
-## create_schematic
-
-`create_schematic -design <token> [-help]`
-
-Creates a Schematic and returns its token. Schematic: A logical connectivity view (netlist)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-design` | `token` | yes | Parent Design token |
-
-## create_shape
-
-`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
-
-Creates a Shape and returns its token. Shape: A shape on a layer.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-terminal_port` | `token` | no | Parent TerminalPort token - give exactly one of the parent flags |
-| `-obstruction` | `token` | no | Parent Obstruction token - give exactly one of the parent flags |
-| `-physical_port_segment` | `token` | no | Parent PhysicalPortSegment token - give exactly one of the parent flags |
-| `-blockage` | `token` | no | Parent Blockage token - give exactly one of the parent flags |
-| `-route` | `token` | no | Parent Route token - give exactly one of the parent flags |
-| `-layout` | `token` | no | Parent Layout token - give exactly one of the parent flags |
-| `-abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
-| `-in_abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
-| `-in_layout` | `token` | no | Parent Layout token - give exactly one of the parent flags |
-| `-layer` | `token` | no | The physical layer this shape is on. Exactly one of layer and purpose is set - a shape with no physical layer (a diearea, an abstract boundary, a placement blockage) uses purpose instead. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG. |
-| `-purpose` | `ShapePurpose` | no | What this shape is, when it isn't on a physical layer - a boundary, a placement blockage or debug geometry. Exactly one of layer and purpose is set. |
-| `-paths` | `Path...` | no | A list of paths |
-| `-polygons` | `Polygon...` | no | A list of polygons |
-| `-rects` | `Rect...` | no | A list of rects |
-| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
-| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
-| `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
-
-## create_site
+### create_site
 
 `create_site -technology <token> -name <str> [-site_class <str>] [-size <Point>] [-symmetry <Symmetry>] [-help]`
 
@@ -652,7 +259,7 @@ Creates a Site and returns its token. Site: A site definition (LEF SITE) - the p
 | `-size` | `Point` | no | The site size, in microns (LEF SIZE) |
 | `-symmetry` | `Symmetry` | no | Which flips/rotations this site allows (LEF SYMMETRY) |
 
-## create_spacing_rule
+### create_spacing_rule
 
 `create_spacing_rule -layer <token> -distance <um> [-range_min <um>] [-range_max <um>] [-range_use_length_threshold <bool>] [-range_influence <um>] [-range_influence_range_min <um>] [-range_influence_range_max <um>] [-range_range_min <um>] [-range_range_max <um>] [-length_threshold <um>] [-length_threshold_range_min <um>] [-length_threshold_range_max <um>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <um>] [-end_of_line_within <um>] [-parallel_edge_space <um>] [-parallel_edge_within <um>] [-two_edges <bool>] [-notch_length <um>] [-end_of_notch_width <um>] [-end_of_notch_spacing <um>] [-end_of_notch_length <um>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <um>] [-adjacent_except_same_pg_net <bool>] [-area <um2>] [-help]`
 
@@ -693,7 +300,7 @@ Creates a SpacingRule and returns its token. SpacingRule: One LEF SPACING statem
 | `-adjacent_except_same_pg_net` | `bool` | no | ADJACENTCUTS ... EXCEPTSAMEPGNET was specified |
 | `-area` | `um2` | no | SPACING ... AREA value, in square microns (LEF 5.7, CUT layers only) |
 
-## create_technology
+### create_technology
 
 `create_technology -database_units_microns <double> [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <um>] [-fin_offset <um>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
 
@@ -725,58 +332,7 @@ Creates a Technology and returns its token. Technology: Technology information s
 | `-antenna_inout_diff_area` | `double` | no | Top-level LEF ANTENNAINOUTDIFFAREA (legacy pre-5.0 default) |
 | `-antenna_output_diff_area` | `double` | no | Top-level LEF ANTENNAOUTPUTDIFFAREA (legacy pre-5.0 default) |
 
-## create_terminal
-
-`create_terminal -abstract <token> -name <str> -direction <SignalDirection> [-shape <str>] [-use <str>] [-must_join <str>] [-net_expr <str>] [-leq <str>] [-taper_rule <str>] [-supply_sensitivity <str>] [-ground_sensitivity <str>] [-rise_slew_limit <double>] [-fall_slew_limit <double>] [-max_load <double>] [-max_delay <double>] [-help]`
-
-Creates a Terminal and returns its token. Terminal: Top-level pin name of an abstract
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-abstract` | `token` | yes | Parent Abstract token |
-| `-name` | `str` | yes | Name of the terminal - unique within its abstract |
-| `-direction` | `SignalDirection` | yes | The direction of the terminal |
-| `-shape` | `str` | no | ABUTMENT, RING or FEEDTHRU (LEF PIN SHAPE) |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG or SCAN (LEF PIN USE) |
-| `-must_join` | `str` | no | The name of another pin this one must be joined with (LEF PIN MUSTJOIN) |
-| `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed |
-| `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq |
-| `-taper_rule` | `str` | no | LEF PIN TAPERRULE |
-| `-supply_sensitivity` | `str` | no | LEF PIN SUPPLYSENSITIVITY (5.6) - net name |
-| `-ground_sensitivity` | `str` | no | LEF PIN GROUNDSENSITIVITY (5.6) - net name |
-| `-rise_slew_limit` | `double` | no | LEF PIN RISESLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
-| `-fall_slew_limit` | `double` | no | LEF PIN FALLSLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
-| `-max_load` | `double` | no | LEF PIN MAXLOAD, in the LEF file's declared units - read-only, not written back by write_lef |
-| `-max_delay` | `double` | no | LEF PIN MAXDELAY, in the LEF file's declared units - read-only, not written back by write_lef |
-
-## create_terminal_port
-
-`create_terminal_port -terminal <token> [-port_class <str>] [-help]`
-
-Creates a TerminalPort and returns its token. TerminalPort: Physical connection for a Terminal
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-terminal` | `token` | yes | Parent Terminal token |
-| `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) |
-
-## create_track
-
-`create_track -layout <token> [-is_x <bool>] -start <um> -count <int> -step <um> [-mask <int>] [-same_mask <bool>] [-help]`
-
-Creates a Track and returns its token. Track: A routing track pattern (DEF TRACKS)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | yes | Parent Layout token |
-| `-is_x` | `bool` | no | True for an X-direction track pattern, false for Y (DEF TRACKS X/Y) |
-| `-start` | `um` | yes | Starting coordinate, in microns (DEF TRACKS DO start) |
-| `-count` | `int` | yes | Number of tracks (DEF TRACKS DO ... n) |
-| `-step` | `um` | yes | Spacing between tracks, in microns (DEF TRACKS STEP) |
-| `-mask` | `int` | no | MASK color (DEF 5.8) |
-| `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
-
-## create_two_widths_spacing_entry
+### create_two_widths_spacing_entry
 
 `create_two_widths_spacing_entry -layer <token> -width <um> [-prl <um>] [-help]`
 
@@ -788,7 +344,7 @@ Creates a TwoWidthsSpacingEntry and returns its token. TwoWidthsSpacingEntry: On
 | `-width` | `um` | yes | In microns |
 | `-prl` | `um` | no | Optional PRL (parallel run length), in microns |
 
-## create_via
+### create_via
 
 `create_via -technology <token> -name <str> [-is_default <bool>] [-resistance <double>] [-help]`
 
@@ -801,7 +357,7 @@ Creates a Via and returns its token. Via: A fixed/default via definition (LEF VI
 | `-is_default` | `bool` | no | Whether this via is the DEFAULT via for its layer pair (LEF VIA name DEFAULT) |
 | `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) - mutually exclusive with via_rule |
 
-## create_via_layer
+### create_via_layer
 
 `create_via_layer [-via <token>] [-non_default_rule_via <token>] [-layout_via <token>] -layer_name <str> [-help]`
 
@@ -814,7 +370,7 @@ Creates a ViaLayer and returns its token. ViaLayer: One layer's geometry within 
 | `-layout_via` | `token` | no | Parent LayoutVia token - give exactly one of the parent flags |
 | `-layer_name` | `str` | yes | The name of the layer |
 
-## create_via_rule
+### create_via_rule
 
 `create_via_rule -technology <token> -name <str> [-is_generate <bool>] [-is_default <bool>] [-help]`
 
@@ -827,7 +383,7 @@ Creates a ViaRule and returns its token. ViaRule: A via generation rule (LEF VIA
 | `-is_generate` | `bool` | no | Whether this is a VIARULE ... GENERATE (vs. a plain VIARULE listing specific vias) |
 | `-is_default` | `bool` | no | Whether this is the GENERATE DEFAULT via rule (LEF VIARULE ... GENERATE DEFAULT) |
 
-## create_via_rule_layer
+### create_via_rule_layer
 
 `create_via_rule_layer -via_rule <token> -layer_name <str> -direction <RoutingDirection> [-width_min <um>] [-width_max <um>] [-overhang <um>] [-metal_overhang <um>] [-enclosure_overhang1 <um>] [-enclosure_overhang2 <um>] [-spacing_step_x <um>] [-spacing_step_y <um>] [-rect <Rect>] [-resistance <double>] [-help]`
 
@@ -849,7 +405,7 @@ Creates a ViaRuleLayer and returns its token. ViaRuleLayer: One layer's rule wit
 | `-rect` | `Rect` | no | The cut rect, in microns (LEF RECT - GENERATE's cut layer only) |
 | `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) |
 
-## create_via_rule_reference
+### create_via_rule_reference
 
 `create_via_rule_reference [-via <token>] [-layout_via <token>] -via_rule_name <str> [-cut_size <Point>] -bot_layer_name <str> -cut_layer_name <str> -top_layer_name <str> [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-num_cut_rows <int>] [-num_cut_cols <int>] [-origin <Point>] [-bot_offset <Point>] [-top_offset <Point>] [-help]`
 
@@ -873,48 +429,7 @@ Creates a ViaRuleReference and returns its token. ViaRuleReference: A VIA's own 
 | `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - the enclosure rect is centered on the cut array if not given |
 | `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
 
-## create_wire
-
-`create_wire -route <token> -layer <token> [-help]`
-
-Creates a Wire and returns its token. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-route` | `token` | yes | Parent Route token |
-| `-layer` | `token` | yes | The routing layer, as a layer:<name> token |
-
-## current_abstract
-
-`current_abstract [<id>] [-help]`
-
-Returns the current Abstract (empty if none is set); with <id>, selects it first. get_ commands without -of search within it.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
-
-## current_layout
-
-`current_layout [<id>] [-help]`
-
-Returns the current Layout (empty if none is set); with <id>, selects it first. get_ commands without -of search within it.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
-
-## current_schematic
-
-`current_schematic [<id>] [-help]`
-
-Returns the current Schematic (empty if none is set); with <id>, selects it first. get_ commands without -of search within it.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
-
-## current_technology
+### current_technology
 
 `current_technology [<id>] [-help]`
 
@@ -924,27 +439,7 @@ Returns the current Technology (empty if none is set); with <id>, selects it fir
 | --- | --- | --- | --- |
 | `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
 
-## db_info
-
-`db_info <filename> [-help]`
-
-Returns a description of a database file written by write_db: its schema version, whether it matches this build's schema, the extensions whose objects it holds, the migrations loading it would run, and how many objects of each class it holds.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<filename>` | `file` | yes | .led file to describe |
-
-## delete_abstract
-
-`delete_abstract <id> [-help]`
-
-Deletes a Abstract and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Abstract to delete |
-
-## delete_antenna_model
+### delete_antenna_model
 
 `delete_antenna_model <id> [-help]`
 
@@ -954,7 +449,7 @@ Deletes a AntennaModel and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the AntennaModel to delete |
 
-## delete_array_spacing
+### delete_array_spacing
 
 `delete_array_spacing <id> [-help]`
 
@@ -964,27 +459,7 @@ Deletes a ArraySpacing and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the ArraySpacing to delete |
 
-## delete_blockage
-
-`delete_blockage <id> [-help]`
-
-Deletes a Blockage and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Blockage to delete |
-
-## delete_design
-
-`delete_design <id> [-help]`
-
-Deletes a Design and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Design to delete |
-
-## delete_enclosure_entry
+### delete_enclosure_entry
 
 `delete_enclosure_entry <id> [-help]`
 
@@ -994,27 +469,7 @@ Deletes a EnclosureEntry and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the EnclosureEntry to delete |
 
-## delete_foreign
-
-`delete_foreign <id> [-help]`
-
-Deletes a Foreign and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Foreign to delete |
-
-## delete_g_cell_grid
-
-`delete_g_cell_grid <id> [-help]`
-
-Deletes a GCellGrid and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the GCellGrid to delete |
-
-## delete_influence_spacing_entry
+### delete_influence_spacing_entry
 
 `delete_influence_spacing_entry <id> [-help]`
 
@@ -1024,17 +479,7 @@ Deletes a InfluenceSpacingEntry and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the InfluenceSpacingEntry to delete |
 
-## delete_instance
-
-`delete_instance <id> [-help]`
-
-Deletes a Instance and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Instance to delete |
-
-## delete_layer
+### delete_layer
 
 `delete_layer <id> [-help]`
 
@@ -1044,7 +489,7 @@ Deletes a Layer and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the Layer to delete |
 
-## delete_layer_density_entry
+### delete_layer_density_entry
 
 `delete_layer_density_entry <id> [-help]`
 
@@ -1054,57 +499,7 @@ Deletes a LayerDensityEntry and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the LayerDensityEntry to delete |
 
-## delete_layout
-
-`delete_layout <id> [-help]`
-
-Deletes a Layout and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Layout to delete |
-
-## delete_layout_via
-
-`delete_layout_via <id> [-help]`
-
-Deletes a LayoutVia and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the LayoutVia to delete |
-
-## delete_library
-
-`delete_library <id> [-help]`
-
-Deletes a Library and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Library to delete |
-
-## delete_macro_density_layer
-
-`delete_macro_density_layer <id> [-help]`
-
-Deletes a MacroDensityLayer and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the MacroDensityLayer to delete |
-
-## delete_macro_site_placement
-
-`delete_macro_site_placement <id> [-help]`
-
-Deletes a MacroSitePlacement and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the MacroSitePlacement to delete |
-
-## delete_min_step
+### delete_min_step
 
 `delete_min_step <id> [-help]`
 
@@ -1114,7 +509,7 @@ Deletes a MinStep and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the MinStep to delete |
 
-## delete_minimum_cut
+### delete_minimum_cut
 
 `delete_minimum_cut <id> [-help]`
 
@@ -1124,27 +519,7 @@ Deletes a MinimumCut and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the MinimumCut to delete |
 
-## delete_net
-
-`delete_net <id> [-help]`
-
-Deletes a net.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the net to delete |
-
-## delete_net_bus
-
-`delete_net_bus <id> [-help]`
-
-Deletes a NetBus and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the NetBus to delete |
-
-## delete_non_default_rule
+### delete_non_default_rule
 
 `delete_non_default_rule <id> [-help]`
 
@@ -1154,7 +529,7 @@ Deletes a NonDefaultRule and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the NonDefaultRule to delete |
 
-## delete_non_default_rule_layer
+### delete_non_default_rule_layer
 
 `delete_non_default_rule_layer <id> [-help]`
 
@@ -1164,7 +539,7 @@ Deletes a NonDefaultRuleLayer and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the NonDefaultRuleLayer to delete |
 
-## delete_non_default_rule_via
+### delete_non_default_rule_via
 
 `delete_non_default_rule_via <id> [-help]`
 
@@ -1174,87 +549,7 @@ Deletes a NonDefaultRuleVia and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the NonDefaultRuleVia to delete |
 
-## delete_obstruction
-
-`delete_obstruction <id> [-help]`
-
-Deletes a Obstruction and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Obstruction to delete |
-
-## delete_physical_port
-
-`delete_physical_port <id> [-help]`
-
-Deletes a PhysicalPort and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PhysicalPort to delete |
-
-## delete_physical_port_segment
-
-`delete_physical_port_segment <id> [-help]`
-
-Deletes a PhysicalPortSegment and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PhysicalPortSegment to delete |
-
-## delete_pin
-
-`delete_pin <id> [-help]`
-
-Deletes a Pin and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Pin to delete |
-
-## delete_pin_antenna_model
-
-`delete_pin_antenna_model <id> [-help]`
-
-Deletes a PinAntennaModel and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PinAntennaModel to delete |
-
-## delete_placement
-
-`delete_placement <id> [-help]`
-
-Deletes a Placement and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Placement to delete |
-
-## delete_port
-
-`delete_port <id> [-help]`
-
-Deletes a Port and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Port to delete |
-
-## delete_port_bus
-
-`delete_port_bus <id> [-help]`
-
-Deletes a PortBus and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PortBus to delete |
-
-## delete_prefer_enclosure_entry
+### delete_prefer_enclosure_entry
 
 `delete_prefer_enclosure_entry <id> [-help]`
 
@@ -1264,7 +559,7 @@ Deletes a PreferEnclosureEntry and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the PreferEnclosureEntry to delete |
 
-## delete_property_definition
+### delete_property_definition
 
 `delete_property_definition <id> [-help]`
 
@@ -1274,63 +569,7 @@ Deletes a PropertyDefinition and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the PropertyDefinition to delete |
 
-## delete_region
-
-`delete_region <id> [-help]`
-
-Deletes a Region and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Region to delete |
-
-## delete_route
-
-`delete_route <id> [-help]`
-
-Deletes a Route and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Route to delete |
-
-## delete_row
-
-`delete_row <id> [-help]`
-
-Deletes a Row and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Row to delete |
-
-## delete_schematic
-
-`delete_schematic <id> [-help]`
-
-Deletes a Schematic and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Schematic to delete |
-
-## delete_selected_pieces
-
-`delete_selected_pieces [-help]`
-
-Deletes each selected shape piece - a rect, polygon, path, via or via array - from its shape, as the Edit-mode Delete button and the Del key do in the GUI. A shape left with no geometry is deleted too; owners (a route, a terminal port, ...) and any other selected objects stay. Undoable. Returns how many pieces were deleted.
-
-## delete_shape
-
-`delete_shape <id> [-help]`
-
-Deletes a Shape and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Shape to delete |
-
-## delete_site
+### delete_site
 
 `delete_site <id> [-help]`
 
@@ -1340,7 +579,7 @@ Deletes a Site and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the Site to delete |
 
-## delete_spacing_rule
+### delete_spacing_rule
 
 `delete_spacing_rule <id> [-help]`
 
@@ -1350,7 +589,7 @@ Deletes a SpacingRule and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the SpacingRule to delete |
 
-## delete_technology
+### delete_technology
 
 `delete_technology <id> [-help]`
 
@@ -1360,37 +599,7 @@ Deletes a Technology and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the Technology to delete |
 
-## delete_terminal
-
-`delete_terminal <id> [-help]`
-
-Deletes a Terminal and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Terminal to delete |
-
-## delete_terminal_port
-
-`delete_terminal_port <id> [-help]`
-
-Deletes a TerminalPort and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the TerminalPort to delete |
-
-## delete_track
-
-`delete_track <id> [-help]`
-
-Deletes a Track and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Track to delete |
-
-## delete_two_widths_spacing_entry
+### delete_two_widths_spacing_entry
 
 `delete_two_widths_spacing_entry <id> [-help]`
 
@@ -1400,7 +609,7 @@ Deletes a TwoWidthsSpacingEntry and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the TwoWidthsSpacingEntry to delete |
 
-## delete_via
+### delete_via
 
 `delete_via <id> [-help]`
 
@@ -1410,7 +619,7 @@ Deletes a Via and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the Via to delete |
 
-## delete_via_layer
+### delete_via_layer
 
 `delete_via_layer <id> [-help]`
 
@@ -1420,7 +629,7 @@ Deletes a ViaLayer and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the ViaLayer to delete |
 
-## delete_via_rule
+### delete_via_rule
 
 `delete_via_rule <id> [-help]`
 
@@ -1430,7 +639,7 @@ Deletes a ViaRule and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the ViaRule to delete |
 
-## delete_via_rule_layer
+### delete_via_rule_layer
 
 `delete_via_rule_layer <id> [-help]`
 
@@ -1440,7 +649,7 @@ Deletes a ViaRuleLayer and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the ViaRuleLayer to delete |
 
-## delete_via_rule_reference
+### delete_via_rule_reference
 
 `delete_via_rule_reference <id> [-help]`
 
@@ -1450,54 +659,7 @@ Deletes a ViaRuleReference and everything it owns.
 | --- | --- | --- | --- |
 | `<id>` | `token` | yes | Token of the ViaRuleReference to delete |
 
-## delete_wire
-
-`delete_wire <id> [-help]`
-
-Deletes a Wire and everything it owns.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Wire to delete |
-
-## deselect_all
-
-`deselect_all [-help]`
-
-Clears the current selection.
-
-## dump_png
-
-`dump_png <path> [-help]`
-
-Renders the current view and writes it as a PNG with a transparent background, at the viewport size (see set_viewport_size) - no GUI needed.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<path>` | `file` | yes | Output PNG file path |
-
-## flip_placement
-
-`flip_placement <direction> [-help]`
-
-Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<direction>` | `str` | yes | horizontal or vertical |
-
-## get_abstracts
-
-`get_abstracts [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Abstract objects matching the given names and filters, as tokens. Abstract: A physical abstract view (LEF)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_antenna_models
+### get_antenna_models
 
 `get_antenna_models [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1508,7 +670,7 @@ Returns the AntennaModel objects matching the given names and filters, as tokens
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_array_spacings
+### get_array_spacings
 
 `get_array_spacings [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1519,36 +681,7 @@ Returns the ArraySpacing objects matching the given names and filters, as tokens
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_blockages
-
-`get_blockages [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Blockage objects matching the given names and filters, as tokens. Blockage: A routing or placement blockage (DEF BLOCKAGES)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_confirm_overwrite
-
-`get_confirm_overwrite [-help]`
-
-Returns 1 if the GUI asks before a Save overwrites an existing design file, else 0.
-
-## get_designs
-
-`get_designs [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Design objects matching the given names and filters, as tokens. Design: A library cell or logical module
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_enclosure_entries
+### get_enclosure_entries
 
 `get_enclosure_entries [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1559,51 +692,7 @@ Returns the EnclosureEntry objects matching the given names and filters, as toke
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_flightline_max_fanout
-
-`get_flightline_max_fanout [-help]`
-
-Returns the flightline fanout limit (0 means no limit).
-
-## get_foreigns
-
-`get_foreigns [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Foreign objects matching the given names and filters, as tokens. Foreign: A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_g_cell_grids
-
-`get_g_cell_grids [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the GCellGrid objects matching the given names and filters, as tokens. GCellGrid: A global-routing gcell grid line (DEF GCELLGRID)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_grid_spacing
-
-`get_grid_spacing [-major] [-help]`
-
-Returns the minor grid spacing in microns, or the major one with -major; -1 if it isn't known yet (no technology read and none set).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-major` | `flag` | no | Return the major grid spacing instead |
-
-## get_hierarchy_depth
-
-`get_hierarchy_depth [-help]`
-
-Returns the hierarchy depth - see set_hierarchy_depth.
-
-## get_influence_spacing_entries
+### get_influence_spacing_entries
 
 `get_influence_spacing_entries [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1614,41 +703,7 @@ Returns the InfluenceSpacingEntry objects matching the given names and filters, 
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_instances
-
-`get_instances [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the instances matching the given names and filters - an instance being a placed design in a schematic, or a placeholder for source that couldn't be read. A name containing "/" is a hierarchical path: each part is a name or glob, and "**" matches any depth (e.g. "top/a/b/**" is every instance anywhere under b).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_label_max_size
-
-`get_label_max_size [-help]`
-
-Returns the largest label font size in pixels - see set_label_max_size.
-
-## get_label_min_size
-
-`get_label_min_size [-help]`
-
-Returns the smallest label font size in pixels - see set_label_min_size.
-
-## get_layer_color
-
-`get_layer_color <layer> [-help]`
-
-Returns the current color of <layer> (a technology layer, or a row like BOUNDARY) as #rrggbb - set_layer_color's if set, else its default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<layer>` | `str` | yes | Layer (or row) name |
-
-## get_layer_density_entries
+### get_layer_density_entries
 
 `get_layer_density_entries [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1659,27 +714,7 @@ Returns the LayerDensityEntry objects matching the given names and filters, as t
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_layer_selectable
-
-`get_layer_selectable <layer_name> [-help]`
-
-Returns 1 if shapes on the layer <layer_name> can be selected, 0 otherwise.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
-
-## get_layer_visible
-
-`get_layer_visible <layer_name> [-help]`
-
-Returns 1 if the layer <layer_name> is visible, 0 if it's hidden. An unknown layer reads as visible.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
-
-## get_layers
+### get_layers
 
 `get_layers [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1691,69 +726,7 @@ Returns the Layer objects matching the given names and filters, as tokens. Layer
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_layout_vias
-
-`get_layout_vias [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the LayoutVia objects matching the given names and filters, as tokens. LayoutVia: A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_layouts
-
-`get_layouts [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Layout objects matching the given names and filters, as tokens. Layout: A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_libraries
-
-`get_libraries [<name-expr>...] [-filter <expr>] [-help]`
-
-Returns the Library objects matching the given names and filters, as tokens. Library: A library containing designs
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_macro_density_layers
-
-`get_macro_density_layers [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the MacroDensityLayer objects matching the given names and filters, as tokens. MacroDensityLayer: One layer's DENSITY rects within a MACRO's DENSITY statement
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_macro_site_placements
-
-`get_macro_site_placements [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the MacroSitePlacement objects matching the given names and filters, as tokens. MacroSitePlacement: One LEF MACRO SITE array placement (Abstract.site_placements) - a macro can have several
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_max_concurrency
-
-`get_max_concurrency [-help]`
-
-Returns the most threads rendering may use at once.
-
-## get_min_steps
+### get_min_steps
 
 `get_min_steps [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1764,7 +737,7 @@ Returns the MinStep objects matching the given names and filters, as tokens. Min
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_minimum_cuts
+### get_minimum_cuts
 
 `get_minimum_cuts [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1775,37 +748,7 @@ Returns the MinimumCut objects matching the given names and filters, as tokens. 
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_mode
-
-`get_mode [-help]`
-
-Returns the interaction mode: select, edit or ruler.
-
-## get_net_buss
-
-`get_net_buss [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the NetBus objects matching the given names and filters, as tokens. NetBus: A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_nets
-
-`get_nets [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the nets matching the given names and filters - one net per bit of a schematic's wires. A name containing "/" is a hierarchical path ending at a net: each part is a name or glob, and "**" matches any depth (e.g. "u_block/u_aes/address[7]", or "top/a/b/**" for every net anywhere under b).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_non_default_rule_layers
+### get_non_default_rule_layers
 
 `get_non_default_rule_layers [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1816,7 +759,7 @@ Returns the NonDefaultRuleLayer objects matching the given names and filters, as
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_non_default_rule_vias
+### get_non_default_rule_vias
 
 `get_non_default_rule_vias [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1827,7 +770,7 @@ Returns the NonDefaultRuleVia objects matching the given names and filters, as t
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_non_default_rules
+### get_non_default_rules
 
 `get_non_default_rules [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1839,125 +782,7 @@ Returns the NonDefaultRule objects matching the given names and filters, as toke
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_obstructions
-
-`get_obstructions [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Obstruction objects matching the given names and filters, as tokens. Obstruction: An abstract routing blockage
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_physical_port_segments
-
-`get_physical_port_segments [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the PhysicalPortSegment objects matching the given names and filters, as tokens. PhysicalPortSegment: One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_physical_ports
-
-`get_physical_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the PhysicalPort objects matching the given names and filters, as tokens. PhysicalPort: A chip-boundary I/O pin (DEF PINS).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_pin_antenna_models
-
-`get_pin_antenna_models [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the PinAntennaModel objects matching the given names and filters, as tokens. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - each field is a list of (value, layer) entries
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_pins
-
-`get_pins [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Pin objects matching the given names and filters, as tokens. Pin: Logical connection point on an Instance (Verilog instance port connection)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_placement_snap_mode
-
-`get_placement_snap_mode [-help]`
-
-Returns the placement snap mode: site, fin, manufacturing or none.
-
-## get_placement_type_selectable
-
-`get_placement_type_selectable <type> [-help]`
-
-Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected, 0 otherwise - see set_placement_type_selectable.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
-
-## get_placement_type_visible
-
-`get_placement_type_visible <type> [-help]`
-
-Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> are visible, 0 otherwise - see set_placement_type_visible.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
-
-## get_placements
-
-`get_placements [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Placement objects matching the given names and filters, as tokens. Placement: A placed physical instance (DEF COMPONENTS).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_port_buss
-
-`get_port_buss [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the PortBus objects matching the given names and filters, as tokens. PortBus: A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_ports
-
-`get_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the ports matching the given names and filters - one port per bit of a schematic's inputs, outputs and inouts. A name containing "/" is a hierarchical path ending at a port: each part is a name or glob, and "**" matches any depth.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_prefer_enclosure_entries
+### get_prefer_enclosure_entries
 
 `get_prefer_enclosure_entries [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1968,18 +793,7 @@ Returns the PreferEnclosureEntry objects matching the given names and filters, a
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_properties
-
-`get_properties <tokens> ?property_names?`
-
-Returns the properties of one or more objects: all of them, or the ones named (e.g. .name, or a chained path such as .terminal.name). One object and one property give a single value; otherwise a list. See man get_properties.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<tokens>` | `token...` | yes | An object's token, or a list of them (e.g. the result of get_terminals) |
-| `<property_names>` | `str...` | no | A property path such as .name, or a list of them - every property if omitted |
-
-## get_property_definitions
+### get_property_definitions
 
 `get_property_definitions [-of <token>...] [-filter <expr>] [-help]`
 
@@ -1990,127 +804,7 @@ Returns the PropertyDefinition objects matching the given names and filters, as 
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_purpose_selectable
-
-`get_purpose_selectable <purpose> [-help]`
-
-Returns 1 if shapes of the purpose <purpose> can be selected, 0 otherwise.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
-
-## get_purpose_visible
-
-`get_purpose_visible <purpose> [-help]`
-
-Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpose_visible.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
-
-## get_regions
-
-`get_regions [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Region objects matching the given names and filters, as tokens. Region: A placement region (DEF REGIONS)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_route_use_selectable
-
-`get_route_use_selectable <use> [-help]`
-
-Returns 1 if routes whose DEF USE is <use> can be selected, 0 otherwise - see set_route_use_selectable.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
-
-## get_route_use_visible
-
-`get_route_use_visible <use> [-help]`
-
-Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_route_use_visible.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
-
-## get_routes
-
-`get_routes [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Route objects matching the given names and filters, as tokens. Route: The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_rows
-
-`get_rows [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Row objects matching the given names and filters, as tokens. Row: A placement row (DEF ROW)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_ruler_label_size
-
-`get_ruler_label_size [-help]`
-
-Returns the ruler label font size in pixels.
-
-## get_schematics
-
-`get_schematics [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Schematic objects matching the given names and filters, as tokens. Schematic: A logical connectivity view (netlist)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_selection
-
-`get_selection [-help]`
-
-Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:), each object once - the form select accepts.
-
-## get_shape_snap_mode
-
-`get_shape_snap_mode <kind> [-help]`
-
-Returns the snap mode for <kind>: none, user, manufacturing, fin or tracks. See set_shape_snap_mode.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<kind>` | `str` | yes | rect, polygon, path or via |
-
-## get_shapes
-
-`get_shapes [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Shape objects matching the given names and filters, as tokens. Shape: A shape on a layer.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_sites
+### get_sites
 
 `get_sites [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2122,7 +816,7 @@ Returns the Site objects matching the given names and filters, as tokens. Site: 
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_spacing_rules
+### get_spacing_rules
 
 `get_spacing_rules [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2133,7 +827,7 @@ Returns the SpacingRule objects matching the given names and filters, as tokens.
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_technologies
+### get_technologies
 
 `get_technologies [-filter <expr>] [-help]`
 
@@ -2143,41 +837,7 @@ Returns the Technology objects matching the given names and filters, as tokens. 
 | --- | --- | --- | --- |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_terminal_ports
-
-`get_terminal_ports [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the TerminalPort objects matching the given names and filters, as tokens. TerminalPort: Physical connection for a Terminal
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_terminals
-
-`get_terminals [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Terminal objects matching the given names and filters, as tokens. Terminal: Top-level pin name of an abstract
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_tracks
-
-`get_tracks [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Track objects matching the given names and filters, as tokens. Track: A routing track pattern (DEF TRACKS)
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## get_two_widths_spacing_entries
+### get_two_widths_spacing_entries
 
 `get_two_widths_spacing_entries [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2188,7 +848,7 @@ Returns the TwoWidthsSpacingEntry objects matching the given names and filters, 
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_via_layers
+### get_via_layers
 
 `get_via_layers [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2199,7 +859,7 @@ Returns the ViaLayer objects matching the given names and filters, as tokens. Vi
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_via_rule_layers
+### get_via_rule_layers
 
 `get_via_rule_layers [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2210,7 +870,7 @@ Returns the ViaRuleLayer objects matching the given names and filters, as tokens
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_via_rule_references
+### get_via_rule_references
 
 `get_via_rule_references [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2221,7 +881,7 @@ Returns the ViaRuleReference objects matching the given names and filters, as to
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_via_rules
+### get_via_rules
 
 `get_via_rules [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2233,7 +893,7 @@ Returns the ViaRule objects matching the given names and filters, as tokens. Via
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_vias
+### get_vias
 
 `get_vias [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
@@ -2245,656 +905,7 @@ Returns the Via objects matching the given names and filters, as tokens. Via: A 
 | `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
 | `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
 
-## get_view_flip
-
-`get_view_flip [-help]`
-
-Returns how the design view is mirrored: none, horizontal or vertical.
-
-## get_wires
-
-`get_wires [-of <token>...] [-filter <expr>] [-help]`
-
-Returns the Wire objects matching the given names and filters, as tokens. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
-| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
-
-## history
-
-`history [-help]`
-
-Same as command_history.
-
-## link
-
-`link`
-
-Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Returns the number of instances newly resolved.
-
-## load_settings
-
-`load_settings [<path>] [-help]`
-
-Loads settings written by save_settings from <path>, or ~/.layout_engine/settings.json if omitted. A file from an older layout_engine is updated to the current format; one from a newer layout_engine loads the settings this one knows, with a warning. A setting missing from the file keeps its current value; an invalid one is skipped with a warning.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<path>` | `file` | no | JSON file to read - ~/.layout_engine/settings.json if omitted |
-
-## migrate_db
-
-`migrate_db <in> <out> [-help]`
-
-Loads a database file written by any earlier version, runs the migrations it needs (db_info lists them) and writes it to <out> with this build's schema, keeping its saved session. The current session's database is not touched. <out> may be <in>: it is replaced only once the new file is complete. Returns a summary, including anything the migration dropped.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<in>` | `file` | yes | .led file to read |
-| `<out>` | `file` | yes | .led file to write |
-
-## open_design
-
-`open_design <name> [-view abstract|layout] [-help]`
-
-Opens the design <name> as the current view - its abstract (the default) or its layout. A design's name is unique only within its library: when several libraries have one of that name, give it as <library>/<name>. Commands with an -of flag search the current view when it's omitted.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<name>` | `str` | yes | Name of the Design to open, or <library>/<name> if several libraries have one |
-| `-view` | `str` | no | "abstract" (the default) or "layout" |
-
-## placement_snap_mode_available
-
-`placement_snap_mode_available <mode> [-help]`
-
-Returns 1 if <mode> has something to snap to: rows in the current layout for site, a FinFET grid for fin, a manufacturing grid for manufacturing; none always returns 1.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
-
-## read_db
-
-`read_db <filename> [-no_session] [-help]`
-
-Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Restores the session saved with it (the open view, viewport and layer/purpose/filter visibility) unless -no_session is given. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<filename>` | `file` | yes | .led file to read |
-| `-no_session` | `flag` | no | Load the database only, ignoring its saved session |
-
-## read_def
-
-`read_def -library <name> <path> [-help]`
-
-Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no layout (e.g. from read_verilog), that design gets the layout instead. A design in the -library library that already has a layout is an error. Each component's cell is looked up in the -library library first, then in whichever library alone has a cell of that name. Returns 0 on success, nonzero on an error (the details are printed).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-library` | `str` | yes | Library to read the DEF's design into - created if it doesn't exist |
-| `<path>` | `file` | yes | DEF file to read |
-
-## read_lef
-
-`read_lef -library <name> <path> [-help]`
-
-Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A design in the -library library that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-library` | `str` | yes | Library to read the LEF's macros into - created if it doesn't exist |
-| `<path>` | `file` | yes | LEF file to read |
-
-## read_verilog
-
-`read_verilog -netlist|-rtl -library <name> <path> [<path> ...] [-help]`
-
-Reads one or more SystemVerilog/Verilog files, compiled together, as schematics. -netlist elaborates a gate-level netlist fully (parameters, generate blocks); cells read with read_lef but with no Verilog of their own get stub modules automatically, so their instances resolve. -rtl only parses, keeping anything it can't read as a placeholder instance. New designs go into the -library library, which is created if it doesn't exist; if that library has no design of a module's name but another library has exactly one with no schematic (e.g. a cell from read_lef), that design gets the schematic instead. A design in the -library library that already has a schematic is an error. Instances are linked to known designs afterwards (see link). Returns 0 on success, nonzero on an error (the details are printed).
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-netlist` | `flag` | no | Full-elaboration flavor for a gate-level netlist |
-| `-rtl` | `flag` | no | Syntax-only flavor, tolerant of invalid/unsupported content |
-| `-library` | `str` | yes | Library to read new designs into - created if it doesn't exist |
-| `<path>` | `file...` | yes | One or more SystemVerilog/Verilog files to read together |
-
-## redo
-
-`redo [-help]`
-
-Redoes the last undone change. Returns 1 if something was redone, 0 otherwise.
-
-## remove_shape_path
-
-`remove_shape_path <id> <path_index> [-help]`
-
-Removes the path at <path_index> from a shape or wire; later paths move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | A shape: or wire: token |
-| `<path_index>` | `int` | yes | Path index, from 0 |
-
-## remove_shape_polygon
-
-`remove_shape_polygon <id> <polygon_index> [-help]`
-
-Removes the polygon at <polygon_index> from a shape; later polygons move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | A shape: token |
-| `<polygon_index>` | `int` | yes | Polygon index, from 0 |
-
-## remove_shape_rect
-
-`remove_shape_rect <id> <index> [-help]`
-
-Removes the rect at <index> from a shape; later rects move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | A shape: token |
-| `<index>` | `int` | yes | Rect index, from 0 |
-
-## report_properties
-
-`report_properties <tokens>`
-
-Prints every property of each object, one aligned block per object. For a value a script can use, see get_properties.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<tokens>` | `token...` | yes | An object's token, or a list of them |
-
-## reset_layer_color
-
-`reset_layer_color <layer> [-help]`
-
-Drops set_layer_color's color for <layer>, returning it to its default palette color.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<layer>` | `str` | yes | Layer (or row) name |
-
-## rotate_placement
-
-`rotate_placement [-help]`
-
-Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, a move is under way, or site snapping is on and the row's site doesn't allow R90.
-
-## save_settings
-
-`save_settings [<path>] [-help]`
-
-Saves the settings - grid spacing, font sizes, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts. Settings from a newer layout_engine that this one doesn't know are kept.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<path>` | `file` | no | JSON file to write - ~/.layout_engine/settings.json if omitted |
-
-## select
-
-`select <tokens> [-help]`
-
-Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: or wire: token selects all of its rects, polygons, paths and vias.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<tokens>` | `token` | yes | One or more shape:/wire:/row:/placement:/region: tokens to select |
-
-## set_confirm_overwrite
-
-`set_confirm_overwrite <true|false> [-help]`
-
-Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. True by default; saved with the settings.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<true|false>` | `bool` | yes | true to ask before overwriting, false to save straight away |
-
-## set_flightline_max_fanout
-
-`set_flightline_max_fanout <max_fanout> [-help]`
-
-Sets the flightline fanout limit - a net connecting more than <max_fanout> pins besides the selected one (e.g. a clock or reset net) draws no flightlines. 0 means no limit; 10 by default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<max_fanout>` | `int` | yes | The fanout limit, 0 for none |
-
-## set_grid_spacing
-
-`set_grid_spacing [-minor <um>] [-major <um>] [-help]`
-
-Sets the background grid spacing in microns - the minor grid is also what drawing, Move and Resize snap to. An omitted flag leaves that spacing unchanged. Before any technology is read the value is held and applied once one is.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-minor` | `double` | no | Minor grid spacing, in microns |
-| `-major` | `double` | no | Major grid spacing, in microns |
-
-## set_hierarchy_depth
-
-`set_hierarchy_depth <depth> [-help]`
-
-Sets how many levels of placed designs the layout view draws in full; deeper placements are drawn as their cells' abstracts.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<depth>` | `int` | yes | The hierarchy depth, 1 or larger |
-
-## set_label_max_size
-
-`set_label_max_size <px> [-help]`
-
-Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between set_label_min_size's size and this, so they don't grow without bound when zoomed in. 24 by default; values <= 0 are ignored.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<px>` | `double` | yes | Font size in pixels |
-
-## set_label_min_size
-
-`set_label_min_size <px> [-help]`
-
-Sets the smallest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between this and set_label_max_size's size, so they stay legible when zoomed out. 12 by default; a min above the max yields to the max; values <= 0 are ignored.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<px>` | `double` | yes | Font size in pixels |
-
-## set_layer_color
-
-`set_layer_color <layer> <#rrggbb> [-help]`
-
-Sets the color of every purpose of <layer> (a technology layer, or a row like BOUNDARY), replacing its default palette color - the same as picking one from its swatch in the Layers panel. Saved by save_settings. A layer that doesn't exist yet takes the color once it's read. See reset_layer_color.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<layer>` | `str` | yes | Layer (or row) name |
-| `<color>` | `str` | yes | Color as #rrggbb |
-
-## set_layer_selectable
-
-`set_layer_selectable <layer_name> <selectable> [-help]`
-
-Sets whether shapes on the layer <layer_name> can be selected. Layers are selectable by default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
-| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
-
-## set_layer_visible
-
-`set_layer_visible <layer_name> <visible> [-help]`
-
-Shows or hides everything on the layer <layer_name> - its pins, obstructions, routes, tracks and so on. Layers are visible by default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
-| `<visible>` | `bool` | yes | true to show, false to hide |
-
-## set_max_concurrency
-
-`set_max_concurrency <max_concurrency> [-help]`
-
-Sets the most threads rendering may use at once - useful to limit CPU use on machines with many cores. At least 2; 8 by default. The Settings panel's CPUs field.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<max_concurrency>` | `int` | yes | Most threads, at least 2 |
-
-## set_mode
-
-`set_mode <mode> [-help]`
-
-Switches the interaction mode: select (the default), edit or ruler. The GUI's s/e/r keys do the same.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<mode>` | `str` | yes | One of select, edit, ruler |
-
-## set_placement_snap_mode
-
-`set_placement_snap_mode <mode> [-help]`
-
-Sets what a moved placement snaps to: site (the default - a core cell snaps to the nearest row of its own site, in an orientation the row allows; anything else to the manufacturing grid), fin (the FinFET grid across the fins, the manufacturing grid along them), manufacturing (the manufacturing grid) or none.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
-
-## set_placement_type_selectable
-
-`set_placement_type_selectable <type> <selectable> [-help]`
-
-Sets whether placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected. Everything is selectable by default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
-| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
-
-## set_placement_type_visible
-
-`set_placement_type_visible <type> <visible> [-help]`
-
-Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <type> - their outline, name and content. Everything is visible by default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
-| `<visible>` | `bool` | yes | true to show, false to hide |
-
-## set_purpose_selectable
-
-`set_purpose_selectable <purpose> <selectable> [-help]`
-
-Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
-| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
-
-## set_purpose_visible
-
-`set_purpose_visible <purpose> <visible> [-help]`
-
-Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except trackPreferred, trackNonPreferred, row, gcellgrid and flightline.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
-| `<visible>` | `bool` | yes | true to show, false to hide |
-
-## set_route_use_selectable
-
-`set_route_use_selectable <use> <selectable> [-help]`
-
-Sets whether routes whose DEF USE is <use> can be selected. Everything is selectable by default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
-| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
-
-## set_route_use_visible
-
-`set_route_use_visible <use> <visible> [-help]`
-
-Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything is visible by default.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
-| `<visible>` | `bool` | yes | true to show, false to hide |
-
-## set_ruler_label_size
-
-`set_ruler_label_size <px> [-help]`
-
-Sets the on-screen font size (pixels) of ruler labels. 11 by default; values <= 0 are ignored.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<px>` | `double` | yes | Font size in pixels |
-
-## set_shape_snap_mode
-
-`set_shape_snap_mode <kind> <mode> [-help]`
-
-Sets what a resized or moved shape of <kind> snaps to. Rects and polygons (Resize): user (the minor grid - the default), manufacturing, fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths, vias and via arrays share one mode: user, manufacturing (a path's edges land on the grid), tracks (a path's centerline, or a via's origin, lands on a routing track of its layer) or none.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<kind>` | `str` | yes | rect, polygon, path or via |
-| `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path/via) |
-
-## set_view_flip
-
-`set_view_flip <flip> [-help]`
-
-Mirrors the design view: horizontal swaps left and right, vertical swaps top and bottom, none shows it as it is. The same area stays in view, clicks and the arrow keys follow what's on screen, and overlay text such as ruler labels stays readable; text in the design itself is mirrored. Saved with the session.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<flip>` | `str` | yes | One of none, horizontal, vertical |
-
-## set_viewport_size
-
-`set_viewport_size -width <int> -height <int> [-help]`
-
-Sets the size in pixels of the rendered view - what dump_png writes and what zoom_area fits to. The GUI sets this itself as its window resizes.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-width` | `int` | yes | Viewport width, in pixels |
-| `-height` | `int` | yes | Viewport height, in pixels |
-
-## shape_and
-
-`shape_and <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
-
-Creates one new Shape holding the overlap of the two groups, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
-| `-with` | `token...` | yes | The second group - a list of shape tokens |
-| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
-| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
-
-## shape_bbox
-
-`shape_bbox <shapes> [-help]`
-
-Returns the bounding box of every given shape together as a Rect, {{llx lly} {urx ury}} in microns - the same form -bbox/-rects flags and zoom_area take (zoom_area [shape_bbox ...]). Creates nothing.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
-
-## shape_change_layer
-
-`shape_change_layer <shapes> -layer <token> [-help]`
-
-Puts each shape onto -layer in place (its geometry, position and owner are unchanged); -layer debug puts it on the debug layer (drawn on top of everything in light blue). All-or-nothing: an unknown shape changes nothing. Undoable. Returns the same shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them (e.g. [get_selection]) |
-| `-layer` | `token` | yes | The layer to move onto, or debug for the debug layer |
-
-## shape_copy
-
-`shape_copy <shapes> -layer <token> [-parent <token>] [-help]`
-
-Creates one new Shape per input shape, with the same geometry, on -layer. The originals are untouched. New Shapes go to the current Abstract/Layout's free-standing shapes (not written by write_lef/write_def) unless -parent names an abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment to add them to. Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them (e.g. [get_selection]) |
-| `-layer` | `token` | yes | The layer to copy onto, or debug for the debug layer |
-| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
-
-## shape_not
-
-`shape_not <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
-
-Creates one new Shape holding the first group minus the -with group, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
-| `-with` | `token...` | yes | The second group - a list of shape tokens |
-| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
-| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
-
-## shape_or
-
-`shape_or <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
-
-Creates one new Shape holding the union of both groups, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
-| `-with` | `token...` | yes | The second group - a list of shape tokens |
-| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
-| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
-
-## shape_path
-
-`shape_path <shapes> -width <um> [-layer <token>] [-parent <token>] [-help]`
-
-Creates one new path-only Shape per input shape: a closed path of -width microns along the outline of its merged rects/polygons (and around any holes), plus each of its own paths' centerlines re-stroked at -width. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
-| `-width` | `um` | yes | Path width, in microns |
-| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
-| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
-
-## shape_paths
-
-`shape_paths <id> [-help]`
-
-Returns a shape's paths as a list of {width {{x y} {x y} ...}}, in microns - the form create_shape's -paths takes.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | A shape: token |
-
-## shape_polygons
-
-`shape_polygons <id> [-help]`
-
-Returns a shape's polygons as a list of point lists, each point an {x y} pair in microns - the form create_shape's -polygons takes.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | A shape: token |
-
-## shape_rects
-
-`shape_rects <id> [-help]`
-
-Returns a shape's rects as a list of {{ll_x ll_y} {ur_x ur_y}}, in microns - the form create_shape's -rects takes.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<id>` | `token` | yes | A shape: token |
-
-## shape_size
-
-`shape_size <shapes> [-by <um>] [-x <um>] [-y <um>] [-layer <token>] [-parent <token>] [-help]`
-
-Creates one new Shape per input shape: its merged area grown (positive) or shrunk (negative) by -x microns in X and -y in Y (-by sets both; an explicit -x/-y overrides it). Exact for axis-aligned geometry with any X/Y amounts; other geometry only supports equal X and Y. A shape shrunk away entirely creates nothing. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
-| `-by` | `um` | no | Grow (positive) or shrink (negative) by this in both X and Y, in microns |
-| `-x` | `um` | no | Grow/shrink in X, in microns - overrides -by |
-| `-y` | `um` | no | Grow/shrink in Y, in microns - overrides -by |
-| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
-| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
-
-## shape_snap_mode_available
-
-`shape_snap_mode_available <kind> <mode> [-help]`
-
-Returns 1 if <kind> offers <mode> and there's something to snap to: always for none and user, a manufacturing grid for manufacturing, a FinFET grid for fin, and routing tracks on a selected path's layer for tracks.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<kind>` | `str` | yes | rect, polygon or path |
-| `<mode>` | `str` | yes | none, user, manufacturing, fin or tracks |
-
-## shape_to_polygon
-
-`shape_to_polygon <shapes> [-layer <token>] [-parent <token>] [-help]`
-
-Creates one new polygon-only Shape per input shape, covering its merged area. A region with holes is split into exact rectangular polygons (a polygon can't hold a hole). Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
-| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
-| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
-
-## shape_to_rects
-
-`shape_to_rects <shapes> [-direction horizontal|vertical] [-layer <token>] [-parent <token>] [-help]`
-
-Creates one new rect-only Shape per input shape, fracturing its merged area into non-overlapping rects: -direction horizontal (the default) cuts with horizontal lines, giving horizontal strips; vertical gives vertical strips. Exact for axis-aligned geometry; a diagonal edge is over-covered by its strip's bounding box. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
-| `-direction` | `str` | no | horizontal (default) or vertical fracturing |
-| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
-| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
-
-## show_gui
-
-`show_gui [-help]`
-
-Opens a window showing the session's current view. It shares the session - the mouse and keyboard there act on the same design as the console. Returns at once. Interactive le_shell only - an error in a batch script.
-
-## source
-
-`source <path> [-help]`
-
-Runs a Tcl script file, as Tcl's own source does. Returns the result of the script's last command.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<path>` | `file` | yes | Tcl script file to evaluate |
-
-## undo
-
-`undo [-help]`
-
-Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1 if something was undone, 0 if there was nothing to undo.
-
-## unsaved_changes
-
-`unsaved_changes [-help]`
-
-Returns what has changed since it was last saved: "design" if the design has changed since the last write_db or read_db (reading LEF/DEF/Verilog counts, and write_def/write_lef don't save it), and "settings" if settings differ from the last save_settings or load_settings. Empty if nothing is unsaved. le_shell asks before exiting when it isn't.
-
-## update_abstract
-
-`update_abstract <id> [-design <token>] [-type <str>] [-size <Point>] [-origin <Point>] [-bbox <Rect>] [-symmetry <Symmetry>] [-site <str>] [-eeq <str>] [-leq <str>] [-power <double>] [-source <str>] [-is_fixed_mask <bool>] [-help]`
-
-Changes the given fields of a Abstract; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-design` | `token` | no | Move it to this Design (token) |
-| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) |
-| `-size` | `Point` | no | The width and height of the block |
-| `-origin` | `Point` | no | The origin of the block |
-| `-bbox` | `Rect` | no | The bbox of the boundary |
-| `-symmetry` | `Symmetry` | no | The symmetry of the abstract |
-| `-site` | `str` | no | The name of the SITE - mutually exclusive with site_placements |
-| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) |
-| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) |
-| `-power` | `double` | no | Macro-level power consumption, in the LEF file's own declared units (LEF POWER) |
-| `-source` | `str` | no | How this macro was created - USER, GENERATE or BLOCK (LEF SOURCE, obsolete since 5.6 but still parsed) |
-| `-is_fixed_mask` | `bool` | no | Whether FIXEDMASK was specified (LEF 5.8) |
-
-## update_antenna_model
+### update_antenna_model
 
 `update_antenna_model <id> [-layer <token>] [-oxide <str>] [-area_ratio <double>] [-cum_area_ratio <double>] [-area_factor <double>] [-area_factor_diffuse_only <bool>] [-side_area_ratio <double>] [-cum_side_area_ratio <double>] [-side_area_factor <double>] [-side_area_factor_diffuse_only <bool>] [-diff_area_ratio <double>] [-cum_diff_area_ratio <double>] [-diff_side_area_ratio <double>] [-cum_diff_side_area_ratio <double>] [-help]`
 
@@ -2917,7 +928,7 @@ Changes the given fields of a AntennaModel; omitted flags leave a field unchange
 | `-diff_side_area_ratio` | `double` | no | LEF ANTENNADIFFSIDEAREARATIO (scalar form) |
 | `-cum_diff_side_area_ratio` | `double` | no | LEF ANTENNACUMDIFFSIDEAREARATIO (scalar form) |
 
-## update_array_spacing
+### update_array_spacing
 
 `update_array_spacing <id> [-layer <token>] [-long_array <bool>] [-via_width <um>] [-cut_spacing <um>] [-help]`
 
@@ -2930,35 +941,7 @@ Changes the given fields of a ArraySpacing; omitted flags leave a field unchange
 | `-via_width` | `um` | no | Optional WIDTH, in microns |
 | `-cut_spacing` | `um` | no | CUTSPACING, in microns |
 
-## update_blockage
-
-`update_blockage <id> [-layout <token>] [-placement <token>] [-kind <BlockageKind>] [-layer_name <str>] [-spacing <um>] [-design_rule_width <um>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
-
-Changes the given fields of a Blockage; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-placement` | `token` | no | The placed instance this blockage is scoped to, if any |
-| `-kind` | `BlockageKind` | no | Whether this is a routing-layer or placement blockage |
-| `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
-| `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
-| `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
-| `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
-| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) |
-
-## update_design
-
-`update_design <id> [-library <token>] [-name <str>] [-help]`
-
-Changes the given fields of a Design; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-library` | `token` | no | Move it to this Library (token) |
-| `-name` | `str` | no | The name of the design, unique within its library |
-
-## update_enclosure_entry
+### update_enclosure_entry
 
 `update_enclosure_entry <id> [-layer <token>] [-location <str>] [-overhang1 <um>] [-overhang2 <um>] [-width <um>] [-except_extra_cut <um>] [-min_length <um>] [-help]`
 
@@ -2974,33 +957,7 @@ Changes the given fields of a EnclosureEntry; omitted flags leave a field unchan
 | `-except_extra_cut` | `um` | no | Optional WIDTH ... EXCEPTEXTRACUT (5.7), in microns - only meaningful alongside width |
 | `-min_length` | `um` | no | Optional LENGTH (5.7), in microns - mutually exclusive with width |
 
-## update_foreign
-
-`update_foreign <id> [-name <str>] [-origin <Point>] [-orient <Orientation>] [-help]`
-
-Changes the given fields of a Foreign; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-name` | `str` | no | The foreign cell name (usually the same as the design name) |
-| `-origin` | `Point` | no | The foreign origin - optional in LEF FOREIGN; if not given, no point was written (it is not (0,0)) |
-| `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
-
-## update_g_cell_grid
-
-`update_g_cell_grid <id> [-layout <token>] [-is_x <bool>] [-start <um>] [-count <int>] [-step <um>] [-help]`
-
-Changes the given fields of a GCellGrid; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
-| `-start` | `um` | no | Starting coordinate, in microns (DEF GCELLGRID DO start) |
-| `-count` | `int` | no | Number of grid lines (DEF GCELLGRID DO ... n) |
-| `-step` | `um` | no | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
-
-## update_influence_spacing_entry
+### update_influence_spacing_entry
 
 `update_influence_spacing_entry <id> [-layer <token>] [-width <um>] [-distance <um>] [-spacing <um>] [-help]`
 
@@ -3013,24 +970,7 @@ Changes the given fields of a InfluenceSpacingEntry; omitted flags leave a field
 | `-distance` | `um` | no | The influence distance, in microns |
 | `-spacing` | `um` | no | The resulting spacing, in microns |
 
-## update_instance
-
-`update_instance <id> [-schematic <token>] [-reference_design <token>] [-name <str>] [-reference_name <str>] [-location <Point>] [-rtl_text <str>] [-source_file <str>] [-diagnostic_summary <str>] [-help]`
-
-Changes the given fields of an instance; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | no | Move it to this schematic (token) |
-| `-reference_design` | `token` | no | The design it's an instance of, once resolved - never set for a placeholder instance |
-| `-name` | `str` | no | The instance's name - unique within its schematic |
-| `-reference_name` | `str` | no | The name of the referenced design, if known |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance |
-| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read |
-| `-source_file` | `str` | no | The file rtl_text came from, if known |
-| `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
-
-## update_layer
+### update_layer
 
 `update_layer <id> [-technology <token>] [-name <str>] [-type <str>] [-direction <RoutingDirection>] [-width <um>] [-pitch <um>] [-offset <um>] [-area <um2>] [-resistance <double>] [-capacitance <double>] [-height <um>] [-thickness <um>] [-wire_extension <um>] [-shrinkage <um>] [-cap_multiplier <double>] [-edge_cap <double>] [-antenna_length <um>] [-default_mask <int>] [-pitch_xy <Point>] [-offset_xy <Point>] [-diag_pitch <um>] [-diag_pitch_xy <Point>] [-diag_spacing <um>] [-diag_width <um>] [-diag_min_edge_length <um>] [-max_width <um>] [-min_width <um>] [-protrusion_width1 <um>] [-protrusion_length <um>] [-protrusion_width2 <um>] [-split_wire_width <um>] [-minimum_density <double>] [-maximum_density <double>] [-density_check_step <um>] [-density_check_window <DensityCheckWindow>] [-fill_active_spacing <um>] [-help]`
 
@@ -3075,7 +1015,7 @@ Changes the given fields of a Layer; omitted flags leave a field unchanged.
 | `-density_check_window` | `DensityCheckWindow` | no | LEF DENSITYCHECKWINDOW (length, width), in microns |
 | `-fill_active_spacing` | `um` | no | LEF FILLACTIVESPACING, in microns |
 
-## update_layer_density_entry
+### update_layer_density_entry
 
 `update_layer_density_entry <id> [-type <str>] [-one_entry <double>] [-help]`
 
@@ -3086,66 +1026,7 @@ Changes the given fields of a LayerDensityEntry; omitted flags leave a field unc
 | `-type` | `str` | no | PEAK, AVERAGE, or RMS |
 | `-one_entry` | `double` | no | Plain-scalar form value, in the LEF file's declared units |
 
-## update_layout
-
-`update_layout <id> [-design <token>] [-help]`
-
-Changes the given fields of a Layout; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-design` | `token` | no | Move it to this Design (token) |
-
-## update_layout_via
-
-`update_layout_via <id> [-layout <token>] [-name <str>] [-help]`
-
-Changes the given fields of a LayoutVia; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-name` | `str` | no | The name of the via |
-
-## update_library
-
-`update_library <id> [-name <str>] [-help]`
-
-Changes the given fields of a Library; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-name` | `str` | no | The name of the library |
-
-## update_macro_density_layer
-
-`update_macro_density_layer <id> [-abstract <token>] [-layer_name <str>] [-help]`
-
-Changes the given fields of a MacroDensityLayer; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-abstract` | `token` | no | Move it to this Abstract (token) |
-| `-layer_name` | `str` | no | The name of the layer |
-
-## update_macro_site_placement
-
-`update_macro_site_placement <id> [-abstract <token>] [-site_name <str>] [-origin <Point>] [-orient <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
-
-Changes the given fields of a MacroSitePlacement; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-abstract` | `token` | no | Move it to this Abstract (token) |
-| `-site_name` | `str` | no | The name of the site |
-| `-origin` | `Point` | no | In microns |
-| `-orient` | `Orientation` | no | The orientation of this placement |
-| `-num_x` | `int` | no | Optional LEF DO n |
-| `-num_y` | `int` | no | Optional LEF BY m |
-| `-step_x` | `um` | no | Optional LEF STEP x, in microns |
-| `-step_y` | `um` | no | Optional LEF STEP y, in microns |
-
-## update_min_step
+### update_min_step
 
 `update_min_step <id> [-layer <token>] [-distance <um>] [-min_step_type <str>] [-lengthsum <um>] [-max_edges <int>] [-help]`
 
@@ -3159,7 +1040,7 @@ Changes the given fields of a MinStep; omitted flags leave a field unchanged.
 | `-lengthsum` | `um` | no | MINSTEP ... LENGTHSUM value, in microns |
 | `-max_edges` | `int` | no | MINSTEP ... MAXEDGES value (5.7) |
 
-## update_minimum_cut
+### update_minimum_cut
 
 `update_minimum_cut <id> [-layer <token>] [-cuts <int>] [-width <um>] [-within <um>] [-connection <str>] [-length <um>] [-distance <um>] [-help]`
 
@@ -3175,33 +1056,7 @@ Changes the given fields of a MinimumCut; omitted flags leave a field unchanged.
 | `-length` | `um` | no | MINIMUMCUT ... LENGTH value, in microns |
 | `-distance` | `um` | no | MINIMUMCUT ... LENGTH ... WITHIN distance, in microns |
 
-## update_net
-
-`update_net <id> [-schematic <token>] [-bus <token>] [-name <str>] [-bit_index <int>] [-help]`
-
-Changes the given fields of a net; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | no | Move it to this schematic (token) |
-| `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
-| `-name` | `str` | no | The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic |
-| `-bit_index` | `int` | no | Which bit of -bus this net is |
-
-## update_net_bus
-
-`update_net_bus <id> [-schematic <token>] [-name <str>] [-msb <int>] [-lsb <int>] [-help]`
-
-Changes the given fields of a NetBus; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | no | Move it to this Schematic (token) |
-| `-name` | `str` | no | The bus's own base name (without a bit index) - unique within its schematic |
-| `-msb` | `int` | no | Most-significant bit index (Verilog [msb:lsb]) |
-| `-lsb` | `int` | no | Least-significant bit index |
-
-## update_non_default_rule
+### update_non_default_rule
 
 `update_non_default_rule <id> [-technology <token>] [-name <str>] [-hard_spacing <bool>] [-help]`
 
@@ -3213,7 +1068,7 @@ Changes the given fields of a NonDefaultRule; omitted flags leave a field unchan
 | `-name` | `str` | no | The name of the rule |
 | `-hard_spacing` | `bool` | no | Whether HARDSPACING was specified (5.6) |
 
-## update_non_default_rule_layer
+### update_non_default_rule_layer
 
 `update_non_default_rule_layer <id> [-non_default_rule <token>] [-layer_name <str>] [-width <um>] [-spacing <um>] [-wire_extension <um>] [-resistance <double>] [-capacitance <double>] [-edge_cap <double>] [-diag_width <um>] [-help]`
 
@@ -3231,7 +1086,7 @@ Changes the given fields of a NonDefaultRuleLayer; omitted flags leave a field u
 | `-edge_cap` | `double` | no | Overridden edge capacitance, in the LEF file's own declared units (obsolete since LEF 5.6, but still readable) |
 | `-diag_width` | `um` | no | Overridden diagonal width, in microns (LEF 5.6) - read-only, not written back by write_lef |
 
-## update_non_default_rule_via
+### update_non_default_rule_via
 
 `update_non_default_rule_via <id> [-non_default_rule <token>] [-name <str>] [-is_default <bool>] [-resistance <double>] [-help]`
 
@@ -3244,120 +1099,7 @@ Changes the given fields of a NonDefaultRuleVia; omitted flags leave a field unc
 | `-is_default` | `bool` | no | Whether this via is marked DEFAULT |
 | `-resistance` | `double` | no | Resistance, in the LEF file's own declared units |
 
-## update_obstruction
-
-`update_obstruction <id> [-abstract <token>] [-help]`
-
-Changes the given fields of a Obstruction; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-abstract` | `token` | no | Move it to this Abstract (token) |
-
-## update_physical_port
-
-`update_physical_port <id> [-layout <token>] [-net <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
-
-Changes the given fields of a PhysicalPort; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` |
-| `-name` | `str` | no | The name of the pin - unique within its layout |
-| `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
-| `-direction` | `SignalDirection` | no | The direction of the pin |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
-| `-placement_status` | `PlacementStatus` | no | Placement status |
-| `-location` | `Point` | no | The pin's location, in microns |
-| `-orientation` | `Orientation` | no | Placement orientation |
-
-## update_physical_port_segment
-
-`update_physical_port_segment <id> [-physical_port <token>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
-
-Changes the given fields of a PhysicalPortSegment; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-physical_port` | `token` | no | Move it to this PhysicalPort (token) |
-| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - for a simple (non-multi-port) pin the placement is on the parent PhysicalPort instead |
-| `-location` | `Point` | no | This segment's own location, in microns |
-| `-orientation` | `Orientation` | no | This segment's own orientation |
-
-## update_pin
-
-`update_pin <id> [-instance <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-raw_expression <str>] [-help]`
-
-Changes the given fields of a Pin; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-instance` | `token` | no | Move it to this Instance (token) |
-| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) is that bit's Net (see Net.bus/.bit_index) |
-| `-name` | `str` | no | The pin name as connected in source, e.g. the A in .A(net23) |
-| `-direction` | `SignalDirection` | no | The pin's direction, if known |
-| `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
-
-## update_pin_antenna_model
-
-`update_pin_antenna_model <id> [-terminal <token>] [-oxide <str>] [-help]`
-
-Changes the given fields of a PinAntennaModel; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-terminal` | `token` | no | Move it to this Terminal (token) |
-| `-oxide` | `str` | no | OXIDE1, OXIDE2, OXIDE3, or OXIDE4 |
-
-## update_placement
-
-`update_placement <id> [-layout <token>] [-reference_design <token>] [-instance <token>] [-name <str>] [-physical_only <bool>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
-
-Changes the given fields of a Placement; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-reference_design` | `token` | no | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
-| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - never set for a physical_only Placement |
-| `-name` | `str` | no | The name of the instance - unique within its layout |
-| `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
-| `-placement_status` | `PlacementStatus` | no | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
-| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns |
-| `-orientation` | `Orientation` | no | Placement orientation |
-| `-weight` | `double` | no | DEF COMPONENTS WEIGHT |
-| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) |
-
-## update_port
-
-`update_port <id> [-schematic <token>] [-bus <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-bit_index <int>] [-help]`
-
-Changes the given fields of a Port; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | no | Move it to this Schematic (token) |
-| `-bus` | `token` | no | The PortBus this Port is one bit of, if it is part of a multi-bit port |
-| `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
-| `-name` | `str` | no | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
-| `-direction` | `SignalDirection` | no | The direction of the port |
-| `-bit_index` | `int` | no | Which bit of .bus this Port represents |
-
-## update_port_bus
-
-`update_port_bus <id> [-schematic <token>] [-name <str>] [-msb <int>] [-lsb <int>] [-help]`
-
-Changes the given fields of a PortBus; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-schematic` | `token` | no | Move it to this Schematic (token) |
-| `-name` | `str` | no | The bus's own base name (without a bit index) - unique within its schematic |
-| `-msb` | `int` | no | Most-significant bit index (Verilog [msb:lsb]) |
-| `-lsb` | `int` | no | Least-significant bit index |
-
-## update_prefer_enclosure_entry
+### update_prefer_enclosure_entry
 
 `update_prefer_enclosure_entry <id> [-layer <token>] [-location <str>] [-overhang1 <um>] [-overhang2 <um>] [-min_width <um>] [-help]`
 
@@ -3371,7 +1113,7 @@ Changes the given fields of a PreferEnclosureEntry; omitted flags leave a field 
 | `-overhang2` | `um` | no | In microns |
 | `-min_width` | `um` | no | Optional WIDTH, in microns |
 
-## update_property_definition
+### update_property_definition
 
 `update_property_definition <id> [-technology <token>] [-owner_type <str>] [-name <str>] [-data_type <str>] [-range_min <double>] [-range_max <double>] [-default_number <double>] [-default_string <str>] [-help]`
 
@@ -3388,81 +1130,7 @@ Changes the given fields of a PropertyDefinition; omitted flags leave a field un
 | `-default_number` | `double` | no | Default value, if data_type is I(nteger)/R(eal) |
 | `-default_string` | `str` | no | Default value, if data_type is S(tring)/Q(uoted string) |
 
-## update_region
-
-`update_region <id> [-layout <token>] [-name <str>] [-region_type <str>] [-rects <Rect...>] [-help]`
-
-Changes the given fields of a Region; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-name` | `str` | no | The name of the region - unique within its layout |
-| `-region_type` | `str` | no | FENCE or GUIDE (DEF REGIONS TYPE) |
-| `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
-
-## update_route
-
-`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
-
-Changes the given fields of a Route; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
-| `-name` | `str` | no | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
-| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
-| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
-| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
-
-## update_row
-
-`update_row <id> [-layout <token>] [-name <str>] [-site_name <str>] [-origin <Point>] [-orientation <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
-
-Changes the given fields of a Row; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layout` | `token` | no | Move it to this Layout (token) |
-| `-name` | `str` | no | The name of the row |
-| `-site_name` | `str` | no | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name, not a reference to a Site |
-| `-origin` | `Point` | no | The row's origin, in microns |
-| `-orientation` | `Orientation` | no | The row's orientation |
-| `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
-| `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
-| `-step_x` | `um` | no | Step in X between repeats, in microns (DEF ROW STEP) |
-| `-step_y` | `um` | no | Step in Y between repeats, in microns (DEF ROW STEP) |
-
-## update_schematic
-
-`update_schematic <id> [-design <token>] [-help]`
-
-Changes the given fields of a Schematic; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-design` | `token` | no | Move it to this Design (token) |
-
-## update_shape
-
-`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
-
-Changes the given fields of a Shape; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layer` | `token` | no | The physical layer this shape is on. Exactly one of layer and purpose is set - a shape with no physical layer (a diearea, an abstract boundary, a placement blockage) uses purpose instead. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG. |
-| `-purpose` | `ShapePurpose` | no | What this shape is, when it isn't on a physical layer - a boundary, a placement blockage or debug geometry. Exactly one of layer and purpose is set. |
-| `-paths` | `Path...` | no | A list of paths |
-| `-polygons` | `Polygon...` | no | A list of polygons |
-| `-rects` | `Rect...` | no | A list of rects |
-| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
-| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
-| `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
-
-## update_site
+### update_site
 
 `update_site <id> [-technology <token>] [-name <str>] [-site_class <str>] [-size <Point>] [-symmetry <Symmetry>] [-help]`
 
@@ -3476,7 +1144,7 @@ Changes the given fields of a Site; omitted flags leave a field unchanged.
 | `-size` | `Point` | no | The site size, in microns (LEF SIZE) |
 | `-symmetry` | `Symmetry` | no | Which flips/rotations this site allows (LEF SYMMETRY) |
 
-## update_spacing_rule
+### update_spacing_rule
 
 `update_spacing_rule <id> [-layer <token>] [-distance <um>] [-range_min <um>] [-range_max <um>] [-range_use_length_threshold <bool>] [-range_influence <um>] [-range_influence_range_min <um>] [-range_influence_range_max <um>] [-range_range_min <um>] [-range_range_max <um>] [-length_threshold <um>] [-length_threshold_range_min <um>] [-length_threshold_range_max <um>] [-center_to_center <bool>] [-same_net <bool>] [-same_net_pg_only <bool>] [-parallel_overlap <bool>] [-end_of_line_width <um>] [-end_of_line_within <um>] [-parallel_edge_space <um>] [-parallel_edge_within <um>] [-two_edges <bool>] [-notch_length <um>] [-end_of_notch_width <um>] [-end_of_notch_spacing <um>] [-end_of_notch_length <um>] [-second_layer_name <str>] [-second_layer_stack <bool>] [-adjacent_cuts <int>] [-adjacent_within <um>] [-adjacent_except_same_pg_net <bool>] [-area <um2>] [-help]`
 
@@ -3517,7 +1185,7 @@ Changes the given fields of a SpacingRule; omitted flags leave a field unchanged
 | `-adjacent_except_same_pg_net` | `bool` | no | ADJACENTCUTS ... EXCEPTSAMEPGNET was specified |
 | `-area` | `um2` | no | SPACING ... AREA value, in square microns (LEF 5.7, CUT layers only) |
 
-## update_technology
+### update_technology
 
 `update_technology <id> [-database_units_microns <double>] [-capacitance_units_pf <double>] [-resistance_units_ohms <double>] [-power_units_mw <double>] [-current_units_ma <double>] [-voltage_units_v <double>] [-frequency_units_mhz <double>] [-bus_bit_chars <str>] [-divider_char <str>] [-fixed_mask <bool>] [-use_min_spacing_obs <bool>] [-use_min_spacing_pin <bool>] [-clearance_measure <str>] [-manufacturing_grid <double>] [-fin_pitch <um>] [-fin_offset <um>] [-fin_direction <RoutingDirection>] [-max_via_stack <int>] [-max_via_stack_bottom_layer <str>] [-max_via_stack_top_layer <str>] [-antenna_input_gate_area <double>] [-antenna_inout_diff_area <double>] [-antenna_output_diff_area <double>] [-help]`
 
@@ -3549,7 +1217,496 @@ Changes the given fields of a Technology; omitted flags leave a field unchanged.
 | `-antenna_inout_diff_area` | `double` | no | Top-level LEF ANTENNAINOUTDIFFAREA (legacy pre-5.0 default) |
 | `-antenna_output_diff_area` | `double` | no | Top-level LEF ANTENNAOUTPUTDIFFAREA (legacy pre-5.0 default) |
 
-## update_terminal
+### update_two_widths_spacing_entry
+
+`update_two_widths_spacing_entry <id> [-layer <token>] [-width <um>] [-prl <um>] [-help]`
+
+Changes the given fields of a TwoWidthsSpacingEntry; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layer` | `token` | no | Move it to this Layer (token) |
+| `-width` | `um` | no | In microns |
+| `-prl` | `um` | no | Optional PRL (parallel run length), in microns |
+
+### update_via
+
+`update_via <id> [-technology <token>] [-name <str>] [-is_default <bool>] [-resistance <double>] [-help]`
+
+Changes the given fields of a Via; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-technology` | `token` | no | Move it to this Technology (token) |
+| `-name` | `str` | no | The name of the via |
+| `-is_default` | `bool` | no | Whether this via is the DEFAULT via for its layer pair (LEF VIA name DEFAULT) |
+| `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) - mutually exclusive with via_rule |
+
+### update_via_layer
+
+`update_via_layer <id> [-layer_name <str>] [-help]`
+
+Changes the given fields of a ViaLayer; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layer_name` | `str` | no | The name of the layer |
+
+### update_via_rule
+
+`update_via_rule <id> [-technology <token>] [-name <str>] [-is_generate <bool>] [-is_default <bool>] [-help]`
+
+Changes the given fields of a ViaRule; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-technology` | `token` | no | Move it to this Technology (token) |
+| `-name` | `str` | no | The name of the via rule |
+| `-is_generate` | `bool` | no | Whether this is a VIARULE ... GENERATE (vs. a plain VIARULE listing specific vias) |
+| `-is_default` | `bool` | no | Whether this is the GENERATE DEFAULT via rule (LEF VIARULE ... GENERATE DEFAULT) |
+
+### update_via_rule_layer
+
+`update_via_rule_layer <id> [-via_rule <token>] [-layer_name <str>] [-direction <RoutingDirection>] [-width_min <um>] [-width_max <um>] [-overhang <um>] [-metal_overhang <um>] [-enclosure_overhang1 <um>] [-enclosure_overhang2 <um>] [-spacing_step_x <um>] [-spacing_step_y <um>] [-rect <Rect>] [-resistance <double>] [-help]`
+
+Changes the given fields of a ViaRuleLayer; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-via_rule` | `token` | no | Move it to this ViaRule (token) |
+| `-layer_name` | `str` | no | The name of the layer |
+| `-direction` | `RoutingDirection` | no | The layer direction (LEF DIRECTION) |
+| `-width_min` | `um` | no | Minimum width, in microns (LEF WIDTH min) |
+| `-width_max` | `um` | no | Maximum width, in microns (LEF WIDTH max) |
+| `-overhang` | `um` | no | Overhang, in microns (LEF OVERHANG) |
+| `-metal_overhang` | `um` | no | Metal overhang, in microns (LEF METALOVERHANG) |
+| `-enclosure_overhang1` | `um` | no | First enclosure overhang, in microns (LEF ENCLOSURE overhang1 - 5.5 alternative to OVERHANG) |
+| `-enclosure_overhang2` | `um` | no | Second enclosure overhang, in microns (LEF ENCLOSURE overhang2 - 5.5 alternative to OVERHANG) |
+| `-spacing_step_x` | `um` | no | Spacing step in x, in microns (LEF SPACING x) |
+| `-spacing_step_y` | `um` | no | Spacing step in y, in microns (LEF SPACING y) |
+| `-rect` | `Rect` | no | The cut rect, in microns (LEF RECT - GENERATE's cut layer only) |
+| `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) |
+
+### update_via_rule_reference
+
+`update_via_rule_reference <id> [-via_rule_name <str>] [-cut_size <Point>] [-bot_layer_name <str>] [-cut_layer_name <str>] [-top_layer_name <str>] [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-num_cut_rows <int>] [-num_cut_cols <int>] [-origin <Point>] [-bot_offset <Point>] [-top_offset <Point>] [-help]`
+
+Changes the given fields of a ViaRuleReference; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-via_rule_name` | `str` | no | The name of the referenced VIARULE |
+| `-cut_size` | `Point` | no | The cut size, in microns (LEF CUTSIZE) |
+| `-bot_layer_name` | `str` | no | The bottom metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
+| `-cut_layer_name` | `str` | no | The cut layer name (LEF LAYERS botLayer cutLayer topLayer) |
+| `-top_layer_name` | `str` | no | The top metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
+| `-cut_spacing` | `Point` | no | The cut spacing, in microns (LEF CUTSPACING) |
+| `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in microns (LEF ENCLOSURE, bottom pair) |
+| `-top_enclosure` | `Point` | no | The top layer enclosure, in microns (LEF ENCLOSURE, top pair) |
+| `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - a single cut if not given |
+| `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - a single cut if not given |
+| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - the array is centered on the placement point if not given |
+| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - the enclosure rect is centered on the cut array if not given |
+| `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
+
+## Abstract
+
+[`create_abstract`](#create_abstract), [`create_foreign`](#create_foreign), [`create_macro_density_layer`](#create_macro_density_layer), [`create_macro_site_placement`](#create_macro_site_placement), [`create_obstruction`](#create_obstruction), [`create_pin_antenna_model`](#create_pin_antenna_model), [`create_terminal`](#create_terminal), [`create_terminal_port`](#create_terminal_port), [`current_abstract`](#current_abstract), [`delete_abstract`](#delete_abstract), [`delete_foreign`](#delete_foreign), [`delete_macro_density_layer`](#delete_macro_density_layer), [`delete_macro_site_placement`](#delete_macro_site_placement), [`delete_obstruction`](#delete_obstruction), [`delete_pin_antenna_model`](#delete_pin_antenna_model), [`delete_terminal`](#delete_terminal), [`delete_terminal_port`](#delete_terminal_port), [`get_abstracts`](#get_abstracts), [`get_foreigns`](#get_foreigns), [`get_macro_density_layers`](#get_macro_density_layers), [`get_macro_site_placements`](#get_macro_site_placements), [`get_obstructions`](#get_obstructions), [`get_pin_antenna_models`](#get_pin_antenna_models), [`get_terminal_ports`](#get_terminal_ports), [`get_terminals`](#get_terminals), [`read_lef`](#read_lef), [`update_abstract`](#update_abstract), [`update_foreign`](#update_foreign), [`update_macro_density_layer`](#update_macro_density_layer), [`update_macro_site_placement`](#update_macro_site_placement), [`update_obstruction`](#update_obstruction), [`update_pin_antenna_model`](#update_pin_antenna_model), [`update_terminal`](#update_terminal), [`update_terminal_port`](#update_terminal_port), [`write_lef`](#write_lef)
+
+### create_abstract
+
+`create_abstract -design <token> [-type <str>] [-size <Point>] [-origin <Point>] [-bbox <Rect>] [-symmetry <Symmetry>] [-site <str>] [-eeq <str>] [-leq <str>] [-power <double>] [-source <str>] [-is_fixed_mask <bool>] [-help]`
+
+Creates a Abstract and returns its token. Abstract: A physical abstract view (LEF)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | yes | Parent Design token |
+| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) |
+| `-size` | `Point` | no | The width and height of the block |
+| `-origin` | `Point` | no | The origin of the block |
+| `-bbox` | `Rect` | no | The bbox of the boundary |
+| `-symmetry` | `Symmetry` | no | The symmetry of the abstract |
+| `-site` | `str` | no | The name of the SITE - mutually exclusive with site_placements |
+| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) |
+| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) |
+| `-power` | `double` | no | Macro-level power consumption, in the LEF file's own declared units (LEF POWER) |
+| `-source` | `str` | no | How this macro was created - USER, GENERATE or BLOCK (LEF SOURCE, obsolete since 5.6 but still parsed) |
+| `-is_fixed_mask` | `bool` | no | Whether FIXEDMASK was specified (LEF 5.8) |
+
+### create_foreign
+
+`create_foreign [-via <token>] [-non_default_rule_via <token>] [-abstract <token>] [-layout_via <token>] -name <str> [-origin <Point>] [-orient <Orientation>] [-help]`
+
+Creates a Foreign and returns its token. Foreign: A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-via` | `token` | no | Parent Via token - give exactly one of the parent flags |
+| `-non_default_rule_via` | `token` | no | Parent NonDefaultRuleVia token - give exactly one of the parent flags |
+| `-abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
+| `-layout_via` | `token` | no | Parent LayoutVia token - give exactly one of the parent flags |
+| `-name` | `str` | yes | The foreign cell name (usually the same as the design name) |
+| `-origin` | `Point` | no | The foreign origin - optional in LEF FOREIGN; if not given, no point was written (it is not (0,0)) |
+| `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
+
+### create_macro_density_layer
+
+`create_macro_density_layer -abstract <token> -layer_name <str> [-help]`
+
+Creates a MacroDensityLayer and returns its token. MacroDensityLayer: One layer's DENSITY rects within a MACRO's DENSITY statement
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | yes | Parent Abstract token |
+| `-layer_name` | `str` | yes | The name of the layer |
+
+### create_macro_site_placement
+
+`create_macro_site_placement -abstract <token> -site_name <str> [-origin <Point>] -orient <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
+
+Creates a MacroSitePlacement and returns its token. MacroSitePlacement: One LEF MACRO SITE array placement (Abstract.site_placements) - a macro can have several
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | yes | Parent Abstract token |
+| `-site_name` | `str` | yes | The name of the site |
+| `-origin` | `Point` | no | In microns |
+| `-orient` | `Orientation` | yes | The orientation of this placement |
+| `-num_x` | `int` | no | Optional LEF DO n |
+| `-num_y` | `int` | no | Optional LEF BY m |
+| `-step_x` | `um` | no | Optional LEF STEP x, in microns |
+| `-step_y` | `um` | no | Optional LEF STEP y, in microns |
+
+### create_obstruction
+
+`create_obstruction -abstract <token> [-help]`
+
+Creates a Obstruction and returns its token. Obstruction: An abstract routing blockage
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | yes | Parent Abstract token |
+
+### create_pin_antenna_model
+
+`create_pin_antenna_model -terminal <token> -oxide <str> [-help]`
+
+Creates a PinAntennaModel and returns its token. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - each field is a list of (value, layer) entries
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-terminal` | `token` | yes | Parent Terminal token |
+| `-oxide` | `str` | yes | OXIDE1, OXIDE2, OXIDE3, or OXIDE4 |
+
+### create_terminal
+
+`create_terminal -abstract <token> -name <str> -direction <SignalDirection> [-shape <str>] [-use <str>] [-must_join <str>] [-net_expr <str>] [-leq <str>] [-taper_rule <str>] [-supply_sensitivity <str>] [-ground_sensitivity <str>] [-rise_slew_limit <double>] [-fall_slew_limit <double>] [-max_load <double>] [-max_delay <double>] [-help]`
+
+Creates a Terminal and returns its token. Terminal: Top-level pin name of an abstract
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | yes | Parent Abstract token |
+| `-name` | `str` | yes | Name of the terminal - unique within its abstract |
+| `-direction` | `SignalDirection` | yes | The direction of the terminal |
+| `-shape` | `str` | no | ABUTMENT, RING or FEEDTHRU (LEF PIN SHAPE) |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG or SCAN (LEF PIN USE) |
+| `-must_join` | `str` | no | The name of another pin this one must be joined with (LEF PIN MUSTJOIN) |
+| `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed |
+| `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq |
+| `-taper_rule` | `str` | no | LEF PIN TAPERRULE |
+| `-supply_sensitivity` | `str` | no | LEF PIN SUPPLYSENSITIVITY (5.6) - net name |
+| `-ground_sensitivity` | `str` | no | LEF PIN GROUNDSENSITIVITY (5.6) - net name |
+| `-rise_slew_limit` | `double` | no | LEF PIN RISESLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
+| `-fall_slew_limit` | `double` | no | LEF PIN FALLSLEWLIMIT, in the LEF file's declared units - read-only, not written back by write_lef |
+| `-max_load` | `double` | no | LEF PIN MAXLOAD, in the LEF file's declared units - read-only, not written back by write_lef |
+| `-max_delay` | `double` | no | LEF PIN MAXDELAY, in the LEF file's declared units - read-only, not written back by write_lef |
+
+### create_terminal_port
+
+`create_terminal_port -terminal <token> [-port_class <str>] [-help]`
+
+Creates a TerminalPort and returns its token. TerminalPort: Physical connection for a Terminal
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-terminal` | `token` | yes | Parent Terminal token |
+| `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) |
+
+### current_abstract
+
+`current_abstract [<id>] [-help]`
+
+Returns the current Abstract (empty if none is set); with <id>, selects it first. get_ commands without -of search within it.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
+
+### delete_abstract
+
+`delete_abstract <id> [-help]`
+
+Deletes a Abstract and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Abstract to delete |
+
+### delete_foreign
+
+`delete_foreign <id> [-help]`
+
+Deletes a Foreign and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Foreign to delete |
+
+### delete_macro_density_layer
+
+`delete_macro_density_layer <id> [-help]`
+
+Deletes a MacroDensityLayer and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the MacroDensityLayer to delete |
+
+### delete_macro_site_placement
+
+`delete_macro_site_placement <id> [-help]`
+
+Deletes a MacroSitePlacement and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the MacroSitePlacement to delete |
+
+### delete_obstruction
+
+`delete_obstruction <id> [-help]`
+
+Deletes a Obstruction and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Obstruction to delete |
+
+### delete_pin_antenna_model
+
+`delete_pin_antenna_model <id> [-help]`
+
+Deletes a PinAntennaModel and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the PinAntennaModel to delete |
+
+### delete_terminal
+
+`delete_terminal <id> [-help]`
+
+Deletes a Terminal and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Terminal to delete |
+
+### delete_terminal_port
+
+`delete_terminal_port <id> [-help]`
+
+Deletes a TerminalPort and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the TerminalPort to delete |
+
+### get_abstracts
+
+`get_abstracts [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Abstract objects matching the given names and filters, as tokens. Abstract: A physical abstract view (LEF)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_foreigns
+
+`get_foreigns [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Foreign objects matching the given names and filters, as tokens. Foreign: A design abstract view foreign definition. Owned by exactly one of Via/NonDefaultRuleVia/Abstract/LayoutVia (mutually exclusive - Abstract can hold several, the others at most one)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_macro_density_layers
+
+`get_macro_density_layers [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the MacroDensityLayer objects matching the given names and filters, as tokens. MacroDensityLayer: One layer's DENSITY rects within a MACRO's DENSITY statement
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_macro_site_placements
+
+`get_macro_site_placements [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the MacroSitePlacement objects matching the given names and filters, as tokens. MacroSitePlacement: One LEF MACRO SITE array placement (Abstract.site_placements) - a macro can have several
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_obstructions
+
+`get_obstructions [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Obstruction objects matching the given names and filters, as tokens. Obstruction: An abstract routing blockage
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_pin_antenna_models
+
+`get_pin_antenna_models [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the PinAntennaModel objects matching the given names and filters, as tokens. PinAntennaModel: One LEF PIN ANTENNAMODEL OXIDE1-4 block - each field is a list of (value, layer) entries
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_terminal_ports
+
+`get_terminal_ports [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the TerminalPort objects matching the given names and filters, as tokens. TerminalPort: Physical connection for a Terminal
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_terminals
+
+`get_terminals [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Terminal objects matching the given names and filters, as tokens. Terminal: Top-level pin name of an abstract
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### read_lef
+
+`read_lef -library <name> <path> [-help]`
+
+Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A design in the -library library that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-library` | `str` | yes | Library to read the LEF's macros into - created if it doesn't exist |
+| `<path>` | `file` | yes | LEF file to read |
+
+### update_abstract
+
+`update_abstract <id> [-design <token>] [-type <str>] [-size <Point>] [-origin <Point>] [-bbox <Rect>] [-symmetry <Symmetry>] [-site <str>] [-eeq <str>] [-leq <str>] [-power <double>] [-source <str>] [-is_fixed_mask <bool>] [-help]`
+
+Changes the given fields of a Abstract; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | no | Move it to this Design (token) |
+| `-type` | `str` | no | Type or class of abstract, e.g. CORE, PAD, SPACER, ENDCAP, COVER etc (LEF MACRO CLASS) |
+| `-size` | `Point` | no | The width and height of the block |
+| `-origin` | `Point` | no | The origin of the block |
+| `-bbox` | `Rect` | no | The bbox of the boundary |
+| `-symmetry` | `Symmetry` | no | The symmetry of the abstract |
+| `-site` | `str` | no | The name of the SITE - mutually exclusive with site_placements |
+| `-eeq` | `str` | no | Electrically-equivalent macro name (LEF EEQ) |
+| `-leq` | `str` | no | Logically-equivalent macro name (LEF LEQ) |
+| `-power` | `double` | no | Macro-level power consumption, in the LEF file's own declared units (LEF POWER) |
+| `-source` | `str` | no | How this macro was created - USER, GENERATE or BLOCK (LEF SOURCE, obsolete since 5.6 but still parsed) |
+| `-is_fixed_mask` | `bool` | no | Whether FIXEDMASK was specified (LEF 5.8) |
+
+### update_foreign
+
+`update_foreign <id> [-name <str>] [-origin <Point>] [-orient <Orientation>] [-help]`
+
+Changes the given fields of a Foreign; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-name` | `str` | no | The foreign cell name (usually the same as the design name) |
+| `-origin` | `Point` | no | The foreign origin - optional in LEF FOREIGN; if not given, no point was written (it is not (0,0)) |
+| `-orient` | `Orientation` | no | The foreign orientation - also optional independently of origin ('FOREIGN name ( x y ) ;' with no orientation is legal) |
+
+### update_macro_density_layer
+
+`update_macro_density_layer <id> [-abstract <token>] [-layer_name <str>] [-help]`
+
+Changes the given fields of a MacroDensityLayer; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | no | Move it to this Abstract (token) |
+| `-layer_name` | `str` | no | The name of the layer |
+
+### update_macro_site_placement
+
+`update_macro_site_placement <id> [-abstract <token>] [-site_name <str>] [-origin <Point>] [-orient <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
+
+Changes the given fields of a MacroSitePlacement; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | no | Move it to this Abstract (token) |
+| `-site_name` | `str` | no | The name of the site |
+| `-origin` | `Point` | no | In microns |
+| `-orient` | `Orientation` | no | The orientation of this placement |
+| `-num_x` | `int` | no | Optional LEF DO n |
+| `-num_y` | `int` | no | Optional LEF BY m |
+| `-step_x` | `um` | no | Optional LEF STEP x, in microns |
+| `-step_y` | `um` | no | Optional LEF STEP y, in microns |
+
+### update_obstruction
+
+`update_obstruction <id> [-abstract <token>] [-help]`
+
+Changes the given fields of a Obstruction; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | no | Move it to this Abstract (token) |
+
+### update_pin_antenna_model
+
+`update_pin_antenna_model <id> [-terminal <token>] [-oxide <str>] [-help]`
+
+Changes the given fields of a PinAntennaModel; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-terminal` | `token` | no | Move it to this Terminal (token) |
+| `-oxide` | `str` | no | OXIDE1, OXIDE2, OXIDE3, or OXIDE4 |
+
+### update_terminal
 
 `update_terminal <id> [-abstract <token>] [-name <str>] [-direction <SignalDirection>] [-shape <str>] [-use <str>] [-must_join <str>] [-net_expr <str>] [-leq <str>] [-taper_rule <str>] [-supply_sensitivity <str>] [-ground_sensitivity <str>] [-rise_slew_limit <double>] [-fall_slew_limit <double>] [-max_load <double>] [-max_delay <double>] [-help]`
 
@@ -3573,7 +1730,7 @@ Changes the given fields of a Terminal; omitted flags leave a field unchanged.
 | `-max_load` | `double` | no | LEF PIN MAXLOAD, in the LEF file's declared units - read-only, not written back by write_lef |
 | `-max_delay` | `double` | no | LEF PIN MAXDELAY, in the LEF file's declared units - read-only, not written back by write_lef |
 
-## update_terminal_port
+### update_terminal_port
 
 `update_terminal_port <id> [-terminal <token>] [-port_class <str>] [-help]`
 
@@ -3584,7 +1741,646 @@ Changes the given fields of a TerminalPort; omitted flags leave a field unchange
 | `-terminal` | `token` | no | Move it to this Terminal (token) |
 | `-port_class` | `str` | no | LEF PORT CLASS (NONE/CORE/BUMP) |
 
-## update_track
+### write_lef
+
+`write_lef [-abstract <token>] [-library <token>] [-abstracts <tokens>] [-include_tech] [-tech_only] <filename> [-help]`
+
+Writes a LEF file. -abstract writes one abstract's MACRO (the current abstract if -abstract, -library and -abstracts are all omitted); -library writes a MACRO for every abstract in a library, and -abstracts limits that to the ones listed (or works alone). Technology layers are left out unless -include_tech is given; -tech_only writes only them.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-abstract` | `token` | no | A single Abstract to write - defaults to the current Abstract if this, -library, and -abstracts are all omitted |
+| `-library` | `token` | no | Write a MACRO for every Abstract in every Design of this Library |
+| `-abstracts` | `token` | no | Abstracts to write - limits -library to these, or works alone |
+| `-include_tech` | `flag` | no | Also write every Technology layer alongside the MACRO(s) |
+| `-tech_only` | `flag` | no | Write only Technology layers, no MACRO at all |
+| `<filename>` | `file` | yes | Output LEF file path |
+
+## Layout
+
+[`create_blockage`](#create_blockage), [`create_g_cell_grid`](#create_g_cell_grid), [`create_layout`](#create_layout), [`create_layout_via`](#create_layout_via), [`create_physical_port`](#create_physical_port), [`create_physical_port_segment`](#create_physical_port_segment), [`create_placement`](#create_placement), [`create_region`](#create_region), [`create_route`](#create_route), [`create_row`](#create_row), [`create_track`](#create_track), [`create_wire`](#create_wire), [`current_layout`](#current_layout), [`delete_blockage`](#delete_blockage), [`delete_g_cell_grid`](#delete_g_cell_grid), [`delete_layout`](#delete_layout), [`delete_layout_via`](#delete_layout_via), [`delete_physical_port`](#delete_physical_port), [`delete_physical_port_segment`](#delete_physical_port_segment), [`delete_placement`](#delete_placement), [`delete_region`](#delete_region), [`delete_route`](#delete_route), [`delete_row`](#delete_row), [`delete_track`](#delete_track), [`delete_wire`](#delete_wire), [`flip_placement`](#flip_placement), [`get_blockages`](#get_blockages), [`get_g_cell_grids`](#get_g_cell_grids), [`get_layout_vias`](#get_layout_vias), [`get_layouts`](#get_layouts), [`get_physical_port_segments`](#get_physical_port_segments), [`get_physical_ports`](#get_physical_ports), [`get_placements`](#get_placements), [`get_regions`](#get_regions), [`get_routes`](#get_routes), [`get_rows`](#get_rows), [`get_tracks`](#get_tracks), [`get_wires`](#get_wires), [`read_def`](#read_def), [`rotate_placement`](#rotate_placement), [`update_blockage`](#update_blockage), [`update_g_cell_grid`](#update_g_cell_grid), [`update_layout`](#update_layout), [`update_layout_via`](#update_layout_via), [`update_physical_port`](#update_physical_port), [`update_physical_port_segment`](#update_physical_port_segment), [`update_placement`](#update_placement), [`update_region`](#update_region), [`update_route`](#update_route), [`update_row`](#update_row), [`update_track`](#update_track), [`update_wire`](#update_wire), [`write_def`](#write_def)
+
+### create_blockage
+
+`create_blockage -layout <token> -placement <token> -kind <BlockageKind> [-layer_name <str>] [-spacing <um>] [-design_rule_width <um>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
+
+Creates a Blockage and returns its token. Blockage: A routing or placement blockage (DEF BLOCKAGES)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-placement` | `token` | yes | The placed instance this blockage is scoped to, if any |
+| `-kind` | `BlockageKind` | yes | Whether this is a routing-layer or placement blockage |
+| `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
+| `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
+| `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
+| `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
+| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) |
+
+### create_g_cell_grid
+
+`create_g_cell_grid -layout <token> [-is_x <bool>] -start <um> -count <int> -step <um> [-help]`
+
+Creates a GCellGrid and returns its token. GCellGrid: A global-routing gcell grid line (DEF GCELLGRID)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
+| `-start` | `um` | yes | Starting coordinate, in microns (DEF GCELLGRID DO start) |
+| `-count` | `int` | yes | Number of grid lines (DEF GCELLGRID DO ... n) |
+| `-step` | `um` | yes | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
+
+### create_layout
+
+`create_layout -design <token> [-help]`
+
+Creates a Layout and returns its token. Layout: A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | yes | Parent Design token |
+
+### create_layout_via
+
+`create_layout_via -layout <token> -name <str> [-help]`
+
+Creates a LayoutVia and returns its token. LayoutVia: A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the via |
+
+### create_physical_port
+
+`create_physical_port -layout <token> [-net <token>] -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+Creates a PhysicalPort and returns its token. PhysicalPort: A chip-boundary I/O pin (DEF PINS).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` |
+| `-name` | `str` | yes | The name of the pin - unique within its layout |
+| `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
+| `-direction` | `SignalDirection` | no | The direction of the pin |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
+| `-placement_status` | `PlacementStatus` | no | Placement status |
+| `-location` | `Point` | no | The pin's location, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
+
+### create_physical_port_segment
+
+`create_physical_port_segment -physical_port <token> [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+Creates a PhysicalPortSegment and returns its token. PhysicalPortSegment: One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-physical_port` | `token` | yes | Parent PhysicalPort token |
+| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - for a simple (non-multi-port) pin the placement is on the parent PhysicalPort instead |
+| `-location` | `Point` | no | This segment's own location, in microns |
+| `-orientation` | `Orientation` | no | This segment's own orientation |
+
+### create_placement
+
+`create_placement -layout <token> -reference_design <token> [-instance <token>] -name <str> [-physical_only <bool>] -placement_status <PlacementStatus> [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
+
+Creates a Placement and returns its token. Placement: A placed physical instance (DEF COMPONENTS).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-reference_design` | `token` | yes | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
+| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - never set for a physical_only Placement |
+| `-name` | `str` | yes | The name of the instance - unique within its layout |
+| `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
+| `-placement_status` | `PlacementStatus` | yes | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
+| `-weight` | `double` | no | DEF COMPONENTS WEIGHT |
+| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) |
+
+### create_region
+
+`create_region -layout <token> -name <str> [-region_type <str>] [-rects <Rect...>] [-help]`
+
+Creates a Region and returns its token. Region: A placement region (DEF REGIONS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the region - unique within its layout |
+| `-region_type` | `str` | no | FENCE or GUIDE (DEF REGIONS TYPE) |
+| `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
+
+### create_route
+
+`create_route -layout <token> [-net <token>] -name <str> [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
+
+Creates a Route and returns its token. Route: The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
+| `-name` | `str` | yes | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
+| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
+| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
+| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
+
+### create_row
+
+`create_row -layout <token> -name <str> -site_name <str> [-origin <Point>] -orientation <Orientation> [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
+
+Creates a Row and returns its token. Row: A placement row (DEF ROW)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-name` | `str` | yes | The name of the row |
+| `-site_name` | `str` | yes | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name, not a reference to a Site |
+| `-origin` | `Point` | no | The row's origin, in microns |
+| `-orientation` | `Orientation` | yes | The row's orientation |
+| `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
+| `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
+| `-step_x` | `um` | no | Step in X between repeats, in microns (DEF ROW STEP) |
+| `-step_y` | `um` | no | Step in Y between repeats, in microns (DEF ROW STEP) |
+
+### create_track
+
+`create_track -layout <token> [-is_x <bool>] -start <um> -count <int> -step <um> [-mask <int>] [-same_mask <bool>] [-help]`
+
+Creates a Track and returns its token. Track: A routing track pattern (DEF TRACKS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | yes | Parent Layout token |
+| `-is_x` | `bool` | no | True for an X-direction track pattern, false for Y (DEF TRACKS X/Y) |
+| `-start` | `um` | yes | Starting coordinate, in microns (DEF TRACKS DO start) |
+| `-count` | `int` | yes | Number of tracks (DEF TRACKS DO ... n) |
+| `-step` | `um` | yes | Spacing between tracks, in microns (DEF TRACKS STEP) |
+| `-mask` | `int` | no | MASK color (DEF 5.8) |
+| `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
+
+### create_wire
+
+`create_wire -route <token> -layer <token> [-help]`
+
+Creates a Wire and returns its token. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-route` | `token` | yes | Parent Route token |
+| `-layer` | `token` | yes | The routing layer, as a layer:<name> token |
+
+### current_layout
+
+`current_layout [<id>] [-help]`
+
+Returns the current Layout (empty if none is set); with <id>, selects it first. get_ commands without -of search within it.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
+
+### delete_blockage
+
+`delete_blockage <id> [-help]`
+
+Deletes a Blockage and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Blockage to delete |
+
+### delete_g_cell_grid
+
+`delete_g_cell_grid <id> [-help]`
+
+Deletes a GCellGrid and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the GCellGrid to delete |
+
+### delete_layout
+
+`delete_layout <id> [-help]`
+
+Deletes a Layout and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Layout to delete |
+
+### delete_layout_via
+
+`delete_layout_via <id> [-help]`
+
+Deletes a LayoutVia and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the LayoutVia to delete |
+
+### delete_physical_port
+
+`delete_physical_port <id> [-help]`
+
+Deletes a PhysicalPort and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the PhysicalPort to delete |
+
+### delete_physical_port_segment
+
+`delete_physical_port_segment <id> [-help]`
+
+Deletes a PhysicalPortSegment and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the PhysicalPortSegment to delete |
+
+### delete_placement
+
+`delete_placement <id> [-help]`
+
+Deletes a Placement and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Placement to delete |
+
+### delete_region
+
+`delete_region <id> [-help]`
+
+Deletes a Region and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Region to delete |
+
+### delete_route
+
+`delete_route <id> [-help]`
+
+Deletes a Route and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Route to delete |
+
+### delete_row
+
+`delete_row <id> [-help]`
+
+Deletes a Row and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Row to delete |
+
+### delete_track
+
+`delete_track <id> [-help]`
+
+Deletes a Track and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Track to delete |
+
+### delete_wire
+
+`delete_wire <id> [-help]`
+
+Deletes a Wire and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Wire to delete |
+
+### flip_placement
+
+`flip_placement <direction> [-help]`
+
+Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<direction>` | `str` | yes | horizontal or vertical |
+
+### get_blockages
+
+`get_blockages [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Blockage objects matching the given names and filters, as tokens. Blockage: A routing or placement blockage (DEF BLOCKAGES)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_g_cell_grids
+
+`get_g_cell_grids [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the GCellGrid objects matching the given names and filters, as tokens. GCellGrid: A global-routing gcell grid line (DEF GCELLGRID)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_layout_vias
+
+`get_layout_vias [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the LayoutVia objects matching the given names and filters, as tokens. LayoutVia: A design-scoped named via (DEF VIAS) - distinct from the Technology-level Via since these are per-design and may even shadow a Technology-level via name
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_layouts
+
+`get_layouts [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Layout objects matching the given names and filters, as tokens. Layout: A physical layout view (DEF) - placed components, rows, tracks, blockages, routed net geometry, etc.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_physical_port_segments
+
+`get_physical_port_segments [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the PhysicalPortSegment objects matching the given names and filters, as tokens. PhysicalPortSegment: One physically separate part of a PhysicalPort (DEF PINS PORT, 5.7+ multi-port pins).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_physical_ports
+
+`get_physical_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the PhysicalPort objects matching the given names and filters, as tokens. PhysicalPort: A chip-boundary I/O pin (DEF PINS).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_placements
+
+`get_placements [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Placement objects matching the given names and filters, as tokens. Placement: A placed physical instance (DEF COMPONENTS).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_regions
+
+`get_regions [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Region objects matching the given names and filters, as tokens. Region: A placement region (DEF REGIONS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_routes
+
+`get_routes [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Route objects matching the given names and filters, as tokens. Route: The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_rows
+
+`get_rows [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Row objects matching the given names and filters, as tokens. Row: A placement row (DEF ROW)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_tracks
+
+`get_tracks [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Track objects matching the given names and filters, as tokens. Track: A routing track pattern (DEF TRACKS)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_wires
+
+`get_wires [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Wire objects matching the given names and filters, as tokens. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### read_def
+
+`read_def -library <name> <path> [-help]`
+
+Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no layout (e.g. from read_verilog), that design gets the layout instead. A design in the -library library that already has a layout is an error. Each component's cell is looked up in the -library library first, then in whichever library alone has a cell of that name. Returns 0 on success, nonzero on an error (the details are printed).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-library` | `str` | yes | Library to read the DEF's design into - created if it doesn't exist |
+| `<path>` | `file` | yes | DEF file to read |
+
+### rotate_placement
+
+`rotate_placement [-help]`
+
+Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, a move is under way, or site snapping is on and the row's site doesn't allow R90.
+
+### update_blockage
+
+`update_blockage <id> [-layout <token>] [-placement <token>] [-kind <BlockageKind>] [-layer_name <str>] [-spacing <um>] [-design_rule_width <um>] [-is_soft <bool>] [-placement_max_density <double>] [-help]`
+
+Changes the given fields of a Blockage; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-placement` | `token` | no | The placed instance this blockage is scoped to, if any |
+| `-kind` | `BlockageKind` | no | Whether this is a routing-layer or placement blockage |
+| `-layer_name` | `str` | no | The name of the blocked routing layer, as read - set only for a ROUTING blockage |
+| `-spacing` | `um` | no | Minimum spacing override, in microns (DEF BLOCKAGES SPACING) - ROUTING only, mutually exclusive with design_rule_width |
+| `-design_rule_width` | `um` | no | Effective width for design rule checks, in microns (DEF BLOCKAGES DESIGNRULEWIDTH) - ROUTING only, mutually exclusive with spacing |
+| `-is_soft` | `bool` | no | PLACEMENT ... SOFT - PLACEMENT only |
+| `-placement_max_density` | `double` | no | PLACEMENT ... PARTIAL maxDensity (0-100) |
+
+### update_g_cell_grid
+
+`update_g_cell_grid <id> [-layout <token>] [-is_x <bool>] [-start <um>] [-count <int>] [-step <um>] [-help]`
+
+Changes the given fields of a GCellGrid; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-is_x` | `bool` | no | True for an X-direction grid line, false for Y (DEF GCELLGRID X/Y) |
+| `-start` | `um` | no | Starting coordinate, in microns (DEF GCELLGRID DO start) |
+| `-count` | `int` | no | Number of grid lines (DEF GCELLGRID DO ... n) |
+| `-step` | `um` | no | Spacing between grid lines, in microns (DEF GCELLGRID STEP) |
+
+### update_layout
+
+`update_layout <id> [-design <token>] [-help]`
+
+Changes the given fields of a Layout; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | no | Move it to this Design (token) |
+
+### update_layout_via
+
+`update_layout_via <id> [-layout <token>] [-name <str>] [-help]`
+
+Changes the given fields of a LayoutVia; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-name` | `str` | no | The name of the via |
+
+### update_physical_port
+
+`update_physical_port <id> [-layout <token>] [-net <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+Changes the given fields of a PhysicalPort; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-net` | `token` | no | The logical Net this pin connects to, resolved by `link` against `net_name` |
+| `-name` | `str` | no | The name of the pin - unique within its layout |
+| `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
+| `-direction` | `SignalDirection` | no | The direction of the pin |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
+| `-placement_status` | `PlacementStatus` | no | Placement status |
+| `-location` | `Point` | no | The pin's location, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
+
+### update_physical_port_segment
+
+`update_physical_port_segment <id> [-physical_port <token>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+
+Changes the given fields of a PhysicalPortSegment; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-physical_port` | `token` | no | Move it to this PhysicalPort (token) |
+| `-placement_status` | `PlacementStatus` | no | This segment's own placement status - for a simple (non-multi-port) pin the placement is on the parent PhysicalPort instead |
+| `-location` | `Point` | no | This segment's own location, in microns |
+| `-orientation` | `Orientation` | no | This segment's own orientation |
+
+### update_placement
+
+`update_placement <id> [-layout <token>] [-reference_design <token>] [-instance <token>] [-name <str>] [-physical_only <bool>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-weight <double>] [-source <str>] [-help]`
+
+Changes the given fields of a Placement; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-reference_design` | `token` | no | The reference Design, resolved from the referenced macro/design name at creation time - readers error rather than create a Placement with an unresolved reference |
+| `-instance` | `token` | no | The logical Instance this placement corresponds to, resolved by `link` against the sibling Schematic - never set for a physical_only Placement |
+| `-name` | `str` | no | The name of the instance - unique within its layout |
+| `-physical_only` | `bool` | no | Set by `link` when no Instance in the sibling Schematic matches this Placement's name (e.g. a filler/decap cell with no logical counterpart) - not a DEF-native concept, always False until `link` runs |
+| `-placement_status` | `PlacementStatus` | no | Placement status (DEF COMPONENTS FIXED/COVER/PLACED/UNPLACED/SOFTFIXED) |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance, in microns |
+| `-orientation` | `Orientation` | no | Placement orientation |
+| `-weight` | `double` | no | DEF COMPONENTS WEIGHT |
+| `-source` | `str` | no | DEF COMPONENTS SOURCE (NETLIST/DIST/USER/TIMING) |
+
+### update_region
+
+`update_region <id> [-layout <token>] [-name <str>] [-region_type <str>] [-rects <Rect...>] [-help]`
+
+Changes the given fields of a Region; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-name` | `str` | no | The name of the region - unique within its layout |
+| `-region_type` | `str` | no | FENCE or GUIDE (DEF REGIONS TYPE) |
+| `-rects` | `Rect...` | no | The region's rects (a region can be a multi-rect rectilinear area) |
+
+### update_route
+
+`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
+
+Changes the given fields of a Route; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
+| `-name` | `str` | no | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
+| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
+| `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
+| `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
+| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
+
+### update_row
+
+`update_row <id> [-layout <token>] [-name <str>] [-site_name <str>] [-origin <Point>] [-orientation <Orientation>] [-num_x <int>] [-num_y <int>] [-step_x <um>] [-step_y <um>] [-help]`
+
+Changes the given fields of a Row; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layout` | `token` | no | Move it to this Layout (token) |
+| `-name` | `str` | no | The name of the row |
+| `-site_name` | `str` | no | The name of the site this row is built from, as read (DEF ROW macro name) - a plain name, not a reference to a Site |
+| `-origin` | `Point` | no | The row's origin, in microns |
+| `-orientation` | `Orientation` | no | The row's orientation |
+| `-num_x` | `int` | no | Number of site repeats in X (DEF ROW DO n) |
+| `-num_y` | `int` | no | Number of site repeats in Y (DEF ROW BY m) |
+| `-step_x` | `um` | no | Step in X between repeats, in microns (DEF ROW STEP) |
+| `-step_y` | `um` | no | Step in Y between repeats, in microns (DEF ROW STEP) |
+
+### update_track
 
 `update_track <id> [-layout <token>] [-is_x <bool>] [-start <um>] [-count <int>] [-step <um>] [-mask <int>] [-same_mask <bool>] [-help]`
 
@@ -3600,99 +2396,7 @@ Changes the given fields of a Track; omitted flags leave a field unchanged.
 | `-mask` | `int` | no | MASK color (DEF 5.8) |
 | `-same_mask` | `bool` | no | Whether SAMEMASK was specified (DEF 5.8) |
 
-## update_two_widths_spacing_entry
-
-`update_two_widths_spacing_entry <id> [-layer <token>] [-width <um>] [-prl <um>] [-help]`
-
-Changes the given fields of a TwoWidthsSpacingEntry; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layer` | `token` | no | Move it to this Layer (token) |
-| `-width` | `um` | no | In microns |
-| `-prl` | `um` | no | Optional PRL (parallel run length), in microns |
-
-## update_via
-
-`update_via <id> [-technology <token>] [-name <str>] [-is_default <bool>] [-resistance <double>] [-help]`
-
-Changes the given fields of a Via; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-technology` | `token` | no | Move it to this Technology (token) |
-| `-name` | `str` | no | The name of the via |
-| `-is_default` | `bool` | no | Whether this via is the DEFAULT via for its layer pair (LEF VIA name DEFAULT) |
-| `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) - mutually exclusive with via_rule |
-
-## update_via_layer
-
-`update_via_layer <id> [-layer_name <str>] [-help]`
-
-Changes the given fields of a ViaLayer; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-layer_name` | `str` | no | The name of the layer |
-
-## update_via_rule
-
-`update_via_rule <id> [-technology <token>] [-name <str>] [-is_generate <bool>] [-is_default <bool>] [-help]`
-
-Changes the given fields of a ViaRule; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-technology` | `token` | no | Move it to this Technology (token) |
-| `-name` | `str` | no | The name of the via rule |
-| `-is_generate` | `bool` | no | Whether this is a VIARULE ... GENERATE (vs. a plain VIARULE listing specific vias) |
-| `-is_default` | `bool` | no | Whether this is the GENERATE DEFAULT via rule (LEF VIARULE ... GENERATE DEFAULT) |
-
-## update_via_rule_layer
-
-`update_via_rule_layer <id> [-via_rule <token>] [-layer_name <str>] [-direction <RoutingDirection>] [-width_min <um>] [-width_max <um>] [-overhang <um>] [-metal_overhang <um>] [-enclosure_overhang1 <um>] [-enclosure_overhang2 <um>] [-spacing_step_x <um>] [-spacing_step_y <um>] [-rect <Rect>] [-resistance <double>] [-help]`
-
-Changes the given fields of a ViaRuleLayer; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-via_rule` | `token` | no | Move it to this ViaRule (token) |
-| `-layer_name` | `str` | no | The name of the layer |
-| `-direction` | `RoutingDirection` | no | The layer direction (LEF DIRECTION) |
-| `-width_min` | `um` | no | Minimum width, in microns (LEF WIDTH min) |
-| `-width_max` | `um` | no | Maximum width, in microns (LEF WIDTH max) |
-| `-overhang` | `um` | no | Overhang, in microns (LEF OVERHANG) |
-| `-metal_overhang` | `um` | no | Metal overhang, in microns (LEF METALOVERHANG) |
-| `-enclosure_overhang1` | `um` | no | First enclosure overhang, in microns (LEF ENCLOSURE overhang1 - 5.5 alternative to OVERHANG) |
-| `-enclosure_overhang2` | `um` | no | Second enclosure overhang, in microns (LEF ENCLOSURE overhang2 - 5.5 alternative to OVERHANG) |
-| `-spacing_step_x` | `um` | no | Spacing step in x, in microns (LEF SPACING x) |
-| `-spacing_step_y` | `um` | no | Spacing step in y, in microns (LEF SPACING y) |
-| `-rect` | `Rect` | no | The cut rect, in microns (LEF RECT - GENERATE's cut layer only) |
-| `-resistance` | `double` | no | Resistance, in the LEF file's own declared units (LEF RESISTANCE) |
-
-## update_via_rule_reference
-
-`update_via_rule_reference <id> [-via_rule_name <str>] [-cut_size <Point>] [-bot_layer_name <str>] [-cut_layer_name <str>] [-top_layer_name <str>] [-cut_spacing <Point>] [-bot_enclosure <Point>] [-top_enclosure <Point>] [-num_cut_rows <int>] [-num_cut_cols <int>] [-origin <Point>] [-bot_offset <Point>] [-top_offset <Point>] [-help]`
-
-Changes the given fields of a ViaRuleReference; omitted flags leave a field unchanged.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `-via_rule_name` | `str` | no | The name of the referenced VIARULE |
-| `-cut_size` | `Point` | no | The cut size, in microns (LEF CUTSIZE) |
-| `-bot_layer_name` | `str` | no | The bottom metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
-| `-cut_layer_name` | `str` | no | The cut layer name (LEF LAYERS botLayer cutLayer topLayer) |
-| `-top_layer_name` | `str` | no | The top metal layer name (LEF LAYERS botLayer cutLayer topLayer) |
-| `-cut_spacing` | `Point` | no | The cut spacing, in microns (LEF CUTSPACING) |
-| `-bot_enclosure` | `Point` | no | The bottom layer enclosure, in microns (LEF ENCLOSURE, bottom pair) |
-| `-top_enclosure` | `Point` | no | The top layer enclosure, in microns (LEF ENCLOSURE, top pair) |
-| `-num_cut_rows` | `int` | no | Number of cut rows (LEF ROWCOL) - a single cut if not given |
-| `-num_cut_cols` | `int` | no | Number of cut columns (LEF ROWCOL) - a single cut if not given |
-| `-origin` | `Point` | no | Offset of the cut array's own center from the via's own placement point, in microns (LEF VIARULE-inside-VIA ORIGIN) - the array is centered on the placement point if not given |
-| `-bot_offset` | `Point` | no | Offset of the bottom metal layer's own enclosure-rect center from the cut array's own center, in microns (LEF VIARULE-inside-VIA OFFSET, bottom pair) - the enclosure rect is centered on the cut array if not given |
-| `-top_offset` | `Point` | no | Same as bot_offset, for the top metal layer's own enclosure rect (LEF VIARULE-inside-VIA OFFSET, top pair) |
-
-## update_wire
+### update_wire
 
 `update_wire <id> [-route <token>] [-layer <token>] [-help]`
 
@@ -3703,18 +2407,7 @@ Changes the given fields of a Wire; omitted flags leave a field unchanged.
 | `-route` | `token` | no | Move it to this Route (token) |
 | `-layer` | `token` | no | The routing layer, as a layer:<name> token |
 
-## write_db
-
-`write_db <filename> [-no_session] [-help]`
-
-Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. The session goes with it - the open view, the viewport and layer/purpose/filter visibility - unless -no_session is given. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved.
-
-| Flag | Type | Required | Description |
-| --- | --- | --- | --- |
-| `<filename>` | `file` | yes | Output .led file path |
-| `-no_session` | `flag` | no | Save the database only, not the session |
-
-## write_def
+### write_def
 
 `write_def [-layout <token>] <filename> [-help]`
 
@@ -3725,22 +2418,382 @@ Writes the layout -layout (the current layout if omitted) as a DEF file.
 | `-layout` | `token` | no | Layout to write - defaults to the current Layout |
 | `<filename>` | `file` | yes | Output DEF file path |
 
-## write_lef
+## Schematic
 
-`write_lef [-abstract <token>] [-library <token>] [-abstracts <tokens>] [-include_tech] [-tech_only] <filename> [-help]`
+[`create_instance`](#create_instance), [`create_net`](#create_net), [`create_net_bus`](#create_net_bus), [`create_pin`](#create_pin), [`create_port`](#create_port), [`create_port_bus`](#create_port_bus), [`create_schematic`](#create_schematic), [`current_schematic`](#current_schematic), [`delete_instance`](#delete_instance), [`delete_net`](#delete_net), [`delete_net_bus`](#delete_net_bus), [`delete_pin`](#delete_pin), [`delete_port`](#delete_port), [`delete_port_bus`](#delete_port_bus), [`delete_schematic`](#delete_schematic), [`get_instances`](#get_instances), [`get_net_buss`](#get_net_buss), [`get_nets`](#get_nets), [`get_pins`](#get_pins), [`get_port_buss`](#get_port_buss), [`get_ports`](#get_ports), [`get_schematics`](#get_schematics), [`link`](#link), [`read_verilog`](#read_verilog), [`update_instance`](#update_instance), [`update_net`](#update_net), [`update_net_bus`](#update_net_bus), [`update_pin`](#update_pin), [`update_port`](#update_port), [`update_port_bus`](#update_port_bus), [`update_schematic`](#update_schematic), [`write_verilog_stubs`](#write_verilog_stubs)
 
-Writes a LEF file. -abstract writes one abstract's MACRO (the current abstract if -abstract, -library and -abstracts are all omitted); -library writes a MACRO for every abstract in a library, and -abstracts limits that to the ones listed (or works alone). Technology layers are left out unless -include_tech is given; -tech_only writes only them.
+### create_instance
+
+`create_instance -schematic <token> [-reference_design <token>] -name <str> [-reference_name <str>] [-location <Point>] [-rtl_text <str>] [-source_file <str>] [-diagnostic_summary <str>] [-help]`
+
+Creates a Instance and returns its token. Instance: An instance of another design, or a placeholder for source code that could not be fully read
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-abstract` | `token` | no | A single Abstract to write - defaults to the current Abstract if this, -library, and -abstracts are all omitted |
-| `-library` | `token` | no | Write a MACRO for every Abstract in every Design of this Library |
-| `-abstracts` | `token` | no | Abstracts to write - limits -library to these, or works alone |
-| `-include_tech` | `flag` | no | Also write every Technology layer alongside the MACRO(s) |
-| `-tech_only` | `flag` | no | Write only Technology layers, no MACRO at all |
-| `<filename>` | `file` | yes | Output LEF file path |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-reference_design` | `token` | no | The referenced design, once resolved - never set for a placeholder instance (see rtl_text) |
+| `-name` | `str` | yes | The name of the instance - unique within its schematic |
+| `-reference_name` | `str` | no | The name of the referenced design, if known |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance |
+| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read |
+| `-source_file` | `str` | no | The file rtl_text came from, if known |
+| `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
 
-## write_verilog_stubs
+### create_net
+
+`create_net -schematic <token> [-bus <token>] -name <str> [-bit_index <int>] [-help]`
+
+Creates a Net and returns its token. Net: Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
+| `-name` | `str` | yes | The name of the net - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit net, plain for a scalar net - unique within its schematic |
+| `-bit_index` | `int` | no | Which bit of .bus this Net represents |
+
+### create_net_bus
+
+`create_net_bus -schematic <token> -name <str> -msb <int> -lsb <int> [-help]`
+
+Creates a NetBus and returns its token. NetBus: A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-name` | `str` | yes | The bus's own base name (without a bit index) - unique within its schematic |
+| `-msb` | `int` | yes | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | yes | Least-significant bit index |
+
+### create_pin
+
+`create_pin -instance <token> [-net <token>] -name <str> [-direction <SignalDirection>] [-raw_expression <str>] [-help]`
+
+Creates a Pin and returns its token. Pin: Logical connection point on an Instance (Verilog instance port connection)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-instance` | `token` | yes | Parent Instance token |
+| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) is that bit's Net (see Net.bus/.bit_index) |
+| `-name` | `str` | yes | The pin name as connected in source, e.g. the A in .A(net23) |
+| `-direction` | `SignalDirection` | no | The pin's direction, if known |
+| `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
+
+### create_port
+
+`create_port -schematic <token> [-bus <token>] [-net <token>] -name <str> -direction <SignalDirection> [-bit_index <int>] [-help]`
+
+Creates a Port and returns its token. Port: Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-bus` | `token` | no | The PortBus this Port is one bit of, if it is part of a multi-bit port |
+| `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
+| `-name` | `str` | yes | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
+| `-direction` | `SignalDirection` | yes | The direction of the port |
+| `-bit_index` | `int` | no | Which bit of .bus this Port represents |
+
+### create_port_bus
+
+`create_port_bus -schematic <token> -name <str> -msb <int> -lsb <int> [-help]`
+
+Creates a PortBus and returns its token. PortBus: A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | yes | Parent Schematic token |
+| `-name` | `str` | yes | The bus's own base name (without a bit index) - unique within its schematic |
+| `-msb` | `int` | yes | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | yes | Least-significant bit index |
+
+### create_schematic
+
+`create_schematic -design <token> [-help]`
+
+Creates a Schematic and returns its token. Schematic: A logical connectivity view (netlist)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | yes | Parent Design token |
+
+### current_schematic
+
+`current_schematic [<id>] [-help]`
+
+Returns the current Schematic (empty if none is set); with <id>, selects it first. get_ commands without -of search within it.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | no | A friendly-id token to select as current - omit to just read the current value |
+
+### delete_instance
+
+`delete_instance <id> [-help]`
+
+Deletes a Instance and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Instance to delete |
+
+### delete_net
+
+`delete_net <id> [-help]`
+
+Deletes a net.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the net to delete |
+
+### delete_net_bus
+
+`delete_net_bus <id> [-help]`
+
+Deletes a NetBus and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the NetBus to delete |
+
+### delete_pin
+
+`delete_pin <id> [-help]`
+
+Deletes a Pin and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Pin to delete |
+
+### delete_port
+
+`delete_port <id> [-help]`
+
+Deletes a Port and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Port to delete |
+
+### delete_port_bus
+
+`delete_port_bus <id> [-help]`
+
+Deletes a PortBus and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the PortBus to delete |
+
+### delete_schematic
+
+`delete_schematic <id> [-help]`
+
+Deletes a Schematic and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Schematic to delete |
+
+### get_instances
+
+`get_instances [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the instances matching the given names and filters - an instance being a placed design in a schematic, or a placeholder for source that couldn't be read. A name containing "/" is a hierarchical path: each part is a name or glob, and "**" matches any depth (e.g. "top/a/b/**" is every instance anywhere under b).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_net_buss
+
+`get_net_buss [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the NetBus objects matching the given names and filters, as tokens. NetBus: A multi-bit bus grouping of a Schematic's own per-bit Nets (Verilog wire/reg/logic [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_nets
+
+`get_nets [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the nets matching the given names and filters - one net per bit of a schematic's wires. A name containing "/" is a hierarchical path ending at a net: each part is a name or glob, and "**" matches any depth (e.g. "u_block/u_aes/address[7]", or "top/a/b/**" for every net anywhere under b).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_pins
+
+`get_pins [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Pin objects matching the given names and filters, as tokens. Pin: Logical connection point on an Instance (Verilog instance port connection)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_port_buss
+
+`get_port_buss [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the PortBus objects matching the given names and filters, as tokens. PortBus: A multi-bit bus grouping of a Schematic's own per-bit Ports (Verilog module port [msb:lsb])
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_ports
+
+`get_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the ports matching the given names and filters - one port per bit of a schematic's inputs, outputs and inouts. A name containing "/" is a hierarchical path ending at a port: each part is a name or glob, and "**" matches any depth.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_schematics
+
+`get_schematics [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Schematic objects matching the given names and filters, as tokens. Schematic: A logical connectivity view (netlist)
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### link
+
+`link`
+
+Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Returns the number of instances newly resolved.
+
+### read_verilog
+
+`read_verilog -netlist|-rtl -library <name> <path> [<path> ...] [-help]`
+
+Reads one or more SystemVerilog/Verilog files, compiled together, as schematics. -netlist elaborates a gate-level netlist fully (parameters, generate blocks); cells read with read_lef but with no Verilog of their own get stub modules automatically, so their instances resolve. -rtl only parses, keeping anything it can't read as a placeholder instance. New designs go into the -library library, which is created if it doesn't exist; if that library has no design of a module's name but another library has exactly one with no schematic (e.g. a cell from read_lef), that design gets the schematic instead. A design in the -library library that already has a schematic is an error. Instances are linked to known designs afterwards (see link). Returns 0 on success, nonzero on an error (the details are printed).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-netlist` | `flag` | no | Full-elaboration flavor for a gate-level netlist |
+| `-rtl` | `flag` | no | Syntax-only flavor, tolerant of invalid/unsupported content |
+| `-library` | `str` | yes | Library to read new designs into - created if it doesn't exist |
+| `<path>` | `file...` | yes | One or more SystemVerilog/Verilog files to read together |
+
+### update_instance
+
+`update_instance <id> [-schematic <token>] [-reference_design <token>] [-name <str>] [-reference_name <str>] [-location <Point>] [-rtl_text <str>] [-source_file <str>] [-diagnostic_summary <str>] [-help]`
+
+Changes the given fields of an instance; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Move it to this schematic (token) |
+| `-reference_design` | `token` | no | The design it's an instance of, once resolved - never set for a placeholder instance |
+| `-name` | `str` | no | The instance's name - unique within its schematic |
+| `-reference_name` | `str` | no | The name of the referenced design, if known |
+| `-location` | `Point` | no | The location of the lower-left corner of this instance |
+| `-rtl_text` | `str` | no | The original source text, if this instance is a placeholder for source code that could not be fully read |
+| `-source_file` | `str` | no | The file rtl_text came from, if known |
+| `-diagnostic_summary` | `str` | no | A short explanation of why this instance's source could not be fully read, if available |
+
+### update_net
+
+`update_net <id> [-schematic <token>] [-bus <token>] [-name <str>] [-bit_index <int>] [-help]`
+
+Changes the given fields of a net; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Move it to this schematic (token) |
+| `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
+| `-name` | `str` | no | The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic |
+| `-bit_index` | `int` | no | Which bit of -bus this net is |
+
+### update_net_bus
+
+`update_net_bus <id> [-schematic <token>] [-name <str>] [-msb <int>] [-lsb <int>] [-help]`
+
+Changes the given fields of a NetBus; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Move it to this Schematic (token) |
+| `-name` | `str` | no | The bus's own base name (without a bit index) - unique within its schematic |
+| `-msb` | `int` | no | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | no | Least-significant bit index |
+
+### update_pin
+
+`update_pin <id> [-instance <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-raw_expression <str>] [-help]`
+
+Changes the given fields of a Pin; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-instance` | `token` | no | Move it to this Instance (token) |
+| `-net` | `token` | no | The net this pin connects to, if any - a connection to one bit of a multi-bit net (e.g. .A(bus[2])) is that bit's Net (see Net.bus/.bit_index) |
+| `-name` | `str` | no | The pin name as connected in source, e.g. the A in .A(net23) |
+| `-direction` | `SignalDirection` | no | The pin's direction, if known |
+| `-raw_expression` | `str` | no | The connection expression exactly as written in the source |
+
+### update_port
+
+`update_port <id> [-schematic <token>] [-bus <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-bit_index <int>] [-help]`
+
+Changes the given fields of a Port; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Move it to this Schematic (token) |
+| `-bus` | `token` | no | The PortBus this Port is one bit of, if it is part of a multi-bit port |
+| `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
+| `-name` | `str` | no | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
+| `-direction` | `SignalDirection` | no | The direction of the port |
+| `-bit_index` | `int` | no | Which bit of .bus this Port represents |
+
+### update_port_bus
+
+`update_port_bus <id> [-schematic <token>] [-name <str>] [-msb <int>] [-lsb <int>] [-help]`
+
+Changes the given fields of a PortBus; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-schematic` | `token` | no | Move it to this Schematic (token) |
+| `-name` | `str` | no | The bus's own base name (without a bit index) - unique within its schematic |
+| `-msb` | `int` | no | Most-significant bit index (Verilog [msb:lsb]) |
+| `-lsb` | `int` | no | Least-significant bit index |
+
+### update_schematic
+
+`update_schematic <id> [-design <token>] [-help]`
+
+Changes the given fields of a Schematic; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-design` | `token` | no | Move it to this Design (token) |
+
+### write_verilog_stubs
 
 `write_verilog_stubs [-library <token>] <filename> [-help]`
 
@@ -3751,7 +2804,317 @@ Writes an empty Verilog module for every design in -library (or the only library
 | `-library` | `token` | no | Library to write stubs for - the only library, if omitted |
 | `<filename>` | `file` | yes | Output Verilog file path |
 
-## zoom
+## GUI
+
+[`arm_move`](#arm_move), [`arm_resize`](#arm_resize), [`clear_rulers`](#clear_rulers), [`close_gui`](#close_gui), [`delete_selected_pieces`](#delete_selected_pieces), [`deselect_all`](#deselect_all), [`dump_png`](#dump_png), [`get_hierarchy_depth`](#get_hierarchy_depth), [`get_layer_selectable`](#get_layer_selectable), [`get_layer_visible`](#get_layer_visible), [`get_mode`](#get_mode), [`get_placement_type_selectable`](#get_placement_type_selectable), [`get_placement_type_visible`](#get_placement_type_visible), [`get_purpose_selectable`](#get_purpose_selectable), [`get_purpose_visible`](#get_purpose_visible), [`get_route_use_selectable`](#get_route_use_selectable), [`get_route_use_visible`](#get_route_use_visible), [`get_selection`](#get_selection), [`get_view_flip`](#get_view_flip), [`open_design`](#open_design), [`select`](#select), [`set_hierarchy_depth`](#set_hierarchy_depth), [`set_layer_selectable`](#set_layer_selectable), [`set_layer_visible`](#set_layer_visible), [`set_mode`](#set_mode), [`set_placement_type_selectable`](#set_placement_type_selectable), [`set_placement_type_visible`](#set_placement_type_visible), [`set_purpose_selectable`](#set_purpose_selectable), [`set_purpose_visible`](#set_purpose_visible), [`set_route_use_selectable`](#set_route_use_selectable), [`set_route_use_visible`](#set_route_use_visible), [`set_view_flip`](#set_view_flip), [`set_viewport_size`](#set_viewport_size), [`show_gui`](#show_gui), [`zoom`](#zoom), [`zoom_area`](#zoom_area)
+
+### arm_move
+
+`arm_move [-help]`
+
+Arms the Move tool, as Ctrl-M does in the GUI: click to set the start point, move the mouse, and click again to move the selection. Stays armed for another move until Escape. Edit mode only, with something selected; refused when placements are selected together with other objects.
+
+### arm_resize
+
+`arm_resize [-help]`
+
+Arms the Resize tool, as Ctrl-R does in the GUI: hovering an edge of a selected rect or polygon, or a path segment, highlights it; click it, move the mouse, and click again to resize (one undoable edit). Escape cancels a resize, or disarms the tool. Edit mode only; not available while placements are selected.
+
+### clear_rulers
+
+`clear_rulers [-help]`
+
+Removes every ruler, finished or not.
+
+### close_gui
+
+`close_gui [-help]`
+
+Closes the window show_gui opened, without asking - nothing is lost, and show_gui reopens it. The window's own close button instead asks whether to close the window or exit. Interactive le_shell only - an error in a batch script.
+
+### delete_selected_pieces
+
+`delete_selected_pieces [-help]`
+
+Deletes each selected shape piece - a rect, polygon, path, via or via array - from its shape, as the Edit-mode Delete button and the Del key do in the GUI. A shape left with no geometry is deleted too; owners (a route, a terminal port, ...) and any other selected objects stay. Undoable. Returns how many pieces were deleted.
+
+### deselect_all
+
+`deselect_all [-help]`
+
+Clears the current selection.
+
+### dump_png
+
+`dump_png <path> [-help]`
+
+Renders the current view and writes it as a PNG with a transparent background, at the viewport size (see set_viewport_size) - no GUI needed.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | yes | Output PNG file path |
+
+### get_hierarchy_depth
+
+`get_hierarchy_depth [-help]`
+
+Returns the hierarchy depth - see set_hierarchy_depth.
+
+### get_layer_selectable
+
+`get_layer_selectable <layer_name> [-help]`
+
+Returns 1 if shapes on the layer <layer_name> can be selected, 0 otherwise.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
+
+### get_layer_visible
+
+`get_layer_visible <layer_name> [-help]`
+
+Returns 1 if the layer <layer_name> is visible, 0 if it's hidden. An unknown layer reads as visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
+
+### get_mode
+
+`get_mode [-help]`
+
+Returns the interaction mode: select, edit or ruler.
+
+### get_placement_type_selectable
+
+`get_placement_type_selectable <type> [-help]`
+
+Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected, 0 otherwise - see set_placement_type_selectable.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+
+### get_placement_type_visible
+
+`get_placement_type_visible <type> [-help]`
+
+Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> are visible, 0 otherwise - see set_placement_type_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+
+### get_purpose_selectable
+
+`get_purpose_selectable <purpose> [-help]`
+
+Returns 1 if shapes of the purpose <purpose> can be selected, 0 otherwise.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+
+### get_purpose_visible
+
+`get_purpose_visible <purpose> [-help]`
+
+Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpose_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+
+### get_route_use_selectable
+
+`get_route_use_selectable <use> [-help]`
+
+Returns 1 if routes whose DEF USE is <use> can be selected, 0 otherwise - see set_route_use_selectable.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
+
+### get_route_use_visible
+
+`get_route_use_visible <use> [-help]`
+
+Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_route_use_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
+
+### get_selection
+
+`get_selection [-help]`
+
+Returns the selection as a list of tokens (shape:, wire:, row:, placement:, region:), each object once - the form select accepts.
+
+### get_view_flip
+
+`get_view_flip [-help]`
+
+Returns how the design view is mirrored: none, horizontal or vertical.
+
+### open_design
+
+`open_design <name> [-view abstract|layout] [-help]`
+
+Opens the design <name> as the current view - its abstract (the default) or its layout. A design's name is unique only within its library: when several libraries have one of that name, give it as <library>/<name>. Commands with an -of flag search the current view when it's omitted.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name>` | `str` | yes | Name of the Design to open, or <library>/<name> if several libraries have one |
+| `-view` | `str` | no | "abstract" (the default) or "layout" |
+
+### select
+
+`select <tokens> [-help]`
+
+Adds each token to the selection, keeping what's already selected (use deselect_all first to replace it). A shape: or wire: token selects all of its rects, polygons, paths and vias.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<tokens>` | `token` | yes | One or more shape:/wire:/row:/placement:/region: tokens to select |
+
+### set_hierarchy_depth
+
+`set_hierarchy_depth <depth> [-help]`
+
+Sets how many levels of placed designs the layout view draws in full; deeper placements are drawn as their cells' abstracts.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<depth>` | `int` | yes | The hierarchy depth, 1 or larger |
+
+### set_layer_selectable
+
+`set_layer_selectable <layer_name> <selectable> [-help]`
+
+Sets whether shapes on the layer <layer_name> can be selected. Layers are selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
+
+### set_layer_visible
+
+`set_layer_visible <layer_name> <visible> [-help]`
+
+Shows or hides everything on the layer <layer_name> - its pins, obstructions, routes, tracks and so on. Layers are visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer_name>` | `str` | yes | Layer name, e.g. "M1" |
+| `<visible>` | `bool` | yes | true to show, false to hide |
+
+### set_mode
+
+`set_mode <mode> [-help]`
+
+Switches the interaction mode: select (the default), edit or ruler. The GUI's s/e/r keys do the same.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<mode>` | `str` | yes | One of select, edit, ruler |
+
+### set_placement_type_selectable
+
+`set_placement_type_selectable <type> <selectable> [-help]`
+
+Sets whether placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected. Everything is selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
+
+### set_placement_type_visible
+
+`set_placement_type_visible <type> <visible> [-help]`
+
+Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <type> - their outline, name and content. Everything is visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<type>` | `str` | yes | Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET |
+| `<visible>` | `bool` | yes | true to show, false to hide |
+
+### set_purpose_selectable
+
+`set_purpose_selectable <purpose> <selectable> [-help]`
+
+Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
+
+### set_purpose_visible
+
+`set_purpose_visible <purpose> <visible> [-help]`
+
+Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> is one of: boundary customShape debug flightline gcellgrid obstruction placement placementBlockage portMarker region route routingBlockage row terminal trackNonPreferred trackPreferred. Everything is visible by default except trackPreferred, trackNonPreferred, row, gcellgrid and flightline.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
+| `<visible>` | `bool` | yes | true to show, false to hide |
+
+### set_route_use_selectable
+
+`set_route_use_selectable <use> <selectable> [-help]`
+
+Sets whether routes whose DEF USE is <use> can be selected. Everything is selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
+
+### set_route_use_visible
+
+`set_route_use_visible <use> <visible> [-help]`
+
+Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything is visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
+| `<visible>` | `bool` | yes | true to show, false to hide |
+
+### set_view_flip
+
+`set_view_flip <flip> [-help]`
+
+Mirrors the design view: horizontal swaps left and right, vertical swaps top and bottom, none shows it as it is. The same area stays in view, clicks and the arrow keys follow what's on screen, and overlay text such as ruler labels stays readable; text in the design itself is mirrored. Saved with the session.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<flip>` | `str` | yes | One of none, horizontal, vertical |
+
+### set_viewport_size
+
+`set_viewport_size -width <int> -height <int> [-help]`
+
+Sets the size in pixels of the rendered view - what dump_png writes and what zoom_area fits to. The GUI sets this itself as its window resizes.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-width` | `int` | yes | Viewport width, in pixels |
+| `-height` | `int` | yes | Viewport height, in pixels |
+
+### show_gui
+
+`show_gui [-help]`
+
+Opens a window showing the session's current view. It shares the session - the mouse and keyboard there act on the same design as the console. Returns at once. Interactive le_shell only - an error in a batch script.
+
+### zoom
 
 `zoom -factor <double> [-help]`
 
@@ -3761,7 +3124,7 @@ Zooms the current view in (positive -factor) or out (negative) about its center:
 | --- | --- | --- | --- |
 | `-factor` | `double` | yes | Zoom step - e.g. 0.3 zooms in 30%, -0.3 zooms out |
 
-## zoom_area
+### zoom_area
 
 `zoom_area {{llx lly} {urx ury}} [-padding <int>] [-help]`
 
@@ -3771,4 +3134,679 @@ Fits the view to the rectangle {{llx lly} {urx ury}}, in microns, keeping its as
 | --- | --- | --- | --- |
 | `<rect>` | `Rect` | yes | {{llx lly} {urx ury}}, in microns |
 | `-padding` | `int` | no | Margin in pixels on every side - 0 by default |
+
+## Settings
+
+[`get_confirm_overwrite`](#get_confirm_overwrite), [`get_flightline_max_fanout`](#get_flightline_max_fanout), [`get_grid_spacing`](#get_grid_spacing), [`get_label_max_size`](#get_label_max_size), [`get_label_min_size`](#get_label_min_size), [`get_layer_color`](#get_layer_color), [`get_max_concurrency`](#get_max_concurrency), [`get_placement_snap_mode`](#get_placement_snap_mode), [`get_ruler_label_size`](#get_ruler_label_size), [`get_shape_snap_mode`](#get_shape_snap_mode), [`load_settings`](#load_settings), [`placement_snap_mode_available`](#placement_snap_mode_available), [`reset_layer_color`](#reset_layer_color), [`save_settings`](#save_settings), [`set_confirm_overwrite`](#set_confirm_overwrite), [`set_flightline_max_fanout`](#set_flightline_max_fanout), [`set_grid_spacing`](#set_grid_spacing), [`set_label_max_size`](#set_label_max_size), [`set_label_min_size`](#set_label_min_size), [`set_layer_color`](#set_layer_color), [`set_max_concurrency`](#set_max_concurrency), [`set_placement_snap_mode`](#set_placement_snap_mode), [`set_ruler_label_size`](#set_ruler_label_size), [`set_shape_snap_mode`](#set_shape_snap_mode), [`shape_snap_mode_available`](#shape_snap_mode_available)
+
+### get_confirm_overwrite
+
+`get_confirm_overwrite [-help]`
+
+Returns 1 if the GUI asks before a Save overwrites an existing design file, else 0.
+
+### get_flightline_max_fanout
+
+`get_flightline_max_fanout [-help]`
+
+Returns the flightline fanout limit (0 means no limit).
+
+### get_grid_spacing
+
+`get_grid_spacing [-major] [-help]`
+
+Returns the minor grid spacing in microns, or the major one with -major; -1 if it isn't known yet (no technology read and none set).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-major` | `flag` | no | Return the major grid spacing instead |
+
+### get_label_max_size
+
+`get_label_max_size [-help]`
+
+Returns the largest label font size in pixels - see set_label_max_size.
+
+### get_label_min_size
+
+`get_label_min_size [-help]`
+
+Returns the smallest label font size in pixels - see set_label_min_size.
+
+### get_layer_color
+
+`get_layer_color <layer> [-help]`
+
+Returns the current color of <layer> (a technology layer, or a row like BOUNDARY) as #rrggbb - set_layer_color's if set, else its default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer>` | `str` | yes | Layer (or row) name |
+
+### get_max_concurrency
+
+`get_max_concurrency [-help]`
+
+Returns the most threads rendering may use at once.
+
+### get_placement_snap_mode
+
+`get_placement_snap_mode [-help]`
+
+Returns the placement snap mode: site, fin, manufacturing or none.
+
+### get_ruler_label_size
+
+`get_ruler_label_size [-help]`
+
+Returns the ruler label font size in pixels.
+
+### get_shape_snap_mode
+
+`get_shape_snap_mode <kind> [-help]`
+
+Returns the snap mode for <kind>: none, user, manufacturing, fin or tracks. See set_shape_snap_mode.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<kind>` | `str` | yes | rect, polygon, path or via |
+
+### load_settings
+
+`load_settings [<path>] [-help]`
+
+Loads settings written by save_settings from <path>, or ~/.layout_engine/settings.json if omitted. A file from an older layout_engine is updated to the current format; one from a newer layout_engine loads the settings this one knows, with a warning. A setting missing from the file keeps its current value; an invalid one is skipped with a warning.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | no | JSON file to read - ~/.layout_engine/settings.json if omitted |
+
+### placement_snap_mode_available
+
+`placement_snap_mode_available <mode> [-help]`
+
+Returns 1 if <mode> has something to snap to: rows in the current layout for site, a FinFET grid for fin, a manufacturing grid for manufacturing; none always returns 1.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
+
+### reset_layer_color
+
+`reset_layer_color <layer> [-help]`
+
+Drops set_layer_color's color for <layer>, returning it to its default palette color.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer>` | `str` | yes | Layer (or row) name |
+
+### save_settings
+
+`save_settings [<path>] [-help]`
+
+Saves the settings - grid spacing, font sizes, flightline fanout limit, CPUs, snap modes and layer colors - as JSON to <path>, or to ~/.layout_engine/settings.json if omitted, which le_shell loads when it starts. Settings from a newer layout_engine that this one doesn't know are kept.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | no | JSON file to write - ~/.layout_engine/settings.json if omitted |
+
+### set_confirm_overwrite
+
+`set_confirm_overwrite <true|false> [-help]`
+
+Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. True by default; saved with the settings.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<true|false>` | `bool` | yes | true to ask before overwriting, false to save straight away |
+
+### set_flightline_max_fanout
+
+`set_flightline_max_fanout <max_fanout> [-help]`
+
+Sets the flightline fanout limit - a net connecting more than <max_fanout> pins besides the selected one (e.g. a clock or reset net) draws no flightlines. 0 means no limit; 10 by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<max_fanout>` | `int` | yes | The fanout limit, 0 for none |
+
+### set_grid_spacing
+
+`set_grid_spacing [-minor <um>] [-major <um>] [-help]`
+
+Sets the background grid spacing in microns - the minor grid is also what drawing, Move and Resize snap to. An omitted flag leaves that spacing unchanged. Before any technology is read the value is held and applied once one is.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-minor` | `double` | no | Minor grid spacing, in microns |
+| `-major` | `double` | no | Major grid spacing, in microns |
+
+### set_label_max_size
+
+`set_label_max_size <px> [-help]`
+
+Sets the largest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between set_label_min_size's size and this, so they don't grow without bound when zoomed in. 24 by default; values <= 0 are ignored.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<px>` | `double` | yes | Font size in pixels |
+
+### set_label_min_size
+
+`set_label_min_size <px> [-help]`
+
+Sets the smallest on-screen font size (pixels) of pin, route and placement name labels - they scale with their shapes between this and set_label_max_size's size, so they stay legible when zoomed out. 12 by default; a min above the max yields to the max; values <= 0 are ignored.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<px>` | `double` | yes | Font size in pixels |
+
+### set_layer_color
+
+`set_layer_color <layer> <#rrggbb> [-help]`
+
+Sets the color of every purpose of <layer> (a technology layer, or a row like BOUNDARY), replacing its default palette color - the same as picking one from its swatch in the Layers panel. Saved by save_settings. A layer that doesn't exist yet takes the color once it's read. See reset_layer_color.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<layer>` | `str` | yes | Layer (or row) name |
+| `<color>` | `str` | yes | Color as #rrggbb |
+
+### set_max_concurrency
+
+`set_max_concurrency <max_concurrency> [-help]`
+
+Sets the most threads rendering may use at once - useful to limit CPU use on machines with many cores. At least 2; 8 by default. The Settings panel's CPUs field.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<max_concurrency>` | `int` | yes | Most threads, at least 2 |
+
+### set_placement_snap_mode
+
+`set_placement_snap_mode <mode> [-help]`
+
+Sets what a moved placement snaps to: site (the default - a core cell snaps to the nearest row of its own site, in an orientation the row allows; anything else to the manufacturing grid), fin (the FinFET grid across the fins, the manufacturing grid along them), manufacturing (the manufacturing grid) or none.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<mode>` | `str` | yes | One of site, fin, manufacturing, none |
+
+### set_ruler_label_size
+
+`set_ruler_label_size <px> [-help]`
+
+Sets the on-screen font size (pixels) of ruler labels. 11 by default; values <= 0 are ignored.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<px>` | `double` | yes | Font size in pixels |
+
+### set_shape_snap_mode
+
+`set_shape_snap_mode <kind> <mode> [-help]`
+
+Sets what a resized or moved shape of <kind> snaps to. Rects and polygons (Resize): user (the minor grid - the default), manufacturing, fin (the FinFET grid across the fins, the manufacturing grid along them) or none. Paths, vias and via arrays share one mode: user, manufacturing (a path's edges land on the grid), tracks (a path's centerline, or a via's origin, lands on a routing track of its layer) or none.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<kind>` | `str` | yes | rect, polygon, path or via |
+| `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path/via) |
+
+### shape_snap_mode_available
+
+`shape_snap_mode_available <kind> <mode> [-help]`
+
+Returns 1 if <kind> offers <mode> and there's something to snap to: always for none and user, a manufacturing grid for manufacturing, a FinFET grid for fin, and routing tracks on a selected path's layer for tracks.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<kind>` | `str` | yes | rect, polygon or path |
+| `<mode>` | `str` | yes | none, user, manufacturing, fin or tracks |
+
+## General
+
+[`command_history`](#command_history), [`create_design`](#create_design), [`create_library`](#create_library), [`create_shape`](#create_shape), [`db_info`](#db_info), [`delete_design`](#delete_design), [`delete_library`](#delete_library), [`delete_shape`](#delete_shape), [`get_designs`](#get_designs), [`get_libraries`](#get_libraries), [`get_properties`](#get_properties), [`get_shapes`](#get_shapes), [`history`](#history), [`migrate_db`](#migrate_db), [`read_db`](#read_db), [`redo`](#redo), [`remove_shape_path`](#remove_shape_path), [`remove_shape_polygon`](#remove_shape_polygon), [`remove_shape_rect`](#remove_shape_rect), [`report_properties`](#report_properties), [`shape_and`](#shape_and), [`shape_bbox`](#shape_bbox), [`shape_change_layer`](#shape_change_layer), [`shape_copy`](#shape_copy), [`shape_not`](#shape_not), [`shape_or`](#shape_or), [`shape_path`](#shape_path), [`shape_paths`](#shape_paths), [`shape_polygons`](#shape_polygons), [`shape_rects`](#shape_rects), [`shape_size`](#shape_size), [`shape_to_polygon`](#shape_to_polygon), [`shape_to_rects`](#shape_to_rects), [`source`](#source), [`undo`](#undo), [`unsaved_changes`](#unsaved_changes), [`update_design`](#update_design), [`update_library`](#update_library), [`update_shape`](#update_shape), [`write_db`](#write_db)
+
+### command_history
+
+`command_history [-help]`
+
+Lists this session's typed commands, numbered, in the order they were entered - including ones that failed. Up/Down at the prompt recall them.
+
+### create_design
+
+`create_design -library <token> -name <str> [-help]`
+
+Creates a Design and returns its token. Design: A library cell or logical module
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-library` | `token` | yes | Parent Library token |
+| `-name` | `str` | yes | The name of the design, unique within its library |
+
+### create_library
+
+`create_library -name <str> [-help]`
+
+Creates a Library and returns its token. Library: A library containing designs
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-name` | `str` | yes | The name of the library |
+
+### create_shape
+
+`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
+
+Creates a Shape and returns its token. Shape: A shape on a layer.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-terminal_port` | `token` | no | Parent TerminalPort token - give exactly one of the parent flags |
+| `-obstruction` | `token` | no | Parent Obstruction token - give exactly one of the parent flags |
+| `-physical_port_segment` | `token` | no | Parent PhysicalPortSegment token - give exactly one of the parent flags |
+| `-blockage` | `token` | no | Parent Blockage token - give exactly one of the parent flags |
+| `-route` | `token` | no | Parent Route token - give exactly one of the parent flags |
+| `-layout` | `token` | no | Parent Layout token - give exactly one of the parent flags |
+| `-abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
+| `-in_abstract` | `token` | no | Parent Abstract token - give exactly one of the parent flags |
+| `-in_layout` | `token` | no | Parent Layout token - give exactly one of the parent flags |
+| `-layer` | `token` | no | The physical layer this shape is on. Exactly one of layer and purpose is set - a shape with no physical layer (a diearea, an abstract boundary, a placement blockage) uses purpose instead. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG. |
+| `-purpose` | `ShapePurpose` | no | What this shape is, when it isn't on a physical layer - a boundary, a placement blockage or debug geometry. Exactly one of layer and purpose is set. |
+| `-paths` | `Path...` | no | A list of paths |
+| `-polygons` | `Polygon...` | no | A list of polygons |
+| `-rects` | `Rect...` | no | A list of rects |
+| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
+| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
+| `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
+
+### db_info
+
+`db_info <filename> [-help]`
+
+Returns a description of a database file written by write_db: its schema version, whether it matches this build's schema, the extensions whose objects it holds, the migrations loading it would run, and how many objects of each class it holds.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<filename>` | `file` | yes | .led file to describe |
+
+### delete_design
+
+`delete_design <id> [-help]`
+
+Deletes a Design and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Design to delete |
+
+### delete_library
+
+`delete_library <id> [-help]`
+
+Deletes a Library and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Library to delete |
+
+### delete_shape
+
+`delete_shape <id> [-help]`
+
+Deletes a Shape and everything it owns.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | Token of the Shape to delete |
+
+### get_designs
+
+`get_designs [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Design objects matching the given names and filters, as tokens. Design: A library cell or logical module
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_libraries
+
+`get_libraries [<name-expr>...] [-filter <expr>] [-help]`
+
+Returns the Library objects matching the given names and filters, as tokens. Library: A library containing designs
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name-expr>` | `str` | no | Pattern (Tcl glob) matched against name - several match any of them |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### get_properties
+
+`get_properties <tokens> ?property_names?`
+
+Returns the properties of one or more objects: all of them, or the ones named (e.g. .name, or a chained path such as .terminal.name). One object and one property give a single value; otherwise a list. See man get_properties.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<tokens>` | `token...` | yes | An object's token, or a list of them (e.g. the result of get_terminals) |
+| `<property_names>` | `str...` | no | A property path such as .name, or a list of them - every property if omitted |
+
+### get_shapes
+
+`get_shapes [-of <token>...] [-filter <expr>] [-help]`
+
+Returns the Shape objects matching the given names and filters, as tokens. Shape: A shape on a layer.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-of` | `token...` | no | Search only within these objects (tokens) - the current view if omitted |
+| `-filter` | `expr` | no | Keep only objects matching this expression over their properties |
+
+### history
+
+`history [-help]`
+
+Same as command_history.
+
+### migrate_db
+
+`migrate_db <in> <out> [-help]`
+
+Loads a database file written by any earlier version, runs the migrations it needs (db_info lists them) and writes it to <out> with this build's schema, keeping its saved session. The current session's database is not touched. <out> may be <in>: it is replaced only once the new file is complete. Returns a summary, including anything the migration dropped.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<in>` | `file` | yes | .led file to read |
+| `<out>` | `file` | yes | .led file to write |
+
+### read_db
+
+`read_db <filename> [-no_session] [-help]`
+
+Loads a database file written by write_db. Only works in an empty session (before anything is read or created). A file written by an older Layout Engine loads too: fields added or removed since are matched by name, and anything dropped is printed as a warning. Restores the session saved with it (the open view, viewport and layer/purpose/filter visibility) unless -no_session is given. Clears undo/redo. Returns 0 on success, nonzero on an error (the details are printed).
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<filename>` | `file` | yes | .led file to read |
+| `-no_session` | `flag` | no | Load the database only, ignoring its saved session |
+
+### redo
+
+`redo [-help]`
+
+Redoes the last undone change. Returns 1 if something was redone, 0 otherwise.
+
+### remove_shape_path
+
+`remove_shape_path <id> <path_index> [-help]`
+
+Removes the path at <path_index> from a shape or wire; later paths move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: or wire: token |
+| `<path_index>` | `int` | yes | Path index, from 0 |
+
+### remove_shape_polygon
+
+`remove_shape_polygon <id> <polygon_index> [-help]`
+
+Removes the polygon at <polygon_index> from a shape; later polygons move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: token |
+| `<polygon_index>` | `int` | yes | Polygon index, from 0 |
+
+### remove_shape_rect
+
+`remove_shape_rect <id> <index> [-help]`
+
+Removes the rect at <index> from a shape; later rects move down one index. Returns 0, or nonzero if the shape or index doesn't exist.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: token |
+| `<index>` | `int` | yes | Rect index, from 0 |
+
+### report_properties
+
+`report_properties <tokens>`
+
+Prints every property of each object, one aligned block per object. For a value a script can use, see get_properties.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<tokens>` | `token...` | yes | An object's token, or a list of them |
+
+### shape_and
+
+`shape_and <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape holding the overlap of the two groups, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
+| `-with` | `token...` | yes | The second group - a list of shape tokens |
+| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
+| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
+
+### shape_bbox
+
+`shape_bbox <shapes> [-help]`
+
+Returns the bounding box of every given shape together as a Rect, {{llx lly} {urx ury}} in microns - the same form -bbox/-rects flags and zoom_area take (zoom_area [shape_bbox ...]). Creates nothing.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
+
+### shape_change_layer
+
+`shape_change_layer <shapes> -layer <token> [-help]`
+
+Puts each shape onto -layer in place (its geometry, position and owner are unchanged); -layer debug puts it on the debug layer (drawn on top of everything in light blue). All-or-nothing: an unknown shape changes nothing. Undoable. Returns the same shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them (e.g. [get_selection]) |
+| `-layer` | `token` | yes | The layer to move onto, or debug for the debug layer |
+
+### shape_copy
+
+`shape_copy <shapes> -layer <token> [-parent <token>] [-help]`
+
+Creates one new Shape per input shape, with the same geometry, on -layer. The originals are untouched. New Shapes go to the current Abstract/Layout's free-standing shapes (not written by write_lef/write_def) unless -parent names an abstract, layout, obstruction, terminal_port, route, blockage or physical_port_segment to add them to. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them (e.g. [get_selection]) |
+| `-layer` | `token` | yes | The layer to copy onto, or debug for the debug layer |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+
+### shape_not
+
+`shape_not <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape holding the first group minus the -with group, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
+| `-with` | `token...` | yes | The second group - a list of shape tokens |
+| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
+| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
+
+### shape_or
+
+`shape_or <shapes> -with <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape holding the union of both groups, merging every shape within each group first. It goes on the first input shape's own layer unless -layer is given. A region with holes comes back as exact rects (a polygon can't hold a hole). An empty result creates nothing and returns an empty list. New Shapes go to the current Abstract/Layout's free-standing shapes unless -parent says otherwise (see shape_copy). Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | The first group - shape tokens, or lists of them |
+| `-with` | `token...` | yes | The second group - a list of shape tokens |
+| `-layer` | `token` | no | Layer for the result (or debug for the debug layer) - defaults to the first input shape's own |
+| `-parent` | `token` | no | Where the new Shape goes - defaults to the current Abstract/Layout's free-standing shapes |
+
+### shape_path
+
+`shape_path <shapes> -width <um> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new path-only Shape per input shape: a closed path of -width microns along the outline of its merged rects/polygons (and around any holes), plus each of its own paths' centerlines re-stroked at -width. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
+| `-width` | `um` | yes | Path width, in microns |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+
+### shape_paths
+
+`shape_paths <id> [-help]`
+
+Returns a shape's paths as a list of {width {{x y} {x y} ...}}, in microns - the form create_shape's -paths takes.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: token |
+
+### shape_polygons
+
+`shape_polygons <id> [-help]`
+
+Returns a shape's polygons as a list of point lists, each point an {x y} pair in microns - the form create_shape's -polygons takes.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: token |
+
+### shape_rects
+
+`shape_rects <id> [-help]`
+
+Returns a shape's rects as a list of {{ll_x ll_y} {ur_x ur_y}}, in microns - the form create_shape's -rects takes.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<id>` | `token` | yes | A shape: token |
+
+### shape_size
+
+`shape_size <shapes> [-by <um>] [-x <um>] [-y <um>] [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new Shape per input shape: its merged area grown (positive) or shrunk (negative) by -x microns in X and -y in Y (-by sets both; an explicit -x/-y overrides it). Exact for axis-aligned geometry with any X/Y amounts; other geometry only supports equal X and Y. A shape shrunk away entirely creates nothing. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
+| `-by` | `um` | no | Grow (positive) or shrink (negative) by this in both X and Y, in microns |
+| `-x` | `um` | no | Grow/shrink in X, in microns - overrides -by |
+| `-y` | `um` | no | Grow/shrink in Y, in microns - overrides -by |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+
+### shape_to_polygon
+
+`shape_to_polygon <shapes> [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new polygon-only Shape per input shape, covering its merged area. A region with holes is split into exact rectangular polygons (a polygon can't hold a hole). Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+
+### shape_to_rects
+
+`shape_to_rects <shapes> [-direction horizontal|vertical] [-layer <token>] [-parent <token>] [-help]`
+
+Creates one new rect-only Shape per input shape, fracturing its merged area into non-overlapping rects: -direction horizontal (the default) cuts with horizontal lines, giving horizontal strips; vertical gives vertical strips. Exact for axis-aligned geometry; a diagonal edge is over-covered by its strip's bounding box. Each goes on its input's own layer unless -layer is given; see shape_copy for -parent. Returns the new shape tokens.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shapes>` | `token...` | yes | Shape or wire tokens, or lists of them |
+| `-direction` | `str` | no | horizontal (default) or vertical fracturing |
+| `-layer` | `token` | no | Layer for the results (or debug for the debug layer) - defaults to each input's own |
+| `-parent` | `token` | no | Where the new Shapes go - defaults to the current Abstract/Layout's free-standing shapes |
+
+### source
+
+`source <path> [-help]`
+
+Runs a Tcl script file, as Tcl's own source does. Returns the result of the script's last command.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<path>` | `file` | yes | Tcl script file to evaluate |
+
+### undo
+
+`undo [-help]`
+
+Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1 if something was undone, 0 if there was nothing to undo.
+
+### unsaved_changes
+
+`unsaved_changes [-help]`
+
+Returns what has changed since it was last saved: "design" if the design has changed since the last write_db or read_db (reading LEF/DEF/Verilog counts, and write_def/write_lef don't save it), and "settings" if settings differ from the last save_settings or load_settings. Empty if nothing is unsaved. le_shell asks before exiting when it isn't.
+
+### update_design
+
+`update_design <id> [-library <token>] [-name <str>] [-help]`
+
+Changes the given fields of a Design; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-library` | `token` | no | Move it to this Library (token) |
+| `-name` | `str` | no | The name of the design, unique within its library |
+
+### update_library
+
+`update_library <id> [-name <str>] [-help]`
+
+Changes the given fields of a Library; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-name` | `str` | no | The name of the library |
+
+### update_shape
+
+`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
+
+Changes the given fields of a Shape; omitted flags leave a field unchanged.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-layer` | `token` | no | The physical layer this shape is on. Exactly one of layer and purpose is set - a shape with no physical layer (a diearea, an abstract boundary, a placement blockage) uses purpose instead. From TCL, a layer:<name> token; create_shape -layer debug means -purpose DEBUG. |
+| `-purpose` | `ShapePurpose` | no | What this shape is, when it isn't on a physical layer - a boundary, a placement blockage or debug geometry. Exactly one of layer and purpose is set. |
+| `-paths` | `Path...` | no | A list of paths |
+| `-polygons` | `Polygon...` | no | A list of polygons |
+| `-rects` | `Rect...` | no | A list of rects |
+| `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
+| `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
+| `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
+
+### write_db
+
+`write_db <filename> [-no_session] [-help]`
+
+Saves everything read or created so far - technology, libraries, designs, schematics and layouts - to one native Layout Engine database file (.led by convention), which read_db loads back exactly and later Layout Engine versions can still read. The session goes with it - the open view, the viewport and layer/purpose/filter visibility - unless -no_session is given. An existing file is only replaced once the new one is completely written. Afterwards the design counts as saved.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<filename>` | `file` | yes | Output .led file path |
+| `-no_session` | `flag` | no | Save the database only, not the session |
 
