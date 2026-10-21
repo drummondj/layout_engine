@@ -388,6 +388,16 @@ class TestExtensionOwnedShapes(unittest.TestCase):
         self.assertIn("HelloBox,", item)
         self.assertIn("static constexpr ItemOwner hello_box(HelloBoxId id) noexcept", item)
 
+    def test_an_extensions_tcl_help_is_tagged_with_it(self):
+        schema = self.core()
+        self.assertEqual(extension_schema.apply(schema, [self.extension(self.BOX)]), [])
+        schema.link()
+        self.assertEqual(schema.get_klass("HelloBox").tcl_help_attributes(), " {extension hello_ext}")
+        self.assertEqual(schema.get_klass("Item").tcl_help_attributes(), "", "a core class")
+        options = schema.get_klass("Item").create_tcl_help_options()
+        self.assertIn("{-hello_box {type token required 0 description {Parent HelloBox token - give exactly one of the parent flags} extension hello_ext}}", options)
+        self.assertEqual(options.count(" extension "), 1, "only the option the extension implies")
+
     def test_a_render_purpose_joins_the_schema_and_carries_the_prefix(self):
         body = self.BOX.replace('from codegen.schema import Field, Klass', 'from codegen.schema import Field, Klass, Purpose, Render').replace(
             'schema.classes.append(Klass(name="HelloBox", description="A box", fields=[',

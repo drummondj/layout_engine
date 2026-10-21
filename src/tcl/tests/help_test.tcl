@@ -335,4 +335,31 @@ check_contains "generate_command_docs includes get_terminals" $docs "## get_term
 check_contains "generate_command_docs includes create_terminal" $docs "## create_terminal"
 check_contains "generate_command_docs includes report_properties (hand-written)" $docs "## report_properties"
 
+# A command an extension adds is tagged with it, explicitly or while
+# le_shell sources that extension's procs (::le_extension), and left out of
+# the core reference - though `help` still lists it.
+register_command_help test_ext_explicit "test_ext_explicit" "An extension's command." {} {extension test_ext}
+set ::le_extension test_ext
+register_command_help test_ext_sourced "test_ext_sourced" "Another extension's command." {}
+unset ::le_extension
+register_command_help test_core_command "test_core_command" "A core command." {}
+check "an explicit extension attribute is kept" test_ext [dict get $::command_help test_ext_explicit extension]
+check "a command registered while ::le_extension is set is that extension's" test_ext [dict get $::command_help test_ext_sourced extension]
+check "a core command has no extension" 0 [dict exists $::command_help test_core_command extension]
+set docs [generate_command_docs]
+check "the reference leaves an extension's commands out" -1 [string first "## test_ext_" $docs]
+check_contains "the reference keeps core commands" $docs "## test_core_command"
+check_contains "help still lists an extension's commands" [help test_ext_*] "test_ext_explicit"
+# A build with the hello_ext example extension generates its classes'
+# commands, tagged with it.
+if {[dict exists $::command_help create_hello_pin]} {
+    check "a generated command for an extension's class names the extension" hello_ext [dict get $::command_help create_hello_pin extension]
+    check "the reference leaves generated extension commands out" -1 [string first "## create_hello_pin" $docs]
+    # Nor what it adds to core commands: owner options and purposes.
+    check "the reference leaves an extension's owner option out of create_shape" -1 [string first "hello_pin" $docs]
+    check "the reference lists only core's purposes" -1 [string first "helloPin" $docs]
+    check_contains "man still shows the extension's owner option" [man create_shape] "-hello_pin"
+    check_contains "man still lists the extension's purposes" [man set_purpose_visible] "helloPin"
+}
+
 puts "le_tcl help system test passed"
