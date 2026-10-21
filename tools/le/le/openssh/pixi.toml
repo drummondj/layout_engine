@@ -1,0 +1,11 @@
+# OpenSSH from conda-forge, for a host whose ssh-keygen can't check
+# signatures (no -Y before OpenSSH 8.1; stock Rocky 8 has 8.0). `le` makes
+# this environment with its pinned pixi (le/openssh.py); update the lock
+# with that pixi's `pixi lock`.
+[workspace]
+name = "le_openssh"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+openssh = "10.*"

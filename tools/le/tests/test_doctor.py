@@ -23,6 +23,7 @@ class FakeProbe(doctor.Probe):
         self.python_ok = True  # the base Python has venv; a cmake_args Python has the packages
         self.commands: List[List[str]] = []
         self.machine_name = "x86_64"
+        self.ssh_signs = True  # whether the host's ssh-keygen has -Y
         self.ca: Optional[str] = "/etc/ssl/certs/ca-certificates.crt"
 
     def which(self, name):
@@ -60,6 +61,9 @@ class FakeProbe(doctor.Probe):
 
     def ca_store(self):
         return self.ca
+
+    def signs(self, ssh_keygen):
+        return self.ssh_signs
 
 
 class TestDoctor(unittest.TestCase):
@@ -161,6 +165,24 @@ class TestDoctor(unittest.TestCase):
         self.assertFalse(doctor.run(True, (), self.probe, out=self.lines.append, toolchain=True))
         self.assertIn("-> apt install ca-certificates", self.line("CA"))
         self.assertTrue(self.line("x86_64").startswith("missing"))
+
+
+    def test_an_ssh_keygen_without_signing_is_replaced_by_les_own(self):
+        self.probe.ssh_signs = False
+        self.assertTrue(self.run_doctor(source_build=False))
+        self.assertIn("has no -Y (older than OpenSSH 8.1); le makes its own on first use", self.line("ssh-keygen"))
+        self.assertTrue(self.line("ssh-keygen").startswith("ok"))
+
+    def test_an_ssh_keygen_le_cant_replace(self):
+        self.probe.ssh_signs = False
+        self.probe.ca = None
+        self.assertFalse(self.run_doctor(source_build=False))
+        self.assertTrue(self.line("ssh-keygen").startswith("missing"))
+        self.assertIn("-> apt install openssh-client", self.line("ssh-keygen"))
+        self.probe.tools.pop("ssh-keygen")
+        self.probe.ca = "/etc/ssl/cert.pem"
+        self.assertTrue(self.run_doctor(source_build=False))
+        self.assertIn("not found; le makes its own on first use", self.line("ssh-keygen"))
 
 
 if __name__ == "__main__":

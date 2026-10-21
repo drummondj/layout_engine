@@ -18,8 +18,9 @@ shared source cache (ctest points it into its build tree).
 
 With LE_INTEGRATION_TOOLCHAIN=1 the project builds with `le toolchain`
 instead of the host's compilers and libraries, as on a machine with none
-(CI runs it in a stock Ubuntu container): only Python, git, tar,
-ssh-keygen and CA certificates come from the host. LE_BUILD_JOBS caps every build's jobs.
+(CI runs it in a stock Rocky Linux 8 container, whose ssh-keygen is too
+old for signatures, so le makes its own): only Python, git, tar and
+OpenSSH come from the host. LE_BUILD_JOBS caps every build's jobs.
 
     python3 tools/le/tests/integration_test.py <layout_engine source dir>
 """

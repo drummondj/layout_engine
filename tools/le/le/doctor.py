@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from le import python_env, toolchain as toolchains
+from le import openssh, python_env, toolchain as toolchains
 
 GIT_MINIMUM = (2, 34)
 CMAKE_MINIMUM = (3, 25)  # the superbuild's cmake_minimum_required
@@ -113,6 +113,9 @@ class Probe:
     def ca_store(self) -> Optional[str]:
         return toolchains.ca_store()
 
+    def signs(self, ssh_keygen: str) -> bool:
+        return openssh.supports_signatures(ssh_keygen)
+
 
 def _version(text: str) -> Optional[Tuple[int, ...]]:
     found = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text)
@@ -158,12 +161,25 @@ def _compiles(probe: Probe, cxx: str, source: str, include_dirs: Sequence[str] =
     return False, out
 
 
+def _ssh_keygen(probe: Probe) -> Check:
+    """An ssh-keygen that can check signatures (-Y, OpenSSH 8.1+): the host's,
+    or le's own, which it makes when it can (x86_64 with CA certificates)."""
+    label = "ssh-keygen (OpenSSH 8.1+)"
+    path = probe.which("ssh-keygen")
+    if path is not None and probe.signs(path):
+        return Check(label, True, path, package="ssh-keygen")
+    why = "not found" if path is None else f"{path} has no -Y (older than OpenSSH 8.1)"
+    if probe.machine() in toolchains.PIXI_SHA256 and probe.ca_store() is not None:
+        return Check(label, True, f"{why}; le makes its own on first use", package="ssh-keygen")
+    return Check(label, False, why, package="ssh-keygen")
+
+
 def basic_checks(probe: Probe) -> List[Check]:
     """What every project needs: fetching and checking signed sources."""
     return [
         _tool(probe, "git", GIT_MINIMUM),
         _tool(probe, "tar"),
-        _tool(probe, "ssh-keygen"),
+        _ssh_keygen(probe),
     ]
 
 

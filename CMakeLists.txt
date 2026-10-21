@@ -1165,8 +1165,10 @@ if(SWIG_FOUND AND TCL_FOUND)
                 --add-data ${le_binary_dir}/le_version.txt:.
                 --add-data ${CMAKE_CURRENT_SOURCE_DIR}/examples/extensions/hello_ext:templates/hello_ext
                 --add-data ${CMAKE_CURRENT_SOURCE_DIR}/examples/extensions/hello_script:templates/hello_script
+                --add-data ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/le/openssh:le/openssh
                 ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/bin/le
             DEPENDS ${le_python_sources} ${le_templates} ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/bin/le
+                ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/le/openssh/pixi.toml ${CMAKE_CURRENT_SOURCE_DIR}/tools/le/le/openssh/pixi.lock
                 ${CMAKE_CURRENT_SOURCE_DIR}/assets/keys/allowed_signers ${le_binary_dir}/le_version.txt
             COMMENT "Freezing le with PyInstaller"
             VERBATIM)

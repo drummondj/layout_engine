@@ -5,8 +5,10 @@ project lists, installed into the project's `.le/` directory. Design:
 [plans/PACKAGE_MANAGER_RESEARCH.md](../../plans/PACKAGE_MANAGER_RESEARCH.md).
 Writing an extension: [docs/EXTENSION_SDK.md](../../docs/EXTENSION_SDK.md).
 
-It needs git 2.34+, `tar` and `ssh-keygen` (OpenSSH's client tools, used
-to check signatures). Each release bundle carries `le` as a single
+It needs git 2.34+ and `tar`. Signatures are checked with `ssh-keygen -Y`
+(OpenSSH 8.1 or later); on a machine without one (stock Rocky 8 has 8.0)
+`le` makes its own from conda-forge in its cache, without root, which
+needs x86_64 Linux with CA certificates. Each release bundle carries `le` as a single
 executable; from a checkout, run `tools/le/bin/le` (Python 3.11+, standard
 library only).
 
@@ -104,7 +106,8 @@ unless given `--allow-downgrade`.
   `toolchain/<key>/` holds `le toolchain`'s environments, one per
   toolchain lock (a project builds inside it with its target-prefixed
   compilers and only its libraries, and codegen uses its Python), and
-  `pixi/<version>/` the pinned pixi that makes them. Switching a project to
+  `pixi/<version>/` the pinned pixi that makes them, and `openssh/<key>/`
+  the OpenSSH `le` checks signatures with when the machine's can't. Switching a project to
   or from the toolchain starts its `.le/build` afresh.
 
 ## Signatures
