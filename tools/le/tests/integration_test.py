@@ -139,11 +139,13 @@ def main() -> int:
             raise SystemExit(f"a missing return should fail the build with -Werror=return-type:\n{out}")
         source_file.write_text(original)
 
-        # codegen ran on le's own Python environment, not the system's.
+        # codegen ran on le's own Python environment (the toolchain's, with
+        # one), not the system's.
         configured = (project / ".le" / "build" / "CMakeCache.txt").read_text()
         python = next(line.split("=", 1)[1] for line in configured.splitlines() if line.startswith("Python3_EXECUTABLE:"))
-        if not Path(python).is_relative_to(sources.cache_dir() / "python"):
-            raise SystemExit(f"the build used {python}, not le's codegen Python environment")
+        expected = sources.cache_dir() / ("toolchain" if USE_TOOLCHAIN else "python")
+        if not Path(python).is_relative_to(expected):
+            raise SystemExit(f"the build used {python}, not le's Python under {expected}")
 
         out = le(project, "doctor")
         if not has_line(out, "ok", "cmake"):
