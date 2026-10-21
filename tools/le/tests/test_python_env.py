@@ -133,7 +133,7 @@ class TestCodegenPython(unittest.TestCase):
 
     def test_configure_passes_it_to_cmake(self):
         commands = []
-        with mock.patch.object(build, "_run", lambda command, what: commands.append(command)), \
+        with mock.patch.object(build, "_run", lambda command, what, toolchain=None: commands.append(command)), \
                 contextlib.redirect_stdout(io.StringIO()):
             build.configure(self.source, [], self.root / ".le", "Release")
         python = [a for a in commands[0] if a.startswith("-DPython3_EXECUTABLE=")]

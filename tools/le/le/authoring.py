@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from le import install as installer, lock as lockfile, project as projectfile
+from le import build, install as installer, lock as lockfile, project as projectfile, toolchain as toolchains
 from codegen import extension_manifest  # on sys.path via le.install
 
 
@@ -133,9 +133,23 @@ def _manifests(project: projectfile.Project, lock: lockfile.Lock, names: List[st
     return [extension_manifest.load(extension_directory(project, n)) for n in (names or known)]
 
 
-def _run(command: List[str], what: str) -> int:
+def _run(command: List[str], what: str, toolchain: Optional[toolchains.Toolchain] = None) -> int:
     print(f"le: {what}", flush=True)
-    return subprocess.run(command).returncode
+    return subprocess.run(toolchain.wrap(command) if toolchain is not None else command).returncode
+
+
+def _layout_engine_source(project: projectfile.Project) -> Path:
+    return project.layout_engine.path if project.layout_engine.path is not None else project.root / installer.STATE_DIR / "src" / "layout_engine"
+
+
+def _toolchain(project: projectfile.Project) -> Optional[toolchains.Toolchain]:
+    """The project's toolchain, if it builds with one."""
+    if not project.toolchain:
+        return None
+    try:
+        return toolchains.ensure(_layout_engine_source(project))
+    except toolchains.ToolchainError as e:
+        raise AuthoringError(str(e)) from e
 
 
 # --- test ------------------------------------------------------------------------
@@ -150,11 +164,12 @@ def run_tests(root: Path, names: List[str], shell: List[str]) -> int:
     if lock.layout_engine_bundle == "source":
         build_dir = project.root / installer.STATE_DIR / "build"
         targets = [f"{m.name}_test_deps" for m in manifests]
-        jobs = str(project.jobs or os.cpu_count() or 2)
-        if _run(["cmake", "--build", str(build_dir), "--target", *targets, "-j", jobs], "building the tests") != 0:
+        jobs = str(build.default_jobs(project.jobs))
+        toolchain = _toolchain(project)
+        if _run(["cmake", "--build", str(build_dir), "--target", *targets, "-j", jobs], "building the tests", toolchain) != 0:
             raise AuthoringError("building the tests failed")
         regex = "^(" + "|".join(m.name for m in manifests) + r")\."
-        return _run(["ctest", "--test-dir", str(build_dir), "--output-on-failure", "--no-tests=error", "-R", regex], "running the tests")
+        return _run(["ctest", "--test-dir", str(build_dir), "--output-on-failure", "--no-tests=error", "-R", regex], "running the tests", toolchain)
     tests = [t for m in manifests for t in m.tcl_tests]
     if not tests:
         raise AuthoringError("no tcl_tests to run")
@@ -197,7 +212,7 @@ def make_migration(root: Path, name: str, slug: str, non_interactive: bool) -> i
     target = extension_manifest.load(extension_directory(project, name))
     if target.schema is None:
         raise AuthoringError(f"{name} has no schema ([contents] schema) to migrate")
-    le_source = project.layout_engine.path if project.layout_engine.path is not None else project.root / installer.STATE_DIR / "src" / "layout_engine"
+    le_source = _layout_engine_source(project)
     command = [_codegen_python(project.root / installer.STATE_DIR / "build"), "-m", "codegen.cli",
                "--schema", str(le_source / "src" / "database" / "schema.py"),
                "--target", "makemigration", "--migrate-extension", name, "--name", slug]

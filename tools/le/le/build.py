@@ -5,7 +5,9 @@ Layout Engine with add_subdirectory, the way a hand-written one does -
 configured in .le/build and installed as a bundle in .le/bundle. Fetched
 dependencies' sources - never their builds - are shared between projects in
 the source cache (source_cache_dir()), codegen runs on le's own Python
-environment (python_env), and ccache is used when it's on PATH.
+environment (python_env), and ccache is used when it's on PATH. With
+`[build] toolchain = true` every step runs inside le's toolchain (toolchain.py)
+instead, with its compilers, ccache and Python.
 """
 
 import json
@@ -18,6 +20,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from le import python_env, sources
+from le.toolchain import Toolchain
 
 
 class BuildError(Exception):
@@ -43,8 +46,19 @@ def schema_version(source_dir: Path) -> Optional[str]:
     return found.group(1) if found else None
 
 
-def _run(command: List[str], what: str) -> None:
+def default_jobs(jobs: Optional[int]) -> int:
+    """Parallel build jobs: [build] jobs, else LE_BUILD_JOBS, else every CPU."""
+    if jobs:
+        return jobs
+    if os.environ.get("LE_BUILD_JOBS", "").isdigit() and int(os.environ["LE_BUILD_JOBS"]) > 0:
+        return int(os.environ["LE_BUILD_JOBS"])
+    return os.cpu_count() or 2
+
+
+def _run(command: List[str], what: str, toolchain: Optional[Toolchain] = None) -> None:
     print(f"le: {what}", flush=True)
+    if toolchain is not None:
+        command = toolchain.wrap(command)
     result = subprocess.run(command)
     if result.returncode != 0:
         raise BuildError(f"{what} failed (exit {result.returncode}): {' '.join(command)}")
@@ -92,10 +106,13 @@ def remove_old_dependency_cache() -> None:
 
 
 def configure_command(superbuild: Path, build_dir: Path, build_type: str, extension_dirs: List[Path],
-                      cmake_args: Optional[List[str]] = None, python: Optional[Path] = None) -> List[str]:
+                      cmake_args: Optional[List[str]] = None, python: Optional[Path] = None,
+                      toolchain: Optional[Toolchain] = None) -> List[str]:
     """The cmake configure command. Dependencies build in build_dir's own _deps
     (-U drops a shared FETCHCONTENT_BASE_DIR an older le cached there); only
-    their sources come from the shared cache. `python` is codegen's Python."""
+    their sources come from the shared cache. `python` is codegen's Python;
+    a toolchain brings its own, and its compilers, before cmake_args (which
+    can still override them)."""
     command = [
         "cmake",
         "-S", str(superbuild),
@@ -105,11 +122,14 @@ def configure_command(superbuild: Path, build_dir: Path, build_type: str, extens
         "-UFETCHCONTENT_BASE_DIR",
         f"-DLE_SOURCE_CACHE_DIR={source_cache_dir()}",
     ]
-    if python is not None:
+    if toolchain is not None:
+        command += toolchain.cmake_args()
+    elif python is not None:
         command.append(f"-DPython3_EXECUTABLE={python}")
     command += cmake_args or []
-    if shutil.which("ccache"):
-        command += ["-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"]
+    ccache = toolchain.ccache if toolchain is not None else shutil.which("ccache")
+    if ccache:
+        command += [f"-DCMAKE_C_COMPILER_LAUNCHER={ccache}", f"-DCMAKE_CXX_COMPILER_LAUNCHER={ccache}"]
     return command
 
 
@@ -148,6 +168,7 @@ def configure(
     state_dir: Path,
     build_type: str,
     cmake_args: Optional[List[str]] = None,
+    toolchain: Optional[Toolchain] = None,
 ) -> Path:
     """Writes the superbuild and configures it in state_dir/build, sharing
     dependency sources through the cache; returns the build directory."""
@@ -156,12 +177,24 @@ def configure(
     cached = _cached_source(build_dir)
     if cached is not None and Path(cached).resolve() != superbuild.resolve():
         shutil.rmtree(build_dir)  # configured from another source tree (an older le): cmake refuses to switch
+    # Which toolchain the build tree was configured with: cmake can't switch
+    # compilers in place, so a different one starts the tree afresh.
+    # A tree with no marker predates it, so it used the system's.
+    marker = build_dir / "le_toolchain.txt"
+    wanted = toolchain.key if toolchain is not None else "system"
+    configured = marker.read_text().strip() if marker.is_file() else "system" if (build_dir / "CMakeCache.txt").is_file() else None
+    if configured is not None and configured != wanted:
+        shutil.rmtree(build_dir)
     remove_old_dependency_cache()
-    try:
-        python = python_env.codegen_python(le_source, cmake_args)
-    except python_env.PythonEnvError as e:
-        raise BuildError(str(e)) from e
-    _run(configure_command(superbuild, build_dir, build_type, extension_dirs, cmake_args, python), "configuring")
+    python = None
+    if toolchain is None:
+        try:
+            python = python_env.codegen_python(le_source, cmake_args)
+        except python_env.PythonEnvError as e:
+            raise BuildError(str(e)) from e
+    _run(configure_command(superbuild, build_dir, build_type, extension_dirs, cmake_args, python, toolchain), "configuring", toolchain)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    marker.write_text(wanted + "\n")
     populate_source_cache(build_dir, source_cache_dir())
     return build_dir
 
@@ -174,14 +207,15 @@ def build(
     jobs: Optional[int],
     startup: Optional[Path],
     cmake_args: Optional[List[str]] = None,
+    toolchain: Optional[Toolchain] = None,
 ) -> Path:
     """Configures, builds and installs; returns the bundle directory."""
-    build_dir = configure(le_source, extension_dirs, state_dir, build_type, cmake_args)
+    build_dir = configure(le_source, extension_dirs, state_dir, build_type, cmake_args, toolchain)
     bundle_dir = state_dir / "bundle"
-    _run(["cmake", "--build", str(build_dir), "--target", "le_shell", "le_tcl", "-j", str(jobs or os.cpu_count() or 2)], "building")
+    _run(["cmake", "--build", str(build_dir), "--target", "le_shell", "le_tcl", "-j", str(default_jobs(jobs))], "building", toolchain)
     if bundle_dir.exists():
         shutil.rmtree(bundle_dir)  # so a removed extension's files don't linger
-    _run(["cmake", "--install", str(build_dir), "--component", "bundle", "--prefix", str(bundle_dir)], "installing")
+    _run(["cmake", "--install", str(build_dir), "--component", "bundle", "--prefix", str(bundle_dir)], "installing", toolchain)
 
     if startup is not None:
         index_path = bundle_dir / "extensions.json"

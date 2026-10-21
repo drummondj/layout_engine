@@ -15,6 +15,7 @@ le_project.toml: what a project wants. Read with tomllib; `add`, `remove` and
     type = "Release"                          # optional
     jobs = 8                                  # optional
     cmake_args = ["-DLE_ENABLE_TRACY=OFF"]    # optional: passed to cmake when configuring
+    toolchain = true                          # optional: build with le's own toolchain (`le toolchain`)
 
     [extensions]
     acme = { github = "acme/acme", version = ">=1.0, <2", publisher = "acme" }
@@ -68,6 +69,7 @@ class Project:
     jobs: Optional[int]
     extensions: Dict[str, Source] = field(default_factory=dict)
     cmake_args: List[str] = field(default_factory=list)
+    toolchain: bool = False  # build with le's own toolchain
     trust: Dict[str, List[str]] = field(default_factory=dict)
 
     @property
@@ -124,6 +126,9 @@ def load(root: Path) -> Project:
     jobs = build.get("jobs")
     if jobs is not None and (not isinstance(jobs, int) or jobs < 1):
         raise ProjectError(f"{path}: [build] jobs must be a positive integer")
+    toolchain = build.get("toolchain", False)
+    if not isinstance(toolchain, bool):
+        raise ProjectError(f"{path}: [build] toolchain must be true or false")
     cmake_args = build.get("cmake_args", [])
     if not isinstance(cmake_args, list) or not all(isinstance(a, str) for a in cmake_args):
         raise ProjectError(f"{path}: [build] cmake_args must be a list of strings")
@@ -153,6 +158,7 @@ def load(root: Path) -> Project:
         build_type=build.get("type", "Release"),
         jobs=jobs,
         cmake_args=cmake_args,
+        toolchain=toolchain,
         extensions=extensions,
         trust=trust,
     )
@@ -239,6 +245,7 @@ name = {_quote(name)}
 [build]
 type = "Release"
 # cmake_args = ["-DLE_ENABLE_TRACY=OFF"]    # passed to cmake when configuring
+# toolchain = true          # build with le's own toolchain, no system compilers needed (`le toolchain`)
 
 [extensions]
 

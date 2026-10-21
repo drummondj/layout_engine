@@ -1,5 +1,5 @@
-"""The `le` command line: init, add, remove, trust, install, update, list, shell, bundle, doctor, and the
-authoring commands new-extension, test, makemigration and check."""
+"""The `le` command line: init, add, remove, trust, install, update, list, shell, bundle, doctor, toolchain,
+and the authoring commands new-extension, test, makemigration and check."""
 
 import argparse
 import os
@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from le import authoring, build, doctor, install as installer, lock as lockfile, project as projectfile, releases, sources
+from le import authoring, build, doctor, install as installer, lock as lockfile, project as projectfile, releases, sources, toolchain as toolchains
 
 
 class CliError(Exception):
@@ -115,6 +115,7 @@ def cmd_trust(args) -> int:
 
 def cmd_doctor(args) -> int:
     cmake_args: List[str] = []
+    uses_toolchain = False
     if args.source:
         source_build, why = True, "--source"
     else:
@@ -124,9 +125,23 @@ def cmd_doctor(args) -> int:
             source_build, why = True, "not in a project, so everything a source build needs"
         else:
             source_build, why = installer.needs_source_build(root)
-            cmake_args = projectfile.load(root).cmake_args
-    print(f"le: checking for {'a source build' if source_build else 'a release bundle'} ({why})")
-    return 0 if doctor.run(source_build, cmake_args) else 1
+            project = projectfile.load(root)
+            cmake_args, uses_toolchain = project.cmake_args, project.toolchain
+    what = "a release bundle" if not source_build else "a source build with le's toolchain" if uses_toolchain else "a source build"
+    print(f"le: checking for {what} ({why})")
+    return 0 if doctor.run(source_build, cmake_args, toolchain=uses_toolchain) else 1
+
+
+def cmd_toolchain(args) -> int:
+    root = find_root(Path.cwd())
+    if args.off:
+        if projectfile.load(root).toolchain:
+            _edit(root, lambda text: projectfile.remove_entry(text, "build", "toolchain"))
+        print("le: the project builds with this machine's own compilers and libraries now (the next build starts afresh)")
+        return 0
+    _edit(root, lambda text: projectfile.set_entry(text, "build", "toolchain", "true"))
+    print("le: the project builds with le's toolchain now ([build] toolchain = true)")
+    return _install(root, None, False)
 
 
 def _install(root: Path, update, allow_downgrade: bool) -> int:
@@ -264,6 +279,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--source", action="store_true", help="check for a source build whatever the project needs")
     s.set_defaults(func=cmd_doctor)
 
+    s = sub.add_parser("toolchain", help="build the project with le's own toolchain (no system compilers or root needed), then install")
+    s.add_argument("--off", action="store_true", help="go back to this machine's own compilers and libraries")
+    s.set_defaults(func=cmd_toolchain)
+
     s = sub.add_parser("new-extension", help="create an extension directory from the examples")
     s.add_argument("name", help="snake_case, e.g. acme_router")
     s.add_argument("--script", action="store_true", help="Tcl procs only (no compiler needed), from hello_script; default: compiled, from hello_ext")
@@ -299,6 +318,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         sources.SourceError,
         installer.InstallError,
         build.BuildError,
+        toolchains.ToolchainError,
         releases.ReleaseError,
         authoring.AuthoringError,
         authoring.extension_manifest.ManifestError,

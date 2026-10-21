@@ -66,6 +66,9 @@ le bundle /opt/my_chip                                        # a self-contained
 - `le doctor` lists anything the project's build needs that this machine
   lacks, with the package to install; `le install` runs it before the
   first source build.
+- `le toolchain` builds the project with le's own toolchain instead (GCC,
+  CMake, every library and Python, from conda-forge, without root), so a
+  machine needs no compilers or development packages at all.
 - **Upgrading:** move the submodule to the new tag (or change the
   `[layout_engine]` version range and `le update layout_engine`), then
   `le install`. An extension needs changes only if its `[compatibility]`

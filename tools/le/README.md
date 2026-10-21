@@ -18,7 +18,8 @@ How Layout Engine itself is installed:
   and runs its `le_shell`. No compiler or cmake needed.
 - **Built from source**: otherwise (a compiled extension, a `--rev` pin, a
   local `path`), it builds Layout Engine with the extensions, which needs
-  everything a source build needs (`docs/BUILD.md`). It generates a superbuild
+  everything a source build needs (`docs/BUILD.md`), or `le toolchain`,
+  which provides all of it without root. It generates a superbuild
   in `.le/superbuild/` that embeds Layout Engine with `add_subdirectory`.
 
 ## Quick start
@@ -46,6 +47,7 @@ le shell                               # builds if needed, then runs le_shell
 | `le list` | What's installed: versions, sources, commits, signers, release or source build. |
 | `le shell [args...]` | Runs Layout Engine's `le_shell` with the project's extensions, reinstalling first if anything changed (including files in a `--path` extension). |
 | `le bundle <dir>` | Copies the installed project (Layout Engine, its extensions, the startup script) into a new or empty directory: self-contained and relocatable, to deploy. |
+| `le toolchain [--off]` | Builds the project with le's own toolchain from now on (`[build] toolchain = true`), then installs: GCC 14, cmake, every library a source build needs and Python with codegen's packages, from conda-forge without root (Layout Engine's `toolchain/pixi.toml`/`pixi.lock`), made once by a pinned, checksum-verified pixi and shared by every project on the same lock. The machine needs only git, tar, ssh-keygen, CA certificates and x86_64 Linux. `--off` goes back to the machine's own compilers. |
 | `le doctor [--source]` | Checks this machine has what the project needs, one line per item: `ok`, `missing` (with the package to install for apt or dnf) or `optional`. A release-bundle project needs git, tar and ssh-keygen; a source build also a C++23 compiler (GCC 13+ or Clang 17+), cmake 3.25+, make, bison, SWIG 4+, Python 3.11-3.13 and the Boost, zlib, oneTBB, Tcl, readline, X11 and OpenGL headers (ccache is optional). Outside a project, or with `--source`, it checks for a source build. Exits 1 if anything required is missing. `le install` runs the same checks before a project's first source build. |
 | `le check <file.led>` | Whether a `.led` file loads in this project: for Layout Engine and each extension the file holds objects of, `matches`, `will migrate`, `missing` (with the `le add` line) or `too new`. Exits 1 if it can't load. |
 
@@ -75,7 +77,8 @@ unless given `--allow-downgrade`.
 ## Files
 
 - `le_project.toml`: what you want. Commit it. Its `[build]` table sets
-  `type` (default `Release`), `jobs`, and `cmake_args`: other CMake
+  `type` (default `Release`), `jobs` (default `$LE_BUILD_JOBS`, else every
+  CPU), `toolchain` (`le toolchain`), and `cmake_args`: other CMake
   options for the source build, e.g. `["-DLE_ENABLE_TRACY=OFF"]`.
   `-DPython3_EXECUTABLE=...` there replaces codegen's Python environment
   (below) with your own interpreter, which must have codegen's packages.
@@ -98,6 +101,11 @@ unless given `--allow-downgrade`.
   `pip install ./codegen`. Without network access or Python's `venv`
   module, `le` uses that Python directly if it already has the packages;
   otherwise it says so and how to set `-DPython3_EXECUTABLE`.
+  `toolchain/<key>/` holds `le toolchain`'s environments, one per
+  toolchain lock (a project builds inside it with its target-prefixed
+  compilers and only its libraries, and codegen uses its Python), and
+  `pixi/<version>/` the pinned pixi that makes them. Switching a project to
+  or from the toolchain starts its `.le/build` afresh.
 
 ## Signatures
 

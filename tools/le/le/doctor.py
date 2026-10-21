@@ -3,11 +3,14 @@
 missing one with how to get it, instead of leaving it to fail partway
 through CMake's configure. A project on a release bundle needs only git,
 tar and ssh-keygen; a source build needs the toolchain and the development
-packages docs/BUILD.md lists. `le install` runs the source-build checks
-itself before a project's first configure.
+packages docs/BUILD.md lists - unless it builds with le's own toolchain
+(`le toolchain`), which needs only an x86_64 host with CA certificates.
+`le install` runs the source-build checks itself before a project's first
+configure.
 """
 
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -15,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from le import python_env
+from le import python_env, toolchain as toolchains
 
 GIT_MINIMUM = (2, 34)
 CMAKE_MINIMUM = (3, 25)  # the superbuild's cmake_minimum_required
@@ -44,6 +47,7 @@ PACKAGES: Dict[str, Tuple[str, str]] = {  # check name -> (apt, dnf)
     "OpenGL headers": ("libgl-dev", "mesa-libGL-devel"),
     "Python venv": ("python3-venv", "python3"),
     "ccache": ("ccache", "ccache"),
+    "CA certificates": ("ca-certificates", "ca-certificates"),
 }
 
 # Headers a compile probe includes, with any extra include directories to try.
@@ -102,6 +106,12 @@ class Probe:
 
     def base_python(self) -> Tuple[str, Tuple[int, int]]:
         return python_env.base_python()
+
+    def machine(self) -> str:
+        return platform.machine()
+
+    def ca_store(self) -> Optional[str]:
+        return toolchains.ca_store()
 
 
 def _version(text: str) -> Optional[Tuple[int, ...]]:
@@ -202,6 +212,16 @@ def source_build_checks(probe: Probe, cmake_args: Sequence[str] = (), cxx: Optio
     return checks
 
 
+def toolchain_checks(probe: Probe) -> List[Check]:
+    """What making le's toolchain needs; it brings everything a source build needs itself."""
+    machine = probe.machine()
+    store = probe.ca_store()
+    return [
+        Check("x86_64 Linux", machine in toolchains.PIXI_SHA256, machine, package="none"),
+        Check("CA certificates", store is not None, store or "none found (or set SSL_CERT_FILE)"),
+    ]
+
+
 def distro_family(os_release: str) -> Optional[str]:
     """'apt', 'dnf' or None, from /etc/os-release's ID and ID_LIKE."""
     ids = " ".join(re.findall(r"^(?:ID|ID_LIKE)=\"?([^\"\n]*)", os_release, re.M)).split()
@@ -237,17 +257,20 @@ def report(checks: List[Check], probe: Probe, out: Callable[[str], None] = print
             if hint:
                 line += f"  -> {hint}"
         out(line.rstrip())
-    missing = [c for c in checks if c.required and not c.ok]
-    if missing and family == "dnf":
-        out("Without root on Rocky Linux 8: scripts/rocky8-bootstrap.sh (docs/BUILD.md).")
-    return not missing
+    return not any(c.required and not c.ok for c in checks)
 
 
 def run(source_build: bool, cmake_args: Sequence[str] = (), probe: Optional[Probe] = None,
-        out: Callable[[str], None] = print) -> bool:
-    """Runs and reports the checks a project needs; returns whether it can build."""
+        out: Callable[[str], None] = print, toolchain: bool = False) -> bool:
+    """Runs and reports the checks a project needs (a source build with le's
+    toolchain needs only toolchain_checks); returns whether it can build."""
     probe = probe or Probe()
     checks = basic_checks(probe)
-    if source_build:
+    if source_build and toolchain:
+        checks += toolchain_checks(probe)
+    elif source_build:
         checks += source_build_checks(probe, cmake_args)
-    return report(checks, probe, out)
+    ok = report(checks, probe, out)
+    if not ok and source_build and not toolchain:
+        out("Or let le provide the whole build toolchain, without root: `le toolchain`.")
+    return ok
