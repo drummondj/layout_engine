@@ -147,9 +147,10 @@ def main() -> int:
         if not Path(python).is_relative_to(expected):
             raise SystemExit(f"the build used {python}, not le's Python under {expected}")
 
+        # With the toolchain, only what making it needs; else a source build's prerequisites.
         out = le(project, "doctor")
-        if not has_line(out, "ok", "cmake"):
-            raise SystemExit(f"le doctor should check a source build's prerequisites:\n{out}")
+        if not has_line(out, "ok", *(("CA", "certificates") if USE_TOOLCHAIN else ("cmake",))):
+            raise SystemExit(f"le doctor should check what this project's build needs:\n{out}")
 
         listing = le(project, "list")
         for expected in ("hello_ext 0.1.0", "hello_script 0.1.0", "github:acme/hello_script@", "signed SHA256:"):
