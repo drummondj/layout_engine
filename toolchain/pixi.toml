@@ -1,0 +1,47 @@
+# Layout Engine's build toolchain from conda-forge: a C++23 compiler, cmake,
+# the libraries and tools a source build needs, and Python with codegen's
+# packages - everything but the kernel and glibc, without root. `le toolchain`
+# makes this environment for a project (shared by every project with the
+# same pixi.lock); without `le`, `pixi shell` here gives the same one. Update
+# the lock with `pixi lock` (pixi version: tools/le/le/toolchain.py).
+[workspace]
+name = "layout_engine_toolchain"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+gcc = "14.*"
+gxx = "14.*"
+sysroot_linux-64 = "2.28.*"
+cmake = ">=3.28"
+ninja = "*"
+make = "*"
+bison = "*"
+swig = ">=4.2"
+libboost-headers = "1.86.*"  # 1.92 clashes with slang v11's vendored boost_unordered.hpp
+tbb-devel = "*"
+tk = "8.6.*"  # bundles Tcl 8.6; conda-forge's tcl package is 9.x only
+readline = "*"
+xorg-libx11 = "*"
+xorg-libxrandr = "*"
+xorg-libxinerama = "*"
+xorg-libxcursor = "*"
+xorg-libxi = "*"
+xorg-libxext = "*"
+xorg-xorgproto = "*"
+libgl-devel = "*"
+ccache = "*"
+python = "3.12.*"
+jinja2 = "*"
+click = "*"
+pkg-config = "*"
+zlib = "*"
+mesalib = "*"  # GLX/EGL vendor library and llvmpipe; otherwise the host's Mesa is used
+git = "*"
+openssh = "*"  # ssh-keygen, which `le` uses to check signatures
+
+[activation.env]
+# The vendored LEF/DEF Makefiles call the compiler directly: give it the
+# environment's headers and libraries the way CMake's find_* would.
+CPATH = "$CONDA_PREFIX/include"
+LIBRARY_PATH = "$CONDA_PREFIX/lib"

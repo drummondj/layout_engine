@@ -22,6 +22,8 @@ class FakeProbe(doctor.Probe):
         self.python: Optional[Tuple[str, Tuple[int, int]]] = ("/usr/bin/python3.12", (3, 12))
         self.python_ok = True  # the base Python has venv; a cmake_args Python has the packages
         self.commands: List[List[str]] = []
+        self.machine_name = "x86_64"
+        self.ca: Optional[str] = "/etc/ssl/certs/ca-certificates.crt"
 
     def which(self, name):
         return self.tools.get(name)
@@ -52,6 +54,12 @@ class FakeProbe(doctor.Probe):
         if self.python is None:
             raise python_env.PythonEnvError("none")
         return self.python
+
+    def machine(self):
+        return self.machine_name
+
+    def ca_store(self):
+        return self.ca
 
 
 class TestDoctor(unittest.TestCase):
@@ -108,7 +116,7 @@ class TestDoctor(unittest.TestCase):
         self.probe.missing_headers = ["readline/readline.h"]
         self.assertFalse(self.run_doctor())
         self.assertIn("-> dnf install readline-devel", self.line("readline"))
-        self.assertIn("rocky8-bootstrap.sh", self.lines[-1])
+        self.assertIn("`le toolchain`", self.lines[-1])
 
     def test_an_unknown_distribution_gets_both_package_names(self):
         self.probe.release = "ID=arch\n"
@@ -136,6 +144,23 @@ class TestDoctor(unittest.TestCase):
         self.assertFalse(self.run_doctor(cmake_args=["-DPython3_EXECUTABLE=/opt/py/bin/python3"]))
         self.assertIn("/opt/py/bin/python3 (from cmake_args) isn't Python >= 3.11 with jinja2 and click", self.line("Python"))
         self.assertFalse(any("venv" in line for line in self.lines), "le doesn't make an environment then")
+
+
+    def test_a_toolchain_project_needs_only_what_making_the_toolchain_needs(self):
+        self.probe.tools.pop("cmake")
+        self.probe.compiler_error = "GCC too old"
+        self.lines = []
+        self.assertTrue(doctor.run(True, (), self.probe, out=self.lines.append, toolchain=True))
+        self.assertEqual([line.split()[1] for line in self.lines], ["git", "tar", "ssh-keygen", "x86_64", "CA"])
+        self.assertFalse(any("le toolchain" in line for line in self.lines))
+
+    def test_a_toolchain_host_without_ca_certificates_or_x86_64(self):
+        self.probe.ca = None
+        self.probe.machine_name = "aarch64"
+        self.lines = []
+        self.assertFalse(doctor.run(True, (), self.probe, out=self.lines.append, toolchain=True))
+        self.assertIn("-> apt install ca-certificates", self.line("CA"))
+        self.assertTrue(self.line("x86_64").startswith("missing"))
 
 
 if __name__ == "__main__":

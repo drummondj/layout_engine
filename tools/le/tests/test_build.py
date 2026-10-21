@@ -44,7 +44,7 @@ class TestSuperbuild(unittest.TestCase):
         (build_dir / "stale.o").write_text("")
         commands = []
 
-        def run(command, what):
+        def run(command, what, toolchain=None):
             commands.append(command)
             if command[1] == "--install":
                 (state / "bundle").mkdir()

@@ -41,6 +41,15 @@ class TestProject(unittest.TestCase):
                 projectfile.load(self.root)
             self.assertIn(message, str(raised.exception))
 
+    def test_build_toolchain_is_a_boolean(self):
+        path = self.root / projectfile.PROJECT_FILE
+        path.write_text(projectfile.template("chip", {"path": "../le"}).replace('type = "Release"', 'type = "Release"\ntoolchain = true'))
+        self.assertTrue(projectfile.load(self.root).toolchain)
+        path.write_text(path.read_text().replace("toolchain = true", 'toolchain = "yes"'))
+        with self.assertRaises(projectfile.ProjectError) as raised:
+            projectfile.load(self.root)
+        self.assertIn("[build] toolchain must be true or false", str(raised.exception))
+
     def test_edits_keep_comments_and_replace_entries(self):
         text = projectfile.template("chip", {"path": "le"})
         text = projectfile.set_entry(text, "extensions", "a", '{ path = "a" }')

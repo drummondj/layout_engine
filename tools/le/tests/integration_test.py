@@ -16,6 +16,11 @@ type then configures from the shared dependency sources without downloading
 any or touching the first project's dependency builds. LE_DEPS_DIR sets the
 shared source cache (ctest points it into its build tree).
 
+With LE_INTEGRATION_TOOLCHAIN=1 the project builds with `le toolchain`
+instead of the host's compilers and libraries, as on a machine with none
+(CI runs it in a stock Ubuntu container): only Python, git, tar,
+ssh-keygen and CA certificates come from the host. LE_BUILD_JOBS caps every build's jobs.
+
     python3 tools/le/tests/integration_test.py <layout_engine source dir>
 """
 
@@ -28,7 +33,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from le import build, sources  # noqa: E402
+from le import build, sources, toolchain as toolchains  # noqa: E402
 from tests import helpers  # noqa: E402
 
 
@@ -50,6 +55,20 @@ def run_bundle(project: Path, destination: Path, script: Path, expected: str, pa
     result = subprocess.run([str(moved / "le_shell"), str(script)], capture_output=True, text=True, cwd=moved.parent)
     if result.returncode != 0 or expected not in result.stdout:
         raise SystemExit(f"the bundle in {moved} didn't run the script:\n{result.stdout}\n{result.stderr}")
+
+
+USE_TOOLCHAIN = os.environ.get("LE_INTEGRATION_TOOLCHAIN") == "1"
+
+
+def project_toolchain(source: Path):
+    """The toolchain the projects build with in this run, if any."""
+    return toolchains.ensure(source) if USE_TOOLCHAIN else None
+
+
+def run_tool(command, source: Path) -> None:
+    """A build command, inside the toolchain when the run uses one."""
+    toolchain = project_toolchain(source)
+    helpers.run(*(toolchain.wrap(command) if toolchain is not None else command))
 
 
 def has_line(out: str, *words: str) -> bool:
@@ -83,6 +102,10 @@ def main() -> int:
         le(root, "new-extension", "my_ext", "--directory", str(my_ext))
         le(project, "add", "my_ext", "--path", str(my_ext))
         le(project, "add", "hello_ext", "--path", str(hello_ext))
+        if USE_TOOLCHAIN:
+            out = le(project, "toolchain")
+            if "builds with le's toolchain" not in out:
+                raise SystemExit(f"le toolchain didn't switch the project over:\n{out}")
 
         script = project / "check.tcl"
         script.write_text(
@@ -116,15 +139,18 @@ def main() -> int:
             raise SystemExit(f"a missing return should fail the build with -Werror=return-type:\n{out}")
         source_file.write_text(original)
 
-        # codegen ran on le's own Python environment, not the system's.
+        # codegen ran on le's own Python environment (the toolchain's, with
+        # one), not the system's.
         configured = (project / ".le" / "build" / "CMakeCache.txt").read_text()
         python = next(line.split("=", 1)[1] for line in configured.splitlines() if line.startswith("Python3_EXECUTABLE:"))
-        if not Path(python).is_relative_to(sources.cache_dir() / "python"):
-            raise SystemExit(f"the build used {python}, not le's codegen Python environment")
+        expected = sources.cache_dir() / ("toolchain" if USE_TOOLCHAIN else "python")
+        if not Path(python).is_relative_to(expected):
+            raise SystemExit(f"the build used {python}, not le's Python under {expected}")
 
+        # With the toolchain, only what making it needs; else a source build's prerequisites.
         out = le(project, "doctor")
-        if not has_line(out, "ok", "cmake"):
-            raise SystemExit(f"le doctor should check a source build's prerequisites:\n{out}")
+        if not has_line(out, "ok", *(("CA", "certificates") if USE_TOOLCHAIN else ("cmake",))):
+            raise SystemExit(f"le doctor should check what this project's build needs:\n{out}")
 
         listing = le(project, "list")
         for expected in ("hello_ext 0.1.0", "hello_script 0.1.0", "github:acme/hello_script@", "signed SHA256:"):
@@ -148,7 +174,7 @@ def shares_sources_only(source: Path, root: Path, first_build: Path) -> None:
         return {str(p): p.stat().st_mtime_ns for d in (first_build / "_deps").glob("*-build") for p in d.rglob("*") if p.is_file()}
 
     before = dependency_builds()
-    second = build.configure(source, [], root / "second_project" / ".le", "Debug")
+    second = build.configure(source, [], root / "second_project" / ".le", "Debug", None, project_toolchain(source))
     if dependency_builds() != before:
         raise SystemExit("configuring a second project touched the first project's dependency builds")
     listing = json.loads((second / "layout_engine" / "le_fetched_sources.json").read_text())
@@ -196,10 +222,10 @@ def release_project(source: Path, github: helpers.FakeGithub, build_dir: Path, a
     """A script-only project on a signed release bundle, with no build tools on PATH."""
     root = github.root
     version, _ = build.layout_engine_versions(source)
-    helpers.run("cmake", "-S", str(build_dir.parent / "superbuild"), "-B", str(build_dir), "-DLE_EXTENSION_DIRS=")
-    helpers.run("cmake", "--build", str(build_dir), "--target", "le_shell", "le_tcl", "-j", str(os.cpu_count() or 2))
+    run_tool(["cmake", "-S", str(build_dir.parent / "superbuild"), "-B", str(build_dir), "-DLE_EXTENSION_DIRS="], source)
+    run_tool(["cmake", "--build", str(build_dir), "--target", "le_shell", "le_tcl", "-j", str(build.default_jobs(None))], source)
     bundle = root / "release_bundle"
-    helpers.run("cmake", "--install", str(build_dir), "--component", "bundle", "--prefix", str(bundle))
+    run_tool(["cmake", "--install", str(build_dir), "--component", "bundle", "--prefix", str(bundle)], source)
     release_key = helpers.make_key(root, "release")
     helpers.fake_release(github, release_key, version, bundle=bundle)
 

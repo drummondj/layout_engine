@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from le import authoring, build, cli, doctor, install as installer
+from le import authoring, build, cli, doctor, install as installer, project as projectfile, toolchain as toolchains
 from codegen import extension_manifest
 from tests import helpers
 
@@ -180,7 +180,7 @@ class TestCheckFindings(unittest.TestCase):
 class Recorder:
     """Stands in for build.build (and fakes a project build tree)."""
 
-    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup, cmake_args=None):
+    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, version, startup, cmake_args=None, toolchain=None):
         bundle = state_dir / "bundle"
         bundle.mkdir(parents=True, exist_ok=True)
         (bundle / "le_shell").write_text("")
@@ -225,6 +225,19 @@ class TestProjectCommands(unittest.TestCase):
         build_dir = str(self.project / ".le" / "build")
         self.assertEqual(self.commands[0][:6], ["cmake", "--build", build_dir, "--target", "acme_test_deps", "-j"])
         self.assertEqual(self.commands[1], ["ctest", "--test-dir", build_dir, "--output-on-failure", "--no-tests=error", "-R", r"^(acme)\."])
+
+    def test_test_runs_inside_the_projects_toolchain(self):
+        self.assertEqual(le("add", "acme", "--path", str(self.ext))[0], 0)
+        path = self.project / projectfile.PROJECT_FILE
+        path.write_text(projectfile.set_entry(path.read_text(), "build", "toolchain", "true"))
+        fake = toolchains.Toolchain(root=self.root / "tc", pixi=self.root / "pixi", key="abc")
+        with self.record(), mock.patch.object(toolchains, "ensure", lambda source: fake):
+            code, _, err = le("test")
+        self.assertEqual(code, 0, err)
+        wrapper = fake.wrap([])
+        self.assertEqual(self.commands[0][:len(wrapper)], wrapper)
+        self.assertEqual(self.commands[0][len(wrapper):len(wrapper) + 2], ["cmake", "--build"])
+        self.assertEqual(self.commands[1][len(wrapper)], "ctest")
 
     def test_test_refuses_an_unknown_extension(self):
         self.assertEqual(le("add", "acme", "--path", str(self.ext))[0], 0)

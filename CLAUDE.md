@@ -229,7 +229,10 @@ fails on a temp path that isn't unique to its process.
   GitHub (SSH-signed tags/commits checked against `[trust]`, tag or
   `version` range) and path sources. Script-only projects run a signed
   release bundle (`releases.py`, cached); others build from source into
-  `.le/` as a generated `add_subdirectory` superbuild. Authoring (`authoring.py`):
+  `.le/` as a generated `add_subdirectory` superbuild, with the host's
+  compilers or, with `[build] toolchain = true` (`le toolchain`,
+  `toolchain.py`), inside the conda-forge environment from `toolchain/`,
+  made by a pinned pixi and shared per lock. Authoring (`authoring.py`):
   `new-extension` copies `hello_ext`/`hello_script` renamed (so both
   examples are its templates), `test`, `makemigration`, and `check`
   (parses `db_info` from the project's `le_shell`). Reuses
@@ -361,7 +364,9 @@ A Release tree, `build_release`, is built on demand for benchmarks and
 performance testing - don't rebuild it after every change. Tracy
 instrumentation is on only in a `-DCMAKE_BUILD_TYPE=Profile` tree (Release
 plus `-g`) unless `LE_ENABLE_TRACY` says otherwise. See the
-`build-test` skill and `docs/BUILD.md` (rootless Rocky Linux 8 build). Docker: `docker compose run --rm
+`build-test` skill and `docs/BUILD.md` (the rootless conda-forge
+toolchain, `toolchain/pixi.toml`/`pixi.lock`, which `le toolchain` also
+uses). Docker: `docker compose run --rm
 ci` (`Dockerfile.linux-ci`); releases come from `Dockerfile.linux-release`,
 which packages the `bundle` install component (`cmake --install <build>
 --component bundle --prefix <dir>`: a flat, relocatable directory whose own
@@ -411,9 +416,8 @@ comparing. Results history: `plans/BENCHMARKS.md`,
 - Layout view: Blockage/Region own shapes aren't hit-tested yet;
   selection into instanced content is whole-placement only.
 - Free-standing shapes (`free_shapes`) aren't selectable.
-- `scripts/rocky8-bootstrap.sh` is unverified on a real Rocky 8 machine,
-  still stages GTK3 (unused), and doesn't yet provision X11 dev packages,
-  readline or oneTBB.
+- `le` can't verify signatures on stock Rocky 8: its `ssh-keygen`
+  (OpenSSH 8.0) has no `-Y` (#200).
 - Some tests are skipped with `GTEST_SKIP` pending root cause (see each
   skip's comment).
 

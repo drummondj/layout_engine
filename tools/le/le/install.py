@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from le import build, doctor, lock as lockfile, project as projectfile, releases, sources
+from le import build, doctor, lock as lockfile, project as projectfile, releases, sources, toolchain as toolchains
 
 _FROZEN = getattr(sys, "frozen", False)  # running as the PyInstaller binary
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -239,14 +239,20 @@ def install(root: Path, update: Optional[Set[str]] = None, allow_downgrade: bool
         index = _write_script_index(state, ordered, version, api, project.startup)
         command = [str(le_shell), "-extensions", str(index)]
     else:
-        if not (state / "build" / "CMakeCache.txt").is_file():
+        toolchain = None
+        if project.toolchain:
+            try:
+                toolchain = toolchains.ensure(le_fetched.directory)
+            except toolchains.ToolchainError as e:
+                raise InstallError(str(e)) from e
+        elif not (state / "build" / "CMakeCache.txt").is_file():
             # The first configure: fail on anything missing with the whole list, not CMake's first error.
             lines: List[str] = []
             if not doctor.run(True, project.cmake_args, out=lines.append):
                 raise InstallError("this machine is missing what building Layout Engine from source needs (`le doctor` checks again):\n"
                                    + "\n".join(lines))
         bundle = build.build(le_fetched.directory, [fetched[m.name].directory for m in ordered], state, project.build_type,
-                             project.jobs, project.startup, project.cmake_args)
+                             project.jobs, project.startup, project.cmake_args, toolchain)
         command = [str(bundle / "le_shell")]
     _write_stamp(state, project, new, command)
     return Path(command[0])

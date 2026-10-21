@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from le import build, cli, doctor, install as installer, lock as lockfile, project as projectfile
+from le import build, cli, doctor, install as installer, lock as lockfile, project as projectfile, toolchain as toolchains
 from tests import helpers
 
 
@@ -19,8 +19,9 @@ class Recorder:
     def __init__(self):
         self.calls = []
 
-    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, startup, cmake_args=None):
-        self.calls.append({"le_source": le_source, "extension_dirs": list(extension_dirs), "startup": startup, "cmake_args": cmake_args})
+    def __call__(self, le_source, extension_dirs, state_dir, build_type, jobs, startup, cmake_args=None, toolchain=None):
+        self.calls.append({"le_source": le_source, "extension_dirs": list(extension_dirs), "startup": startup, "cmake_args": cmake_args,
+                           "toolchain": toolchain})
         bundle = state_dir / "bundle"
         bundle.mkdir(parents=True, exist_ok=True)
         (bundle / "le_shell").write_text("")
@@ -45,8 +46,11 @@ class TestInstall(unittest.TestCase):
         self.doctor_calls = []
         self.doctor_passes = True
 
-        def fake_doctor(source_build, cmake_args=(), probe=None, out=print):
+        self.doctor_toolchain = []
+
+        def fake_doctor(source_build, cmake_args=(), probe=None, out=print, toolchain=False):
             self.doctor_calls.append((source_build, list(cmake_args)))
+            self.doctor_toolchain.append(toolchain)
             out("missing  swig >= 4.0  not found on PATH  -> apt install swig")
             return self.doctor_passes
 
@@ -286,6 +290,33 @@ class TestInstall(unittest.TestCase):
         calls = len(self.doctor_calls)
         self.assertEqual(self.le("update"), 0, self.last_error)
         self.assertEqual(len(self.doctor_calls), calls)
+
+    def test_le_toolchain_turns_it_on_and_builds_with_it(self):
+        made = []
+        fake = toolchains.Toolchain(root=self.root / "tc", pixi=self.root / "pixi", key="abc")
+        with mock.patch.object(toolchains, "ensure", lambda source: made.append(source) or fake):
+            self.assertEqual(self.le("toolchain"), 0, self.last_error)
+        self.assertIn("toolchain = true", (self.project / projectfile.PROJECT_FILE).read_text())
+        self.assertTrue(projectfile.load(self.project).toolchain)
+        self.assertEqual(made, [self.layout_engine.resolve()])
+        self.assertIs(self.recorder.calls[-1]["toolchain"], fake)
+        self.assertEqual(self.doctor_calls, [], "the toolchain brings what a source build needs")
+        self.assertEqual(self.le("doctor"), 0, self.last_error)
+        self.assertEqual(self.doctor_calls[-1], (True, []))
+        self.assertTrue(self.doctor_toolchain[-1])
+
+        self.assertEqual(self.le("toolchain", "--off"), 0, self.last_error)
+        self.assertFalse(projectfile.load(self.project).toolchain)
+        self.assertEqual(self.le("install"), 0, self.last_error)
+        self.assertIsNone(self.recorder.calls[-1]["toolchain"])
+
+    def test_a_toolchain_that_cant_be_made_stops_the_install(self):
+        def fail(source):
+            raise toolchains.ToolchainError("this machine has no CA certificates")
+        with mock.patch.object(toolchains, "ensure", fail):
+            self.assertEqual(self.le("toolchain"), 1)
+        self.assertIn("no CA certificates", self.last_error)
+        self.assertEqual(self.recorder.calls, [])
 
     def test_doctor_checks_what_the_project_needs(self):
         self.assertEqual(installer.needs_source_build(self.project), (True, "Layout Engine comes from a local checkout"))
