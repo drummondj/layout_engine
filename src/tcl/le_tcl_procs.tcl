@@ -1097,7 +1097,7 @@ proc set_purpose_selectable { purpose args } {
 }
 register_command_help set_purpose_selectable \
     "set_purpose_selectable <purpose> <selectable> \[-help\]" \
-    "Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes." \
+    "Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. A purpose with nothing selectable on it, such as boundary, stays unselectable. See set_purpose_visible for the purposes." \
     "
         {<purpose> {type str required 1 description {One of [join $::_le_purpose_labels {, }]}}}
         {<selectable> {type bool required 1 description {true to allow selecting, false to prevent it}}}

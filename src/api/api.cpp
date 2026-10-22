@@ -2592,7 +2592,7 @@ namespace
         for (const le::ViewLayerPurposeInfo &info : le::kViewLayerPurposes)
         {
             purposes_visible[std::string(info.label)] = handle->is_purpose_visible(info.purpose);
-            purposes_selectable[std::string(info.label)] = handle->is_purpose_selectable(info.purpose);
+            purposes_selectable[std::string(info.label)] = handle->purpose_selectable_toggle(info.purpose);
         }
         j["purposes"] = {{"visible", purposes_visible}, {"selectable", purposes_selectable}};
 

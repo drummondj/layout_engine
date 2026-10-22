@@ -1459,10 +1459,19 @@ struct LeHandle
             purpose_selectable_[purpose] = selectable;
         }
 
-        bool is_purpose_selectable(le::ViewLayerPurpose purpose) const
+        /// @brief The purpose's selectable toggle as last set, whether or
+        /// not anything drawn on it can be selected - what settings save.
+        bool purpose_selectable_toggle(le::ViewLayerPurpose purpose) const
         {
             auto it = purpose_selectable_.find(purpose);
             return it == purpose_selectable_.end() ? true : it->second;
+        }
+
+        /// @brief Whether shapes on `purpose` can be selected: never for a
+        /// purpose with no selectable objects, whatever its toggle says.
+        bool is_purpose_selectable(le::ViewLayerPurpose purpose) const
+        {
+            return le::purpose_has_selectable_objects(purpose) && purpose_selectable_toggle(purpose);
         }
 
         bool is_view_layer_selectable(const std::string &layer_name, le::ViewLayerPurpose purpose) const
