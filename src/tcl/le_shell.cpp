@@ -134,6 +134,20 @@ namespace
         return yes;
     }
 
+    // `le_shell_enqueue_tcl_command command` - queues a command the way a
+    // GUI action does, for drain_pending_gui_commands to run at the
+    // prompt. Lets a test drive that path without a display.
+    int enqueue_tcl_command_cmd(ClientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
+    {
+        if (objc != 2)
+        {
+            Tcl_WrongNumArgs(interp, 1, objv, "command");
+            return TCL_ERROR;
+        }
+        le_enqueue_tcl_command(g_injected_handle, Tcl_GetString(objv[1]));
+        return TCL_OK;
+    }
+
     // `le_shell_confirm_exit` - the interactive `exit` wrapper's check (see
     // run_interactive).
     int confirm_exit_cmd(ClientData, Tcl_Interp *interp, int, Tcl_Obj *const[])
@@ -449,12 +463,18 @@ namespace
             // that, so copy out first.
             const std::string command_copy = command;
 
-            // Readline owns the terminal's current line/cursor while
-            // this hook runs (the user may be mid-edit) - printing
-            // eval_and_print's own output directly here, without this
-            // save/clear/restore dance, would visually corrupt whatever
-            // they've typed so far. The standard readline idiom for
-            // asynchronous output during an active readline() call.
+            // Readline owns the terminal's current line while this hook
+            // runs (the user may be mid-edit): clear it, print, then
+            // redraw the prompt and the untouched line buffer. Readline
+            // 8.3 crashes in rl_redisplay after rl_save_prompt +
+            // rl_replace_line("") from an event hook; before 8.0 there is
+            // no rl_clear_visible_line, and that pattern is the way.
+#if RL_READLINE_VERSION >= 0x0800
+            rl_clear_visible_line();
+            eval_and_print(g_completion_interp, command_copy);
+            rl_on_new_line();
+            rl_redisplay();
+#else
             const int saved_point = rl_point;
             char *saved_line = rl_copy_text(0, rl_end);
             rl_save_prompt();
@@ -468,6 +488,7 @@ namespace
             rl_point = saved_point;
             rl_redisplay();
             std::free(saved_line);
+#endif
         }
         return 0;
     }
@@ -514,6 +535,7 @@ namespace
         rl_attempted_completion_function = attempted_completion;
         rl_completer_word_break_characters = const_cast<char *>(" \t\n");
         rl_event_hook = drain_pending_gui_commands;
+        Tcl_CreateObjCommand(interp, "le_shell_enqueue_tcl_command", enqueue_tcl_command_cmd, nullptr, nullptr);
 
         // `exit` asks first when
         // something is unsaved (confirm_exit_if_unsaved); the real one
