@@ -1772,6 +1772,16 @@ struct LeHandle
         // generated search-result caches below.
         std::vector<le::ShapeId> shape_op_results;
 
+        // For le_<type>_token_name: the escaped Instance path from
+        // token_paths_root (current_schematic_id when built) to every
+        // Schematic below it, rebuilt when that or the database changes;
+        // and the last name returned.
+        std::unordered_map<le::SchematicId, std::string> token_paths;
+        le::SchematicId token_paths_root{};
+        uint64_t token_paths_change_log = UINT64_MAX;
+        uint64_t token_paths_mutation_version = UINT64_MAX;
+        std::string token_name;
+
         // Generated TCL property-reading cache - one cached_X_property_id/
         // cached_X_properties pair per TCL-readable class not already covered
         // by hand-written code above. Never edit generated/api/

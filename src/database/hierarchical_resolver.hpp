@@ -33,8 +33,10 @@
 #include "database.hpp"
 #include "filter.hpp"
 
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -102,6 +104,21 @@ namespace le::hierarchy
             return {}; // trailing lone backslash, or trailing "/"
         segments.push_back(std::move(current));
         return segments;
+    }
+
+    /// @brief `name` as one path segment: '/' and '\\' backslash-escaped,
+    /// so split_path gives `name` back unchanged.
+    inline std::string escape_segment(std::string_view name)
+    {
+        std::string out;
+        out.reserve(name.size());
+        for (const char c : name)
+        {
+            if (c == '/' || c == '\\')
+                out.push_back('\\');
+            out.push_back(c);
+        }
+        return out;
     }
 
     inline bool is_recursive_segment(std::string_view segment) { return segment == "**"; }
@@ -293,5 +310,57 @@ namespace le::hierarchy
             [](const Root &r, SchematicId s, const std::string &n) { return r.get_port_by_name(s, n); },
             [](const Root &r, SchematicId s) -> const std::vector<PortId> & { return r.get_schematic_ports(s); },
             [](const Root &r, PortId id) -> const std::string & { return r.get_port(id)->name; });
+    }
+    /// @brief The Schematic reached from `start` by following each of
+    /// `segments` as an exact Instance name (no glob or "**"), or an
+    /// invalid id when a segment doesn't match or reaches no Schematic.
+    inline SchematicId descend_exact(const Root &root, SchematicId start, std::span<const std::string> segments)
+    {
+        SchematicId schematic = start;
+        for (const std::string &segment : segments)
+        {
+            const InstanceData *inst = root.get_instance(root.get_instance_by_name(schematic, segment));
+            if (!inst || !inst->reference_design.valid())
+                return {};
+            schematic = root.get_design_schematic(inst->reference_design);
+            if (!schematic.valid())
+                return {};
+        }
+        return schematic;
+    }
+
+    /// @brief The escaped Instance path from `start` to every Schematic
+    /// reachable from it ("" for `start` itself), each followed by "/".
+    /// Breadth-first, so a Schematic instantiated in several places gets
+    /// its shortest path, ties going to the first Instance in order;
+    /// descend_exact(split_path(path)) leads back to it.
+    inline std::unordered_map<SchematicId, std::string> schematic_paths(const Root &root, SchematicId start)
+    {
+        std::unordered_map<SchematicId, std::string> paths;
+        if (!root.get_schematic(start))
+            return paths;
+        paths.emplace(start, std::string());
+        std::vector<SchematicId> frontier{start};
+        while (!frontier.empty())
+        {
+            std::vector<SchematicId> next;
+            for (const SchematicId schematic : frontier)
+            {
+                const std::string &prefix = paths.at(schematic);
+                for (const InstanceId inst_id : root.get_schematic_instances(schematic))
+                {
+                    const InstanceData *inst = root.get_instance(inst_id);
+                    if (!inst || !inst->reference_design.valid())
+                        continue;
+                    const SchematicId child = root.get_design_schematic(inst->reference_design);
+                    if (!child.valid() || paths.contains(child))
+                        continue;
+                    paths.emplace(child, prefix + escape_segment(inst->name) + "/");
+                    next.push_back(child);
+                }
+            }
+            frontier = std::move(next);
+        }
+        return paths;
     }
 }

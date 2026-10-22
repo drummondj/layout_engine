@@ -2211,7 +2211,7 @@ proc default_to_unset {values} {
 # --- get_properties/report_properties ---
 #
 # property_accessors_for_token (dispatches a friendly-id token to its
-# {count name value path} shim-function quadruplet by prefix, across
+# {count name value path resolves} shim functions by prefix, across
 # every TCL-readable class - not just library:/design:/abstract:/
 # terminal:/terminal_port:/obstruction:/shape:) and the ::property_scalars/
 # ::property_hops dot-path completion tables are
@@ -2241,10 +2241,20 @@ if {!$_le_generated_procs_found} {
 }
 unset _le_generated_procs_candidates _le_candidate _le_generated_procs_found
 
+# property_accessors_for_token's shim functions for `token`, erroring when
+# it names no object rather than reading every property as "".
+proc resolved_property_accessors {command token} {
+    set accessors [property_accessors_for_token $token]
+    if {![[lindex $accessors 4] $token]} {
+        error "$command: \"$token\" names no object (a name resolves within the current schematic or layout)"
+    }
+    return $accessors
+}
+
 # All properties for one token, as a dict - the shared building block
 # behind both get_properties and report_properties.
-proc properties_for_token {token} {
-    lassign [property_accessors_for_token $token] count_cmd name_cmd value_cmd
+proc properties_for_token {token {command get_properties}} {
+    lassign [resolved_property_accessors $command $token] count_cmd name_cmd value_cmd
     set result {}
     set n [$count_cmd $token]
     for {set i 0} {$i < $n} {incr i} {
@@ -2287,7 +2297,7 @@ proc get_properties {tokens {property_names {}}} {
         if {[llength $property_names] == 0} {
             lappend results [properties_for_token $token]
         } else {
-            lassign [property_accessors_for_token $token] count_cmd name_cmd value_cmd path_cmd
+            lassign [resolved_property_accessors get_properties $token] count_cmd name_cmd value_cmd path_cmd
             set values {}
             foreach path $property_names {
                 set value [$path_cmd $token $path]
@@ -2311,7 +2321,7 @@ proc get_properties {tokens {property_names {}}} {
 }
 register_command_help get_properties \
     "get_properties <tokens> ?property_names? - Reads one or more dotted property paths from one or more friendly-id tokens" \
-    "Returns the properties of one or more objects: all of them, or the ones named (e.g. .name, or a chained path such as .terminal.name). One object and one property give a single value; otherwise a list. See man get_properties." \
+    "Returns the properties of one or more objects: all of them, or the ones named (e.g. .name, or a chained path such as .terminal.name). One object and one property give a single value; otherwise a list. Fails on a token that names no object. See man get_properties." \
     {
         {<tokens> {type token... required 1 description {An object's token, or a list of them (e.g. the result of get_terminals)}}}
         {<property_names> {type str... required 0 description {A property path such as .name, or a list of them - every property if omitted}}}
@@ -2322,7 +2332,7 @@ register_command_help get_properties \
 proc report_properties {tokens} {
     foreach token $tokens {
         puts $token
-        set props [properties_for_token $token]
+        set props [properties_for_token $token report_properties]
         set max_len 0
         foreach name [dict keys $props] {
             if {[string length $name] > $max_len} {
@@ -3213,7 +3223,7 @@ proc get_instances {args} {
 }
 register_command_help get_instances \
     "get_instances \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
-    "Returns the instances matching the given names and filters - an instance being a placed design in a schematic, or a placeholder for source that couldn't be read. A name containing \"/\" is a hierarchical path: each part is a name or glob, and \"**\" matches any depth (e.g. \"top/a/b/**\" is every instance anywhere under b)." \
+    "Returns the instances matching the given names and filters - an instance being a placed design in a schematic, or a placeholder for source that couldn't be read. A name containing \"/\" is a hierarchical path: each part is a name or glob, and \"**\" matches any depth (e.g. \"top/a/b/**\" is every instance anywhere under b). An instance below the current schematic comes back as its path from it, e.g. instance:u_mid/u_leaf." \
     $get_instances_options
 
 proc get_nets {args} {
@@ -3245,7 +3255,7 @@ proc get_nets {args} {
 }
 register_command_help get_nets \
     "get_nets \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
-    "Returns the nets matching the given names and filters - one net per bit of a schematic's wires. A name containing \"/\" is a hierarchical path ending at a net: each part is a name or glob, and \"**\" matches any depth (e.g. \"u_block/u_aes/address\[7\]\", or \"top/a/b/**\" for every net anywhere under b)." \
+    "Returns the nets matching the given names and filters - one net per bit of a schematic's wires. A name containing \"/\" is a hierarchical path ending at a net: each part is a name or glob, and \"**\" matches any depth (e.g. \"u_block/u_aes/address\[7\]\", or \"top/a/b/**\" for every net anywhere under b). A net below the current schematic comes back as its path from it, e.g. net:u_mid/n1." \
     $get_nets_options
 
 proc get_ports {args} {
@@ -3277,7 +3287,7 @@ proc get_ports {args} {
 }
 register_command_help get_ports \
     "get_ports \[<name-expr>...\] \[-of <token>...\] \[-filter <expr>\] \[-help\]" \
-    "Returns the ports matching the given names and filters - one port per bit of a schematic's inputs, outputs and inouts. A name containing \"/\" is a hierarchical path ending at a port: each part is a name or glob, and \"**\" matches any depth." \
+    "Returns the ports matching the given names and filters - one port per bit of a schematic's inputs, outputs and inouts. A name containing \"/\" is a hierarchical path ending at a port: each part is a name or glob, and \"**\" matches any depth. A port below the current schematic comes back as its path from it, e.g. port:u_mid/a." \
     $get_ports_options
 
 # --- delete_net/update_net/update_instance: mutation side-effect

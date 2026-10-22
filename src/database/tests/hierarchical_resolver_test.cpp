@@ -189,3 +189,54 @@ TEST(HierarchicalResolver, EmptySegmentsOrInvalidRootResolveToNoResults)
     EXPECT_TRUE(resolve_instances(f.root, f.top_schematic, {}).empty());
     EXPECT_TRUE(resolve_instances(f.root, SchematicId{}, {"a"}).empty());
 }
+
+TEST(HierarchicalResolver, EscapeSegmentRoundTripsThroughSplitPath)
+{
+    EXPECT_EQ(escape_segment("plain"), "plain");
+    EXPECT_EQ(escape_segment("a/b\\c"), "a\\/b\\\\c");
+    EXPECT_EQ(split_path(escape_segment("a/b\\c") + "/" + escape_segment("d")),
+              (std::vector<std::string>{"a/b\\c", "d"}));
+}
+
+TEST(HierarchicalResolver, DescendExactFollowsInstanceNames)
+{
+    Fixture f;
+    const std::vector<std::string> path{"a", "b2"};
+    EXPECT_EQ(descend_exact(f.root, f.top_schematic, path), f.b_schematic);
+    EXPECT_EQ(descend_exact(f.root, f.top_schematic, std::span(path).first(1)), f.a_schematic);
+    EXPECT_EQ(descend_exact(f.root, f.top_schematic, {}), f.top_schematic);
+}
+
+TEST(HierarchicalResolver, DescendExactRejectsGlobsMissesAndLeafCells)
+{
+    Fixture f;
+    EXPECT_FALSE(descend_exact(f.root, f.top_schematic, std::vector<std::string>{"a", "b*"}).valid());
+    EXPECT_FALSE(descend_exact(f.root, f.top_schematic, std::vector<std::string>{"nope"}).valid());
+    EXPECT_FALSE(descend_exact(f.root, f.top_schematic, std::vector<std::string>{"a", "b", "u_leaf"}).valid());
+}
+
+TEST(HierarchicalResolver, SchematicPathsGivesEachReachableSchematicItsFirstShortestPath)
+{
+    Fixture f;
+    const auto paths = schematic_paths(f.root, f.top_schematic);
+    ASSERT_EQ(paths.size(), 3u);
+    EXPECT_EQ(paths.at(f.top_schematic), "");
+    EXPECT_EQ(paths.at(f.a_schematic), "a/");
+    EXPECT_EQ(paths.at(f.b_schematic), "a/b/"); // "b" precedes "b2"
+
+    const auto from_a = schematic_paths(f.root, f.a_schematic);
+    EXPECT_EQ(from_a.size(), 2u);
+    EXPECT_FALSE(from_a.contains(f.top_schematic));
+    EXPECT_TRUE(schematic_paths(f.root, SchematicId{}).empty());
+}
+
+TEST(HierarchicalResolver, SchematicPathsEscapesInstanceNames)
+{
+    Fixture f;
+    const DesignId design = f.root.create_design(DesignData{.library = f.library, .name = "SLASH"});
+    const SchematicId schematic = f.root.create_schematic(SchematicData{.design = design});
+    f.root.create_instance(InstanceData{.schematic = schematic, .name = "x/y", .reference_design = f.a_design});
+    const auto paths = schematic_paths(f.root, schematic);
+    EXPECT_EQ(paths.at(f.b_schematic), "x\\/y/b/");
+    EXPECT_EQ(descend_exact(f.root, schematic, split_path("x\\/y/b")), f.b_schematic);
+}

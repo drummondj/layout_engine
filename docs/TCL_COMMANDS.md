@@ -2601,7 +2601,7 @@ Deletes a Schematic and everything it owns.
 
 `get_instances [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the instances matching the given names and filters - an instance being a placed design in a schematic, or a placeholder for source that couldn't be read. A name containing "/" is a hierarchical path: each part is a name or glob, and "**" matches any depth (e.g. "top/a/b/**" is every instance anywhere under b).
+Returns the instances matching the given names and filters - an instance being a placed design in a schematic, or a placeholder for source that couldn't be read. A name containing "/" is a hierarchical path: each part is a name or glob, and "**" matches any depth (e.g. "top/a/b/**" is every instance anywhere under b). An instance below the current schematic comes back as its path from it, e.g. instance:u_mid/u_leaf.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2625,7 +2625,7 @@ Returns the NetBus objects matching the given names and filters, as tokens. NetB
 
 `get_nets [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the nets matching the given names and filters - one net per bit of a schematic's wires. A name containing "/" is a hierarchical path ending at a net: each part is a name or glob, and "**" matches any depth (e.g. "u_block/u_aes/address[7]", or "top/a/b/**" for every net anywhere under b).
+Returns the nets matching the given names and filters - one net per bit of a schematic's wires. A name containing "/" is a hierarchical path ending at a net: each part is a name or glob, and "**" matches any depth (e.g. "u_block/u_aes/address[7]", or "top/a/b/**" for every net anywhere under b). A net below the current schematic comes back as its path from it, e.g. net:u_mid/n1.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2660,7 +2660,7 @@ Returns the PortBus objects matching the given names and filters, as tokens. Por
 
 `get_ports [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the ports matching the given names and filters - one port per bit of a schematic's inputs, outputs and inouts. A name containing "/" is a hierarchical path ending at a port: each part is a name or glob, and "**" matches any depth.
+Returns the ports matching the given names and filters - one port per bit of a schematic's inputs, outputs and inouts. A name containing "/" is a hierarchical path ending at a port: each part is a name or glob, and "**" matches any depth. A port below the current schematic comes back as its path from it, e.g. port:u_mid/a.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3489,7 +3489,7 @@ Returns the Library objects matching the given names and filters, as tokens. Lib
 
 `get_properties <tokens> ?property_names?`
 
-Returns the properties of one or more objects: all of them, or the ones named (e.g. .name, or a chained path such as .terminal.name). One object and one property give a single value; otherwise a list. See man get_properties.
+Returns the properties of one or more objects: all of them, or the ones named (e.g. .name, or a chained path such as .terminal.name). One object and one property give a single value; otherwise a list. Fails on a token that names no object. See man get_properties.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

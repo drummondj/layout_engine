@@ -2,7 +2,7 @@ TEMPLATE = """# GENERATED - do not edit by hand. The build regenerates it
 # (codegen --target tcl). Sourced once from le_tcl_procs.tcl.
 #
 # property_accessors_for_token (dispatches a friendly-id token to its
-# {count name value path} shim-function quadruplet by prefix, across
+# {count name value path resolves} shim functions by prefix, across
 # every TCL-readable class) and get_<type>/set_current_<type> - all
 # generated - see CLAUDE.md's TCL codegen section. Never edit
 # this file directly, the build regenerates it.
@@ -18,14 +18,14 @@ TEMPLATE = """# GENERATED - do not edit by hand. The build regenerates it
 # reference (generate_command_docs) can list only core's.
 set ::le_extension_purposes {{'{'}}{% for k in schema.classes if k.extension and k.render and k.render.purpose %}{{k.render.purpose.label}}{% if not loop.last %} {% endif %}{% endfor %}{{'}'}}
 
-# Maps a friendly-id token to its {count name value path} shim-function
-# quadruplet - see le_tcl_procs.tcl's own property_accessors_for_token
+# Maps a friendly-id token to its {count name value path resolves}
+# shim functions - see le_tcl_procs.tcl's own property_accessors_for_token
 # comment (properties_for_token/get_properties/report_properties) for
 # the full contract this backs.
 proc property_accessors_for_token {token} {
 {%- for klass in readable_classes %}
     if {[string match "{{klass.to_snake_case()}}:*" $token]} {
-        return {{'{'}}{{klass.to_snake_case()}}_property_count {{klass.to_snake_case()}}_property_name {{klass.to_snake_case()}}_property_value {{klass.to_snake_case()}}_property_path{{'}'}}
+        return {{'{'}}{{klass.to_snake_case()}}_property_count {{klass.to_snake_case()}}_property_name {{klass.to_snake_case()}}_property_value {{klass.to_snake_case()}}_property_path {{klass.to_snake_case()}}_token_resolves{{'}'}}
     }
 {%- endfor %}
     error "get_properties: unrecognized token \\"$token\\" - expected a friendly id ({% for klass in readable_classes %}{{klass.to_snake_case()}}:{% if not loop.last %}/{% endif %}{% endfor %})"
