@@ -4153,9 +4153,26 @@ class Render:
             each object in the Layout view, like a placement's name: one
             label per row it draws on, placed on its shapes there and
             hidden with that row. None draws no labels.
+        outline_color (tuple): The purpose's own row's outline color,
+            (r, g, b) or (r, g, b, a), each 0-255. None takes fill_color's
+            red, green and blue, opaque, or with neither set the next
+            palette color.
+        fill_color (tuple): The purpose's own row's fill color, as
+            outline_color; an alpha of 0 draws outlines only. None takes
+            outline_color's red, green and blue, translucent.
+        fill_pattern (str): How shapes are filled: NONE (flat, in the fill
+            color), DIAGONAL_STRIPES_NE, DIAGONAL_STRIPES_NW, BRICK or DOTS
+            (in the outline color; none when the fill color's alpha is 0),
+            or CROSS (no fill, an X across each shape).
+            Applies to the purpose's own row and, with `per_layer`, its
+            columns, which otherwise take their layer's conductor pattern.
+            Colors don't apply to the columns: those follow their layer.
     """
 
     purpose: "Purpose"
     tiled: bool = False
     per_layer: bool = False
     label_field: Optional[str] = None
+    outline_color: Optional[tuple] = None
+    fill_color: Optional[tuple] = None
+    fill_pattern: Optional[str] = None

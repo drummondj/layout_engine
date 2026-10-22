@@ -9,8 +9,10 @@ TEMPLATE = """#pragma once
 // row; its own row holds those with no layer the Technology has.
 #include "database.hpp"
 #include "generated/pipelines/view_layer_purpose.hpp"
+#include "pipelines/render_style.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <string_view>
 
 namespace {{namespace}}::renderable
@@ -36,6 +38,11 @@ namespace {{namespace}}::renderable
         /// @brief Its pseudo-row's name in the Layers panel, and its
         /// per-layer columns' suffix (M1/{{r.purpose.name}}).
         static constexpr std::string_view row_name = "{{r.purpose.name}}";
+        /// @brief Its own row's colors; unset takes the palette's.
+        static constexpr std::optional<Color> outline_color = {% if r.outline_color %}Color{ {{- r.outline_color|join(', ') -}} }{% else %}std::nullopt{% endif %};
+        static constexpr std::optional<Color> fill_color = {% if r.fill_color %}Color{ {{- r.fill_color|join(', ') -}} }{% else %}std::nullopt{% endif %};
+        /// @brief Its fill pattern, on its row and columns; unset takes the default.
+        static constexpr std::optional<FillPattern> fill_pattern = {% if r.fill_pattern %}FillPattern::{{r.fill_pattern}}{% else %}std::nullopt{% endif %};
         /// @brief The Shape owner option naming it (Shape.{{r.owner_option}}).
         static constexpr std::string_view owner_option = "{{r.owner_option}}";
 

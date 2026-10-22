@@ -47,8 +47,8 @@ def extend(schema):
         Klass(
             name="HelloMarker",
             description="A named marker in a layout, drawn by its shapes, from the hello_ext example extension",
-            # Drawn in the Layout view on its own row, selectable, and
-            # labelled with its name.
+            # Drawn in the Layout view on its own row, selectable, labelled
+            # with its name, in amber.
             render=Render(
                 purpose=Purpose(
                     name="HELLO_MARKER",
@@ -57,6 +57,7 @@ def extend(schema):
                     has_selectable_objects=True,
                 ),
                 label_field="name",
+                outline_color=(255, 170, 0),
             ),
             fields=[
                 Field(

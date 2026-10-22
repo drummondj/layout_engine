@@ -1,5 +1,6 @@
 #pragma once
 #include "../database/database.hpp"
+#include "render_style.hpp"
 #include "generated/pipelines/renderable_classes.hpp"
 #include "generated/pipelines/view_layer_purpose.hpp"
 #include <algorithm>
@@ -13,31 +14,6 @@
 
 namespace le
 {
-    struct Color
-    {
-        uint8_t r = 0;
-        uint8_t g = 0;
-        uint8_t b = 0;
-        uint8_t a = 255;
-
-        bool operator==(const Color &) const = default;
-    };
-
-    /// @brief The fill treatment RasterizeBlend2DStage draws a ViewLayer's
-    /// shapes with, on top of/instead of a flat color wash (a tiled
-    /// pattern - see pattern_blend2d - or, for CROSS, drawn directly
-    /// per-shape). Always drawn with a transparent
-    /// background so ViewLayers below remain visible through the gaps.
-    enum class FillPattern
-    {
-        NONE,                // flat translucent fill (BOUNDARY today)
-        DIAGONAL_STRIPES_NE, // ROUTING, horizontal direction: "/" hatch
-        DIAGONAL_STRIPES_NW, // ROUTING, vertical direction: "\" hatch
-        CROSS,               // CUT: an X spanning each shape's own bounds
-        BRICK,               // any OBSTRUCTION, regardless of layer type
-        DOTS,                // every other layer type
-    };
-
     struct ViewLayerStyle
     {
         Color outline_color;
@@ -223,14 +199,16 @@ namespace le
                         ViewLayerColumn{.purpose = ViewLayerPurpose::CUSTOM_SHAPE, .id = custom_shape_id},
                     },
                 });
-                // A per_layer renderable class's column (render=): conductor
-                // fill like CUSTOM_SHAPE, after it so it draws above this
+                // A per_layer renderable class's column (render=): the
+                // layer's color, conductor fill like CUSTOM_SHAPE unless the
+                // class names a pattern, after it so it draws above this
                 // layer's own geometry.
                 renderable::for_each([&]<class R>(R) {
                     if constexpr (R::per_layer)
                     {
                         const std::string name = layer->name + "/" + std::string(R::row_name);
-                        const ViewLayerId id = set.add(layer->name, name, R::purpose, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
+                        const FillPattern pattern = R::fill_pattern.value_or(terminal_fill_pattern(*layer));
+                        const ViewLayerId id = set.add(layer->name, name, R::purpose, layer_id, layer_style(color, pattern));
                         set.rows_.back().columns.push_back(ViewLayerColumn{.purpose = R::purpose, .id = id});
                     }
                 });
@@ -292,11 +270,14 @@ namespace le
             });
 
             // Each renderable class's own row (render=), after every core
-            // one. Colors continue the non-routing palette. A per_layer
-            // class keeps its row for shapes with no layer the Technology
-            // has (renderable_view_layer).
+            // one, styled as the class declares; colors it leaves unset
+            // continue the non-routing palette. A per_layer class keeps its
+            // row for shapes with no layer the Technology has
+            // (renderable_view_layer).
             renderable::for_each([&]<class R>(R) {
-                const ViewLayerId id = set.add(std::string(R::row_name), std::string(R::row_name), R::purpose, LayerId{}, renderable_style(other_index++));
+                ViewLayerStyle style = R::outline_color ? ViewLayerStyle{.outline_color = *R::outline_color, .fill_color = *R::fill_color} : renderable_style(other_index++);
+                style.fill_pattern = R::fill_pattern.value_or(FillPattern::NONE);
+                const ViewLayerId id = set.add(std::string(R::row_name), std::string(R::row_name), R::purpose, LayerId{}, style);
                 set.rows_.push_back(ViewLayerRow{
                     .name = std::string(R::row_name),
                     .columns = {ViewLayerColumn{.purpose = R::purpose, .id = id}},

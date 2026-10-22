@@ -254,6 +254,30 @@ TEST_F(ViewStyleFixture, AnOtherRenderableShapeDrawsOnItsOwnRowWhateverItsLayer)
     });
 }
 
+// A renderable class's declared colors style its own row, and its fill
+// pattern its row and per_layer columns; per_layer columns keep their
+// layer's color.
+TEST_F(ViewStyleFixture, ARenderableClassesDeclaredStyleIsItsDefault)
+{
+    renderable::for_each([&]<class R>(R) {
+        const ViewLayerData *own_row = view_layers.get(view_layers.find(LayerId{}, R::purpose));
+        ASSERT_NE(own_row, nullptr);
+        if (R::outline_color)
+        {
+            EXPECT_EQ(own_row->style.outline_color, *R::outline_color) << R::row_name;
+            EXPECT_EQ(own_row->style.fill_color, *R::fill_color) << R::row_name;
+        }
+        EXPECT_EQ(own_row->style.fill_pattern, R::fill_pattern.value_or(FillPattern::NONE)) << R::row_name;
+        if constexpr (R::per_layer)
+        {
+            const ViewLayerData *m1_column = view_layers.get(view_layers.find(m1, R::purpose));
+            const ViewLayerData *m1_route = view_layers.get(view_layers.find(m1, ViewLayerPurpose::ROUTE));
+            EXPECT_EQ(m1_column->style.outline_color, m1_route->style.outline_color) << R::row_name;
+            EXPECT_EQ(m1_column->style.fill_pattern, R::fill_pattern.value_or(m1_route->style.fill_pattern)) << R::row_name;
+        }
+    });
+}
+
 TEST_F(ViewStyleFixture, CustomShapeUsesItsLayersOwnColorAndFillLikeTerminal)
 {
     const ViewLayerData *terminal = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL));

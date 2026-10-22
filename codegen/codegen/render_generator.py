@@ -9,7 +9,7 @@ from logging import Logger
 from pathlib import Path
 import re
 import shutil
-from typing import List
+from typing import List, Optional
 
 import jinja2
 
@@ -17,6 +17,10 @@ from codegen.schema import Klass, Schema, to_snake_case
 from codegen.templates.render import renderable_classes_hpp_j2, view_layer_purpose_hpp_j2
 
 _NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+# le::FillPattern's enumerators (pipelines/render_style.hpp).
+FILL_PATTERNS = ("NONE", "DIAGONAL_STRIPES_NE", "DIAGONAL_STRIPES_NW", "CROSS", "BRICK", "DOTS")
+# The alpha a fill derived from outline_color gets, as the palette's renderable rows.
+_DERIVED_FILL_ALPHA = 80
 _LABEL = re.compile(r"^[a-z][A-Za-z0-9]*$")
 
 
@@ -42,11 +46,42 @@ def validate_purposes(schema: Schema) -> List[str]:
     return errors
 
 
+def _color(klass: Klass, attribute: str, errors: List[str]) -> Optional[tuple]:
+    """render=`attribute` as (r, g, b, a), or None if unset or invalid (with an error)."""
+    value = getattr(klass.render, attribute)
+    if value is None:
+        return None
+    if (
+        not isinstance(value, (tuple, list))
+        or len(value) not in (3, 4)
+        or not all(isinstance(c, int) and not isinstance(c, bool) and 0 <= c <= 255 for c in value)
+    ):
+        errors.append(f"{klass.name}'s render= {attribute} {value!r} isn't (r, g, b) or (r, g, b, a) with each 0-255")
+        return None
+    return tuple(value) if len(value) == 4 else (*value, 255)
+
+
+def _style(klass: Klass, errors: List[str]) -> dict:
+    """The default style render= declares: outline/fill as (r, g, b, a) or None, and the fill pattern or None."""
+    outline = _color(klass, "outline_color", errors)
+    fill = _color(klass, "fill_color", errors)
+    if outline is None and fill is not None:
+        outline = (*fill[:3], 255)
+    elif fill is None and outline is not None:
+        fill = (*outline[:3], _DERIVED_FILL_ALPHA)
+    pattern = klass.render.fill_pattern
+    if pattern is not None and pattern not in FILL_PATTERNS:
+        errors.append(f"{klass.name}'s render= fill_pattern {pattern!r} isn't one of {', '.join(FILL_PATTERNS)}")
+        pattern = None
+    return {"outline_color": outline, "fill_color": fill, "fill_pattern": pattern}
+
+
 def renderables(schema: Schema) -> tuple[list, List[str]]:
     """
     What renderable_classes.hpp needs for each class with render=, and every
-    problem: it needs a Layout parent and a list of Shapes it owns, and a
-    label_field must name one of its str fields.
+    problem: it needs a Layout parent and a list of Shapes it owns, a
+    label_field must name one of its str fields, and colors and the fill
+    pattern must be valid.
     """
     found, errors = [], []
     shape = next((k for k in schema.classes if k.name == "Shape"), None)
@@ -64,6 +99,7 @@ def renderables(schema: Schema) -> tuple[list, List[str]]:
             if label_field is None or label_field.type != "str" or label_field.is_list:
                 errors.append(f"{klass.name}'s render= label_field {klass.render.label_field!r} isn't a str field of {klass.name}")
                 label_field = None
+        style = _style(klass, errors)
         if layout_parent is None:
             errors.append(f"{klass.name} has render= but no parent field of type Layout")
         if owner_option is None:
@@ -80,6 +116,7 @@ def renderables(schema: Schema) -> tuple[list, List[str]]:
                 "shapes_list": shapes_list.name,
                 "owner_option": owner_option.name,
                 "label_field": label_field,
+                **style,
             }
         )
     return found, errors

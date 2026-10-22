@@ -5,8 +5,6 @@ in your own repository and built into Layout Engine without editing it.
 
 **Extension API version: 1** (Layout Engine 0.3.x, the first with extension support). See the [changelog](#changelog).
 
-Not available yet: per-layer columns (#120) and text labels (#121) for
-extension objects.
 Extensions are added to Layout Engine through a **project**: a directory
 whose `le_project.toml` names a Layout Engine and the extensions to build
 into it. The `le` tool builds, tests, runs and bundles it (below).
@@ -416,6 +414,21 @@ def extend(schema):
   fields: the label is drawn on the object's shapes, once per row they
   draw on, sized like a pin's within the Settings panel's label size
   limits, and hidden with that row. An empty value draws no label.
+  To choose its look, pass `outline_color` and `fill_color` as `(r, g, b)`
+  or `(r, g, b, a)` and `fill_pattern` as one of `NONE` (flat),
+  `DIAGONAL_STRIPES_NE`, `DIAGONAL_STRIPES_NW`, `BRICK`, `DOTS` (drawn in
+  the outline color) or `CROSS` (an X across each shape, no fill):
+
+  ```python
+  Render(purpose=..., outline_color=(255, 170, 0), fill_color=(255, 170, 0, 60),
+         fill_pattern="DOTS")
+  ```
+
+  Set only one color and the other takes its red, green and blue (the fill
+  translucent); set neither and the row takes the next palette color. A
+  fill alpha of 0 draws outlines only. Colors style the purpose's own row;
+  `per_layer` columns keep their layer's color, but take `fill_pattern`.
+  The user's color from the Layers panel still overrides yours.
 - **History:** the build writes `schema_history/<VERSION>.json` beside
   `schema_ext.py`. Commit it. Changing the schema without bumping
   `VERSION` fails the build, as for core. While a version is not yet
@@ -730,7 +743,7 @@ The first version.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
-- Rendering: `Render(purpose=Purpose(...), tiled=..., per_layer=..., label_field=...)` on a class.
+- Rendering: `Render(purpose=Purpose(...), tiled=..., per_layer=..., label_field=..., outline_color=..., fill_color=..., fill_pattern=...)` on a class.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
   `schema_history/` and `migrations/` (`Migration(extension=...,
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`
