@@ -160,6 +160,50 @@ class TestRenderableClasses(unittest.TestCase):
             schema.link()
             self.assertTrue(any("label_field" in e and "isn't a str field" in e for e in renderables(schema)[1]), label_field)
 
+    def generated(self, **render):
+        schema = self.schema(self.fields())
+        for name, value in render.items():
+            setattr(schema.get_klass("Marker").render, name, value)
+        schema.purposes.append(schema.get_klass("Marker").render.purpose)
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(generate(schema, out, logging.getLogger("test")), 0)
+            return (Path(out) / "renderable_classes.hpp").read_text()
+
+    def test_style_defaults_to_the_palette(self):
+        text = self.generated()
+        self.assertIn("static constexpr std::optional<Color> outline_color = std::nullopt;", text)
+        self.assertIn("static constexpr std::optional<Color> fill_color = std::nullopt;", text)
+        self.assertIn("static constexpr std::optional<FillPattern> fill_pattern = std::nullopt;", text)
+
+    def test_style_is_passed_through(self):
+        text = self.generated(outline_color=(1, 2, 3, 200), fill_color=(4, 5, 6, 0), fill_pattern="BRICK")
+        self.assertIn("outline_color = Color{1, 2, 3, 200};", text)
+        self.assertIn("fill_color = Color{4, 5, 6, 0};", text)
+        self.assertIn("fill_pattern = FillPattern::BRICK;", text)
+
+    def test_one_color_derives_the_other(self):
+        text = self.generated(outline_color=(10, 20, 30))
+        self.assertIn("outline_color = Color{10, 20, 30, 255};", text)
+        self.assertIn("fill_color = Color{10, 20, 30, 80};", text)
+        text = self.generated(fill_color=(10, 20, 30, 40))
+        self.assertIn("outline_color = Color{10, 20, 30, 255};", text)
+        self.assertIn("fill_color = Color{10, 20, 30, 40};", text)
+
+    def test_style_must_be_valid(self):
+        from codegen.render_generator import renderables
+
+        for name, value, message in (
+            ("outline_color", (1, 2), "outline_color"),
+            ("fill_color", (1, 2, 256), "fill_color"),
+            ("outline_color", "red", "outline_color"),
+            ("fill_color", (1.0, 2, 3), "fill_color"),
+            ("fill_pattern", "brick", "fill_pattern"),
+        ):
+            schema = self.schema(self.fields())
+            setattr(schema.get_klass("Marker").render, name, value)
+            schema.link()
+            self.assertTrue(any(message in e for e in renderables(schema)[1]), (name, value))
+
     def test_a_renderable_class_needs_a_layout_parent_and_owned_shapes(self):
         from codegen.render_generator import renderables
 

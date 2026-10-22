@@ -72,8 +72,9 @@ fails on a temp path that isn't unique to its process.
     `per_layer=True` also a column on every physical layer's row, the
     pseudo-row keeping shapes with no such layer
     (`ViewLayerSet::renderable_view_layer`); with `label_field` a label
-    per object and row, placed like a pin's. Nothing core is hand-written
-    per class.
+    per object and row, placed like a pin's; `outline_color`/`fill_color`/
+    `fill_pattern` its default style (`pipelines/render_style.hpp`), else
+    the palette's. Nothing core is hand-written per class.
     Chunks carry `ChunkSources` so Layout-view selection queries the last
     resolved render tree (`ViewRenderPipeline::resolved_output()`, api.cpp's
     `layout_candidates`) instead of scanning the Layout.
