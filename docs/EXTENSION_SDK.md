@@ -401,7 +401,9 @@ def extend(schema):
   their layers), which the Layers panel lists with visibility and
   selection toggles. They're kept up to date incrementally as they're
   edited, and a click selects their pieces like any shape's; the
-  Properties panel's trail leads to your object. The purpose's name and
+  Properties panel's trail leads to your object. Without
+  `has_selectable_objects=True` nothing on the purpose can be selected,
+  and it has no selection toggle. The purpose's name and
   label start with your prefix. `render=` isn't stored data, so adding it
   doesn't change your schema version. For a class with many objects per
   layout, pass `Render(..., tiled=True)`: its objects are split into

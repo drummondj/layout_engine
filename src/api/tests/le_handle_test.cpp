@@ -813,6 +813,19 @@ TEST(LeHandle, PurposeSelectabilityDefaultsToTrueUntilSet)
     EXPECT_TRUE(handle.is_purpose_selectable(ViewLayerPurpose::TERMINAL));
 }
 
+TEST(LeHandle, PurposeWithNoSelectableObjectsIsNeverSelectable)
+{
+    LeHandle handle;
+    ASSERT_FALSE(le::purpose_has_selectable_objects(ViewLayerPurpose::BOUNDARY));
+    ASSERT_TRUE(le::purpose_info(ViewLayerPurpose::BOUNDARY).selectable_by_default);
+    EXPECT_FALSE(handle.is_purpose_selectable(ViewLayerPurpose::BOUNDARY));
+    EXPECT_FALSE(handle.is_view_layer_selectable("BOUNDARY", ViewLayerPurpose::BOUNDARY));
+
+    handle.set_purpose_selectable(ViewLayerPurpose::BOUNDARY, true);
+    EXPECT_FALSE(handle.is_purpose_selectable(ViewLayerPurpose::BOUNDARY));
+    EXPECT_TRUE(handle.purpose_selectable_toggle(ViewLayerPurpose::BOUNDARY));
+}
+
 TEST(LeHandle, TrackAndGCellGridDefaultToNonSelectableButRowStaysSelectable)
 {
     // Hit-testing never returns tracks or gcell grids anyway; this keeps
@@ -1499,7 +1512,8 @@ TEST(LeHandle, PurposeDefaultsComeFromTheRegistry)
     for (const le::ViewLayerPurposeInfo &info : le::kViewLayerPurposes)
     {
         EXPECT_EQ(handle.is_purpose_visible(info.purpose), info.visible_by_default) << info.label;
-        EXPECT_EQ(handle.is_purpose_selectable(info.purpose), info.selectable_by_default) << info.label;
+        EXPECT_EQ(handle.purpose_selectable_toggle(info.purpose), info.selectable_by_default) << info.label;
+        EXPECT_EQ(handle.is_purpose_selectable(info.purpose), info.selectable_by_default && info.has_selectable_objects) << info.label;
     }
     // The pipeline reads purpose_visibility() directly, treating a missing
     // purpose as visible - so every hidden-by-default purpose must be in it.

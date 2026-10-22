@@ -3047,7 +3047,7 @@ Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <typ
 
 `set_purpose_selectable <purpose> <selectable> [-help]`
 
-Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. See set_purpose_visible for the purposes.
+Sets whether shapes of one purpose - e.g. obstructions - can be selected, across every layer. A purpose with nothing selectable on it, such as boundary, stays unselectable. See set_purpose_visible for the purposes.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
