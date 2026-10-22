@@ -294,11 +294,11 @@ namespace
         return le_layout_via_by_name(session(), std::string(sv.substr(kLayoutViaPrefix.size())).c_str());
     }
 
-    // Port/Net/Instance - same unique_per_parent shape as Row/Placement/etc.
-    // above (each name is scoped to its own Schematic, not global), so
-    // the same hand-written prefix/format/resolve triple, scoped through
-    // le_port_by_name/le_port_name (handle->current_schematic_id-scoped,
-    // see api.cpp's own comment).
+    // Port/Net/Instance/PortBus/NetBus - same unique_per_parent shape as
+    // Row/Placement/etc. above (each name is scoped to its own Schematic,
+    // not global), so the same hand-written prefix/format/resolve triple,
+    // relative to the current Schematic: an object below it carries its
+    // Instance path (`instance:u_mid/u_leaf`, le_<type>_token_name).
 
     constexpr std::string_view kPortPrefix = "port:";
 
@@ -309,7 +309,7 @@ namespace
 
     std::string format_port_id(LePortId id)
     {
-        return format_port_id(le_port_name(session(), id));
+        return format_port_id(le_port_token_name(session(), id));
     }
 
     LePortId resolve_port_id(const char *s)
@@ -332,7 +332,7 @@ namespace
 
     std::string format_net_id(LeNetId id)
     {
-        return format_net_id(le_net_name(session(), id));
+        return format_net_id(le_net_token_name(session(), id));
     }
 
     LeNetId resolve_net_id(const char *s)
@@ -355,7 +355,7 @@ namespace
 
     std::string format_instance_id(LeInstanceId id)
     {
-        return format_instance_id(le_instance_name(session(), id));
+        return format_instance_id(le_instance_token_name(session(), id));
     }
 
     LeInstanceId resolve_instance_id(const char *s)
@@ -378,7 +378,7 @@ namespace
 
     std::string format_port_bus_id(LePortBusId id)
     {
-        return format_port_bus_id(le_port_bus_name(session(), id));
+        return format_port_bus_id(le_port_bus_token_name(session(), id));
     }
 
     LePortBusId resolve_port_bus_id(const char *s)
@@ -401,7 +401,7 @@ namespace
 
     std::string format_net_bus_id(LeNetBusId id)
     {
-        return format_net_bus_id(le_net_bus_name(session(), id));
+        return format_net_bus_id(le_net_bus_token_name(session(), id));
     }
 
     LeNetBusId resolve_net_bus_id(const char *s)

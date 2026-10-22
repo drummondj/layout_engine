@@ -803,7 +803,7 @@ set rename_library [create_library -name RENAME_ME]
 update_library $rename_library -name RENAMED_LIB
 check "get_libraries finds a library by its new name" library:RENAMED_LIB [get_libraries -filter {.name == RENAMED_LIB}]
 check "library:<new name> resolves after a rename" RENAMED_LIB [dict get [get_properties library:RENAMED_LIB] name]
-check "library:<old name> no longer resolves after a rename" {} [get_properties library:RENAME_ME]
+check_true "library:<old name> no longer resolves after a rename" [catch {get_properties library:RENAME_ME}]
 
 # Library names are unique; a Design's only within its Library, and its
 # friendly id gains the library once the name is ambiguous.
@@ -817,7 +817,7 @@ set in_b [create_design -library $lib_b -name DUPCELL]
 check "a second library's same-named design is qualified" design:DUP_B/DUPCELL $in_b
 check "the first is qualified too once ambiguous" design:DUP_A/DUPCELL [get_designs -of $lib_a]
 check "design:LIB/NAME resolves" DUPCELL [dict get [get_properties design:DUP_B/DUPCELL] name]
-check "an ambiguous design:NAME resolves to nothing" {} [get_properties design:DUPCELL]
+check_true "an ambiguous design:NAME resolves to nothing" [catch {get_properties design:DUPCELL}]
 check_true "a design name clash within one library fails" [catch {create_design -library $lib_a -name DUPCELL}]
 
 puts "le_tcl CRUD test passed"

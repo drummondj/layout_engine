@@ -955,6 +955,17 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures/gate_netlist_clean.v
     )
 
+    # Tokens for schematic objects below the current schematic
+    # (src/tcl/tests/hier_token_test.tcl).
+    add_test(
+        NAME le_tcl_hier_token
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/hier_token_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures/hier_netlist.v
+    )
+
     # Native database file commands (src/tcl/tests/native_db_test.tcl) -
     # write_db/db_info in one session,
     # read_db in a second tclsh process (read_db needs an empty session).

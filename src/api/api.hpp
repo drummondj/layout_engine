@@ -1992,6 +1992,7 @@ extern "C"
     /// each unique_per_parent, scoped to their own Schematic, not
     /// global), but scoped to `handle->current_schematic_id` (the
     /// Schematic-view analog of `handle->current_layout_id`) instead.
+    /// `le_<type>_by_name` also takes what `le_<type>_token_name` returns.
     LePortId le_port_by_name(LeHandle *handle, const char *name);
     const char *le_port_name(LeHandle *handle, LePortId id);
     LeNetId le_net_by_name(LeHandle *handle, const char *name);
@@ -2002,6 +2003,18 @@ extern "C"
     const char *le_port_bus_name(LeHandle *handle, LePortBusId id);
     LeNetBusId le_net_bus_by_name(LeHandle *handle, const char *name);
     const char *le_net_bus_name(LeHandle *handle, LeNetBusId id);
+
+    /// @brief The name a Port/Net/Instance/PortBus/NetBus token carries:
+    /// its name when the current Schematic owns it, else the "/"-joined
+    /// Instance path to it from the current Schematic (shortest, each name
+    /// backslash-escaping "/" and "\"), e.g. "u_mid/u_leaf"; its plain name
+    /// when the current Schematic doesn't reach it. Valid until the next
+    /// call on `handle`; null for an invalid id.
+    const char *le_port_token_name(LeHandle *handle, LePortId id);
+    const char *le_net_token_name(LeHandle *handle, LeNetId id);
+    const char *le_instance_token_name(LeHandle *handle, LeInstanceId id);
+    const char *le_port_bus_token_name(LeHandle *handle, LePortBusId id);
+    const char *le_net_bus_token_name(LeHandle *handle, LeNetBusId id);
 
     /// @brief Hierarchical-path variants of le_get_instances/le_get_nets/
     /// le_get_ports - `path`

@@ -1,6 +1,7 @@
 #include "api.hpp"
 #include "../database/database.hpp"
 #include "../database/filter.hpp"
+#include "../database/hierarchical_resolver.hpp"
 #include "../database/library_helpers.hpp"
 #include "../database/schematic_layout_linker.hpp"
 #include "../database/rename_propagation.hpp"
@@ -49,6 +50,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -2690,6 +2692,48 @@ namespace
             for (std::size_t i = 0; i < kViewFlipNames.size(); ++i)
                 if (viewport["flip"].get<std::string>() == kViewFlipNames[i])
                     handle->set_view_flip(static_cast<le::ViewFlip>(i));
+    }
+
+    // A Schematic object's token name (le_<type>_token_name): its own name
+    // when the current Schematic owns it, else its escaped Instance path
+    // from there, else (the current Schematic doesn't reach `owner`) its
+    // plain name.
+    const char *schematic_object_token_name(LeHandle *handle, le::SchematicId owner, const std::string &name)
+    {
+        if (owner == handle->current_schematic_id)
+            return name.c_str();
+        const le::Root &root = handle->root;
+        if (handle->token_paths_root != handle->current_schematic_id ||
+            handle->token_paths_change_log != root.change_log().end_sequence() ||
+            handle->token_paths_mutation_version != root.mutation_version())
+        {
+            handle->token_paths = le::hierarchy::schematic_paths(root, handle->current_schematic_id);
+            handle->token_paths_root = handle->current_schematic_id;
+            handle->token_paths_change_log = root.change_log().end_sequence();
+            handle->token_paths_mutation_version = root.mutation_version();
+        }
+        const auto it = handle->token_paths.find(owner);
+        if (it == handle->token_paths.end())
+            return name.c_str();
+        handle->token_name = it->second + le::hierarchy::escape_segment(name);
+        return handle->token_name.c_str();
+    }
+
+    // The object a token name names: an exact name in the current
+    // Schematic first, so a name that itself contains "/" still resolves,
+    // else an exact Instance path from there.
+    template <typename Id, typename ByNameFn>
+    Id schematic_object_by_token_name(const LeHandle *handle, const char *name, ByNameFn &&by_name)
+    {
+        const le::Root &root = handle->root;
+        if (const Id id = by_name(root, handle->current_schematic_id, std::string(name)); id.valid())
+            return id;
+        const std::vector<std::string> segments = le::hierarchy::split_path(name);
+        if (segments.size() < 2)
+            return Id{};
+        const le::SchematicId owner = le::hierarchy::descend_exact(
+            root, handle->current_schematic_id, std::span(segments).first(segments.size() - 1));
+        return owner.valid() ? by_name(root, owner, segments.back()) : Id{};
     }
 
 }
@@ -5808,13 +5852,10 @@ extern "C"
             return invalid;
         HandleWriteLock lock(handle);
 
-        for (const le::PortId id : handle->root.get_schematic_ports(handle->current_schematic_id))
-        {
-            const le::PortData *port = handle->root.get_port(id);
-            if (port && port->name == name)
-                return to_c(id);
-        }
-        return invalid;
+        const le::PortId id = schematic_object_by_token_name<le::PortId>(
+            handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
+            { return root.get_port_by_name(schematic, n); });
+        return id.valid() ? to_c(id) : invalid;
     }
 
     const char *le_port_name(LeHandle *handle, LePortId id)
@@ -5827,6 +5868,16 @@ extern "C"
         return port ? port->name.c_str() : nullptr;
     }
 
+    const char *le_port_token_name(LeHandle *handle, LePortId id)
+    {
+        if (!handle)
+            return nullptr;
+        HandleWriteLock lock(handle);
+
+        const le::PortData *port = handle->root.get_port(from_c(id));
+        return port ? schematic_object_token_name(handle, port->schematic, port->name) : nullptr;
+    }
+
     LeNetId le_net_by_name(LeHandle *handle, const char *name)
     {
         const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
@@ -5834,13 +5885,10 @@ extern "C"
             return invalid;
         HandleWriteLock lock(handle);
 
-        for (const le::NetId id : handle->root.get_schematic_nets(handle->current_schematic_id))
-        {
-            const le::NetData *net = handle->root.get_net(id);
-            if (net && net->name == name)
-                return to_c(id);
-        }
-        return invalid;
+        const le::NetId id = schematic_object_by_token_name<le::NetId>(
+            handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
+            { return root.get_net_by_name(schematic, n); });
+        return id.valid() ? to_c(id) : invalid;
     }
 
     const char *le_net_name(LeHandle *handle, LeNetId id)
@@ -5853,6 +5901,16 @@ extern "C"
         return net ? net->name.c_str() : nullptr;
     }
 
+    const char *le_net_token_name(LeHandle *handle, LeNetId id)
+    {
+        if (!handle)
+            return nullptr;
+        HandleWriteLock lock(handle);
+
+        const le::NetData *net = handle->root.get_net(from_c(id));
+        return net ? schematic_object_token_name(handle, net->schematic, net->name) : nullptr;
+    }
+
     LeInstanceId le_instance_by_name(LeHandle *handle, const char *name)
     {
         const LeInstanceId invalid{.index = UINT32_MAX, .generation = 0};
@@ -5860,13 +5918,10 @@ extern "C"
             return invalid;
         HandleWriteLock lock(handle);
 
-        for (const le::InstanceId id : handle->root.get_schematic_instances(handle->current_schematic_id))
-        {
-            const le::InstanceData *instance = handle->root.get_instance(id);
-            if (instance && instance->name == name)
-                return to_c(id);
-        }
-        return invalid;
+        const le::InstanceId id = schematic_object_by_token_name<le::InstanceId>(
+            handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
+            { return root.get_instance_by_name(schematic, n); });
+        return id.valid() ? to_c(id) : invalid;
     }
 
     const char *le_instance_name(LeHandle *handle, LeInstanceId id)
@@ -5879,6 +5934,16 @@ extern "C"
         return instance ? instance->name.c_str() : nullptr;
     }
 
+    const char *le_instance_token_name(LeHandle *handle, LeInstanceId id)
+    {
+        if (!handle)
+            return nullptr;
+        HandleWriteLock lock(handle);
+
+        const le::InstanceData *instance = handle->root.get_instance(from_c(id));
+        return instance ? schematic_object_token_name(handle, instance->schematic, instance->name) : nullptr;
+    }
+
     LePortBusId le_port_bus_by_name(LeHandle *handle, const char *name)
     {
         const LePortBusId invalid{.index = UINT32_MAX, .generation = 0};
@@ -5886,13 +5951,10 @@ extern "C"
             return invalid;
         HandleWriteLock lock(handle);
 
-        for (const le::PortBusId id : handle->root.get_schematic_port_buses(handle->current_schematic_id))
-        {
-            const le::PortBusData *bus = handle->root.get_port_bus(id);
-            if (bus && bus->name == name)
-                return to_c(id);
-        }
-        return invalid;
+        const le::PortBusId id = schematic_object_by_token_name<le::PortBusId>(
+            handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
+            { return root.get_port_bus_by_name(schematic, n); });
+        return id.valid() ? to_c(id) : invalid;
     }
 
     const char *le_port_bus_name(LeHandle *handle, LePortBusId id)
@@ -5905,6 +5967,16 @@ extern "C"
         return bus ? bus->name.c_str() : nullptr;
     }
 
+    const char *le_port_bus_token_name(LeHandle *handle, LePortBusId id)
+    {
+        if (!handle)
+            return nullptr;
+        HandleWriteLock lock(handle);
+
+        const le::PortBusData *bus = handle->root.get_port_bus(from_c(id));
+        return bus ? schematic_object_token_name(handle, bus->schematic, bus->name) : nullptr;
+    }
+
     LeNetBusId le_net_bus_by_name(LeHandle *handle, const char *name)
     {
         const LeNetBusId invalid{.index = UINT32_MAX, .generation = 0};
@@ -5912,13 +5984,10 @@ extern "C"
             return invalid;
         HandleWriteLock lock(handle);
 
-        for (const le::NetBusId id : handle->root.get_schematic_net_buses(handle->current_schematic_id))
-        {
-            const le::NetBusData *bus = handle->root.get_net_bus(id);
-            if (bus && bus->name == name)
-                return to_c(id);
-        }
-        return invalid;
+        const le::NetBusId id = schematic_object_by_token_name<le::NetBusId>(
+            handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
+            { return root.get_net_bus_by_name(schematic, n); });
+        return id.valid() ? to_c(id) : invalid;
     }
 
     const char *le_net_bus_name(LeHandle *handle, LeNetBusId id)
@@ -5929,6 +5998,16 @@ extern "C"
 
         const le::NetBusData *bus = handle->root.get_net_bus(from_c(id));
         return bus ? bus->name.c_str() : nullptr;
+    }
+
+    const char *le_net_bus_token_name(LeHandle *handle, LeNetBusId id)
+    {
+        if (!handle)
+            return nullptr;
+        HandleWriteLock lock(handle);
+
+        const le::NetBusData *bus = handle->root.get_net_bus(from_c(id));
+        return bus ? schematic_object_token_name(handle, bus->schematic, bus->name) : nullptr;
     }
 
     // le_get_instances/nets/ports_by_path: the TCL-facing hierarchical
