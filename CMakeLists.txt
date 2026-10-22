@@ -1230,10 +1230,23 @@ if(SWIG_FOUND AND TCL_FOUND)
     )
     set_tests_properties(le_tcl_shell_eof PROPERTIES TIMEOUT 60)
 
-    # Both again with each other readline build in LE_TEST_READLINE_DIRS (a
-    # library directory, through LD_LIBRARY_PATH): le_shell must read piped
-    # input with readlines it wasn't built against, such as an unpatched 8.3,
-    # which never reads input while an event hook is set. CI passes one.
+    # A command a GUI action queues runs at the interactive prompt, on a
+    # pseudo-terminal, without crashing readline or losing a half-typed line.
+    set(shell_gui_command_test
+        ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/shell_gui_command_test.py
+        $<TARGET_FILE:le_shell> $<TARGET_FILE:le_tcl>
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl)
+    add_test(
+        NAME le_tcl_shell_gui_command
+        COMMAND ${shell_gui_command_test} ${CMAKE_CURRENT_BINARY_DIR}/shell_gui_command_test
+    )
+    set_tests_properties(le_tcl_shell_gui_command PROPERTIES TIMEOUT 120)
+
+    # All three again with each other readline build in LE_TEST_READLINE_DIRS
+    # (a library directory, through LD_LIBRARY_PATH): le_shell must work with
+    # readlines it wasn't built against, such as an unpatched 8.3, which never
+    # reads input while an event hook is set and crashes on some redisplays
+    # from one. CI passes one.
     set(LE_TEST_READLINE_DIRS "" CACHE STRING
         "Readline library directories to also run le_shell's piped-input tests with")
     set(readline_index 0)
@@ -1255,6 +1268,13 @@ if(SWIG_FOUND AND TCL_FOUND)
                 TIMEOUT 120
                 ENVIRONMENT "LD_LIBRARY_PATH=${readline_dir}")
         endforeach()
+        add_test(
+            NAME le_tcl_shell_gui_command.readline${readline_id}
+            COMMAND ${shell_gui_command_test} ${CMAKE_CURRENT_BINARY_DIR}/shell_gui_command_test${readline_id}
+        )
+        set_tests_properties(le_tcl_shell_gui_command.readline${readline_id} PROPERTIES
+            TIMEOUT 120
+            ENVIRONMENT "LD_LIBRARY_PATH=${readline_dir}")
     endforeach()
 
     # Session-handle regression check (src/tcl/tests/session_handle_test.cpp) -
