@@ -1479,7 +1479,7 @@ struct LeHandle
             return is_layer_name_selectable(layer_name) && is_purpose_selectable(purpose);
         }
 
-        // --- Placement.type / Route.use filters (LeObjectFilter) ---
+        // --- Placement and route value filters (LeObjectFilter) ---
         // Per-value visibility and selectability, on top of the purpose
         // axes above: a Placement or Route draws only if its purpose and
         // its value are both visible. Values are matched upper-case
@@ -1750,6 +1750,12 @@ struct LeHandle
                 return &sets.placement_types;
             if (filter == LE_OBJECT_FILTER_ROUTE_USE)
                 return &sets.route_uses;
+            if (filter == LE_OBJECT_FILTER_PLACEMENT_STATUS)
+                return &sets.placement_statuses;
+            if (filter == LE_OBJECT_FILTER_ROUTING_STATUS)
+                return &sets.routing_statuses;
+            if (filter == LE_OBJECT_FILTER_ROUTE_SHAPE)
+                return &sets.route_shapes;
             return nullptr;
         }
         static void set_membership(std::set<std::string> &values, std::string value, bool member)

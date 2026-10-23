@@ -3,6 +3,9 @@
 #include <fstream>
 #include <map>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <algorithm>
+#include <iterator>
 #include "../../database/library_helpers.hpp"
 #include "../def_reader.hpp"
 #include "../def_writer.hpp"
@@ -570,9 +573,8 @@ namespace le
     // complete.5.8.def exercises - net *connectivity*, PROPERTY/
     // PROPERTYDEFINITIONS, GROUPS/SLOTS/FILLS/PINPROPERTIES/SCANCHAINS,
     // COMPONENTMASKSHIFT, Placement's HALO/ROUTEHALO/EEQMASTER/GENERATE/
-    // REGION, VPIN/SUBNET/SHIELDNET, and every non-ROUTED wire status
-    // (FIXED/COVER/NOSHIELD - Route has no field for this, always writes
-    // ROUTED) are all real, deliberately out-of-scope gaps, not bugs -
+    // REGION and VPIN/SUBNET/SHIELDNET are all real, deliberately
+    // out-of-scope gaps, not bugs -
     // the per-construct RoundTrips* tests above are this file's real
     // fidelity gate for what DEFWriter actually claims to cover.
     TEST(DEFWriterLefdiffFidelity, WriterRoundtripFixtureMatchesTheOriginalPerLefdiff)
@@ -668,5 +670,122 @@ namespace le
                                       "shape M1 path 100 (0 0) (500 500) via UNKNOWN_VIA (3000 0) - 100",
                                   }));
         EXPECT_EQ(describe(written, written_layout), before);
+    }
+}
+
+namespace le
+{
+    namespace
+    {
+        // A routed Shape's wiring, as text: "<status>/<shape>/<shielded
+        // net>" - an unset status is ROUTED, which is what DEF writes.
+        std::string describe_wiring(const Root &root, const RouteData &route, const ShapeData &shape)
+        {
+            const std::string shield = shape.shield_index && *shape.shield_index < route.shield_nets.size() ? route.shield_nets[*shape.shield_index] : "-";
+            return fmt::format("{}/{}/{}", to_string(shape.routing_status.value_or(RoutingStatus::ROUTED)),
+                               shape.route_shape ? to_string(*shape.route_shape) : "-", shield);
+        }
+
+        // Every path, via, rect and polygon of every route, with its
+        // wiring, sorted per route - Wires and Shapes alike, so the
+        // comparison doesn't depend on which one holds a piece. A via's
+        // layer is left out: a special net's oriented via is written as a
+        // "+ VIA" statement, which is read onto the via's own routing layer.
+        std::map<std::string, std::vector<std::string>> describe_route_pieces(const Root &root, LayoutId layout_id)
+        {
+            std::map<std::string, std::vector<std::string>> routes;
+            for (const RouteId route_id : root.get_layout_routes(layout_id))
+            {
+                const RouteData &route = *root.get_route(route_id);
+                std::vector<std::string> &out = routes[route.name];
+                auto add = [&](const ShapeData &shape)
+                {
+                    const std::string wiring = describe_wiring(root, route, shape);
+                    const std::string layer = root.get_layer(shape.layer)->name;
+                    for (const Path &path : shape.paths)
+                    {
+                        std::string text = fmt::format("path {} {} {}", wiring, layer, path.width);
+                        for (const Point &point : path.polygon.points)
+                            text += fmt::format(" ({} {})", point.x, point.y);
+                        out.push_back(text);
+                    }
+                    for (const ShapeVia &via : shape.vias)
+                        out.push_back(fmt::format("via {} {} ({} {}) {} {}", wiring, via.via_name, via.origin.x, via.origin.y,
+                                                  via.orientation ? to_string(*via.orientation) : "N", via.mask.value_or(0)));
+                    // No orientation: the vendored writer has no oriented
+                    // special-net path via, and "+ VIA" can't hold an array.
+                    for (const ShapeViaIterate &via : shape.via_iterates)
+                        out.push_back(fmt::format("via array {} {} ({} {}) {}x{}", wiring, via.via_name, via.origin.x, via.origin.y, via.num_x, via.num_y));
+                    for (std::size_t i = 0; i < shape.rects.size(); ++i)
+                        out.push_back(fmt::format("rect {} {} ({} {}) ({} {}) mask {}", wiring, layer, shape.rects[i].ll.x, shape.rects[i].ll.y,
+                                                  shape.rects[i].ur.x, shape.rects[i].ur.y, i < shape.rect_masks.size() ? shape.rect_masks[i] : 0));
+                    for (std::size_t i = 0; i < shape.polygons.size(); ++i)
+                    {
+                        std::string text = fmt::format("polygon {} {} mask {}", wiring, layer, i < shape.polygon_masks.size() ? shape.polygon_masks[i] : 0);
+                        for (const Point &point : shape.polygons[i].points)
+                            text += fmt::format(" ({} {})", point.x, point.y);
+                        out.push_back(text);
+                    }
+                };
+                for (const WireId wire_id : root.get_route_wires(route_id))
+                    add(wire_to_shape(root, *root.get_wire(wire_id)));
+                for (const ShapeId shape_id : root.get_route_shapes(route_id))
+                    add(*root.get_shape(shape_id));
+                std::ranges::sort(out);
+            }
+            return routes;
+        }
+    }
+
+    // Routing status, SHAPE, SHIELD and SPECIALNETS RECT/POLYGON/VIA
+    // statements survive a write and re-read.
+    TEST_F(DEFWriterRoundtripFixture, RoundTripsRouteWiringAndSpecialNetShapes)
+    {
+        const auto before = describe_route_pieces(original_root, original_layout_id);
+        const auto after = describe_route_pieces(written_root, written_layout_id);
+        ASSERT_EQ(after.size(), before.size());
+        for (const auto &[name, pieces] : before)
+        {
+            ASSERT_TRUE(after.contains(name)) << name;
+            std::vector<std::string> missing, extra;
+            std::ranges::set_difference(pieces, after.at(name), std::back_inserter(missing));
+            std::ranges::set_difference(after.at(name), pieces, std::back_inserter(extra));
+            EXPECT_TRUE(missing.empty() && extra.empty())
+                << name << "\n  lost: " << fmt::format("{}", fmt::join(missing, "\n        "))
+                << "\n  gained: " << fmt::format("{}", fmt::join(extra, "\n          "));
+        }
+    }
+}
+
+namespace le
+{
+    // The same for a fixture with real vias: oriented "+ VIA" statements,
+    // a "+ VIA" with a SHAPE, NOSHIELD and SHIELD.
+    TEST(DEFWriterRouteWiring, RouteWiringFixtureRoundTrips)
+    {
+        auto read = [](Root &root, const std::string &path) -> LayoutId
+        {
+            const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 100});
+            root.create_layer(LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING", .width = 100});
+            const ViaId tech_via = root.create_via(ViaData{.technology = technology_id, .name = "TECH_VIA"});
+            for (const char *layer : {"V1", "M1", "M2"})
+                root.create_via_layer(ViaLayerData{.via = tech_via, .layer_name = layer});
+            EXPECT_EQ(DEFReader().read_def(path, root, "test_lib"), 0);
+            return root.get_design_layout(find_design_by_name(root, "route_wiring_test"));
+        };
+        Root original;
+        const LayoutId original_layout = read(original, std::string(IO_TEST_FIXTURES_DIR) + "/route_wiring.def");
+        ASSERT_TRUE(original_layout.valid());
+        const std::string written_path = test::scratch_path("le_def_writer_route_wiring.def");
+        ASSERT_EQ(DEFWriter().write_def(written_path, original, original_layout), 0);
+
+        Root written;
+        const LayoutId written_layout = read(written, written_path);
+        ASSERT_TRUE(written_layout.valid());
+        const auto before = describe_route_pieces(original, original_layout);
+        EXPECT_EQ(before.at("VDD").size(), 9u);
+        EXPECT_EQ(describe_route_pieces(written, written_layout), before);
     }
 }

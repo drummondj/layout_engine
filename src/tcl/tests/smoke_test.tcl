@@ -104,6 +104,21 @@ set_placement_type_selectable PAD 1
 set_route_use_visible POWER 1
 set_route_use_selectable SIGNAL 1
 check "set_route_use_visible wrong arity errors" 1 [catch {set_route_use_visible POWER}]
+set_placement_status_visible fixed 0
+check "set_placement_status_visible false round-trips" 0 [get_placement_status_visible FIXED]
+check "a placement status filter leaves placement types alone" 1 [get_placement_type_visible FIXED]
+set_routing_status_selectable COVER 0
+check "set_routing_status_selectable false round-trips" 0 [get_routing_status_selectable cover]
+check "a routing status filter leaves placement statuses alone" 1 [get_placement_status_selectable COVER]
+set_route_shape_visible FOLLOWPIN 0
+check "set_route_shape_visible false round-trips" 0 [get_route_shape_visible followpin]
+check "set_route_shape_selectable is untouched" 1 [get_route_shape_selectable FOLLOWPIN]
+set_placement_status_visible FIXED 1
+set_routing_status_selectable COVER 1
+set_route_shape_visible FOLLOWPIN 1
+check "set_route_shape_visible true round-trips" 1 [get_route_shape_visible FOLLOWPIN]
+check "set_routing_status_visible wrong arity errors" 1 [catch {set_routing_status_visible FIXED}]
+check "get_route_shape_visible -help" 1 [string match "get_route_shape_visible <shape>*" [get_route_shape_visible -help]]
 
 if {[catch {set_purpose_visible not_a_real_purpose 1} err]} {
     puts "ok: set_purpose_visible rejects an unknown purpose keyword ($err)"

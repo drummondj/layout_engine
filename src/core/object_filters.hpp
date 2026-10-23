@@ -1,6 +1,7 @@
 #pragma once
 #include "../database/database.hpp"
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <optional>
 #include <set>
@@ -15,16 +16,24 @@ namespace le
     /// Abstract.type (or no Abstract at all).
     inline constexpr std::string_view kUnsetFilterValue = "UNSET";
 
-    /// @brief Placement.type and Route.use values to filter out, upper-case.
-    /// The Layers panel's per-value visibility (rendering and selection)
-    /// and selectability (selection only) each use one of these. Empty
-    /// sets filter nothing.
+    /// @brief Placement.type/placement_status and Route.use values, and a
+    /// route Wire's or Shape's routing_status/route_shape values, to filter
+    /// out, upper-case. The Layers panel's per-value visibility (rendering
+    /// and selection) and selectability (selection only) each use one of
+    /// these. Empty sets filter nothing.
     struct ObjectFilterSets
     {
         std::set<std::string> placement_types;
         std::set<std::string> route_uses;
+        std::set<std::string> placement_statuses;
+        std::set<std::string> routing_statuses;
+        std::set<std::string> route_shapes;
 
-        bool empty() const { return placement_types.empty() && route_uses.empty(); }
+        bool empty() const
+        {
+            return placement_types.empty() && route_uses.empty() && placement_statuses.empty() && routing_statuses.empty() &&
+                   route_shapes.empty();
+        }
         bool operator==(const ObjectFilterSets &) const = default;
     };
 
@@ -60,6 +69,102 @@ namespace le
     {
         static const std::vector<std::string> values{"SIGNAL", "POWER", "GROUND", "CLOCK", "TIEOFF", "ANALOG", "SCAN", "RESET"};
         return values;
+    }
+
+    /// @brief Every Placement.placement_status value the Layers panel offers.
+    inline const std::vector<std::string> &placement_status_values()
+    {
+        static const std::vector<std::string> values{"UNPLACED", "PLACED", "FIXED", "COVER", "SOFTFIXED"};
+        return values;
+    }
+
+    /// @brief Every routing_status value the Layers panel offers; an unset
+    /// one is ROUTED.
+    inline const std::vector<std::string> &routing_status_values()
+    {
+        static const std::vector<std::string> values{"ROUTED", "FIXED", "COVER", "NOSHIELD", "SHIELD"};
+        return values;
+    }
+
+    /// @brief Every route_shape value the Layers panel offers (DEF
+    /// SPECIALNETS SHAPE), kUnsetFilterValue last for wiring with none.
+    inline const std::vector<std::string> &route_shape_values()
+    {
+        static const std::vector<std::string> values{"RING",      "PADRING",      "BLOCKRING", "STRIPE",   "FOLLOWPIN",
+                                                     "IOWIRE",    "COREWIRE",     "BLOCKWIRE", "BLOCKAGEWIRE",
+                                                     "FILLWIRE",  "FILLWIREOPC",  "DRCFILL",   std::string(kUnsetFilterValue)};
+        return values;
+    }
+
+    /// @brief A set of filter values of one enum as a flag per enum value,
+    /// plus one for unset - so a per-object check is one array lookup.
+    template <typename Enum>
+    struct EnumFilterMask
+    {
+        static constexpr std::size_t kUnset = 32;
+
+        std::array<bool, kUnset + 1> hidden{};
+        bool any = false;
+
+        /// @brief The mask of `values`, each an enum name (as to_string
+        /// spells it) or kUnsetFilterValue; other names are ignored.
+        template <typename FromString>
+        static EnumFilterMask from(const std::set<std::string> &values, FromString &&from_string)
+        {
+            EnumFilterMask mask;
+            for (const std::string &value : values)
+            {
+                if (value == kUnsetFilterValue)
+                    mask.hidden[kUnset] = mask.any = true;
+                else if (const std::optional<Enum> parsed = from_string(value); parsed && static_cast<std::size_t>(*parsed) < kUnset)
+                    mask.hidden[static_cast<std::size_t>(*parsed)] = mask.any = true;
+            }
+            return mask;
+        }
+
+        bool hides(std::optional<Enum> value) const
+        {
+            return any && hidden[value ? static_cast<std::size_t>(*value) : kUnset];
+        }
+
+        bool operator==(const EnumFilterMask &) const = default;
+    };
+
+    /// @brief The routing_status and route_shape filters, for a route's
+    /// Wire or Shape.
+    struct RouteWiringFilter
+    {
+        EnumFilterMask<RoutingStatus> statuses;
+        EnumFilterMask<RouteShape> shapes;
+
+        static RouteWiringFilter from(const ObjectFilterSets &sets)
+        {
+            return RouteWiringFilter{
+                .statuses = EnumFilterMask<RoutingStatus>::from(sets.routing_statuses, [](std::string_view v)
+                                                               { return routing_status_from_string(v); }),
+                .shapes = EnumFilterMask<RouteShape>::from(sets.route_shapes, [](std::string_view v)
+                                                           { return route_shape_from_string(v); }),
+            };
+        }
+
+        bool any() const { return statuses.any || shapes.any; }
+
+        /// @brief Whether `wiring` (a WireData or ShapeData) is filtered
+        /// out; an unset routing_status is ROUTED.
+        template <typename Wiring>
+        bool hides(const Wiring &wiring) const
+        {
+            return statuses.hides(wiring.routing_status.value_or(RoutingStatus::ROUTED)) || shapes.hides(wiring.route_shape);
+        }
+
+        bool operator==(const RouteWiringFilter &) const = default;
+    };
+
+    /// @brief The placement_status filter.
+    inline EnumFilterMask<PlacementStatus> placement_status_mask(const ObjectFilterSets &sets)
+    {
+        return EnumFilterMask<PlacementStatus>::from(sets.placement_statuses, [](std::string_view v)
+                                                     { return placement_status_from_string(v); });
     }
 
     /// @brief Every distinct Placement.type a Design in `root` gives its

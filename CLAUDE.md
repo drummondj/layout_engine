@@ -49,8 +49,9 @@ fails on a temp path that isn't unique to its process.
   `pipelines`.
 - `src/core/` — header-only code needed by more than one other module
   that isn't geometry: `flightlines.hpp` (net connections of the selected
-  placements), `object_filters.hpp` (the Layers panel's Placement.type/
-  Route.use value filters). Code only one module uses lives in that module.
+  placements), `object_filters.hpp` (the Layers panel's value filters:
+  Placement type/status, Route use, and a route Wire's or Shape's routing
+  status/SHAPE). Code only one module uses lives in that module.
 - `src/pipelines/` — the render pipeline, one oneTBB `flow::graph`
   (`ViewRenderPipeline`, design in `plans/PIPELINE_REFACTOR.md`):
   `LayerGenerationStage` -> `HierarchyResolverStage` -> `ViewportCullStage`
@@ -80,7 +81,7 @@ fails on a temp path that isn't unique to its process.
     `layout_candidates`) instead of scanning the Layout.
   - `ViewportCullStage` prunes to the viewport with per-node spatial
     indexes; sub-pixel placements are culled whole.
-    It also applies the Placement.type/Route.use filters (`hidden_objects`):
+    It also applies the Layers panel's value filters (`hidden_objects`):
     hidden placements aren't descended into, and per-chunk
     `ChunkVisibility` masks (cached per chunk, from `ChunkSources`) tell
     Rasterize which route shapes and placement rects to skip - a toggle
@@ -256,16 +257,20 @@ fails on a temp path that isn't unique to its process.
   `has*()` guard before trusting a getter.
 - `DEFReader`/`DEFWriter` cover DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/
   GCELLGRID/COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/
-  NONDEFAULTRULES. NETS/SPECIALNETS carry routing geometry only;
-  connectivity comes from `link` against a netlist.
-- Routed geometry is a compact `Wire` per (Route, layer): 16-byte int32
+  NONDEFAULTRULES. NETS/SPECIALNETS carry routing geometry (with each
+  path's routing status, SHAPE and shielded net, and SPECIALNETS RECT/
+  POLYGON/VIA statements) only; connectivity comes from `link` against a
+  netlist.
+- Routed geometry is a compact `Wire` per (Route, layer, routing status,
+  SHAPE, shielded net): 16-byte int32
   Manhattan segments (a `continues` flag keeps multi-point paths, a
   width index the non-default widths) and vias referencing a `Via`/
   `LayoutVia`. What a Wire can't hold (diagonal or out-of-range
-  segments, via arrays, unknown via names) stays in a route Shape on
-  that layer. Everything that edits or hit-tests geometry reads a Wire
-  as `wire_to_shape`'s Shape (path i, via i) and stores edits back with
-  `shape_to_wire`; selection pieces, chunk sources and shape-op inputs
+  segments, via arrays, unknown via names, RECTs, POLYGONs) stays in a
+  route Shape on that layer with the same status/SHAPE fields.
+  Everything that edits or hit-tests geometry reads a Wire as
+  `wire_to_shape`'s Shape (path i, via i, and its status/SHAPE) and
+  stores edits back with `shape_to_wire`; selection pieces, chunk sources and shape-op inputs
   carry a Shape or a Wire.
 - DEF values are already in database units; `DEFReader` rescales them
   (`unit_scale_`) when the file's UNITS disagree with the Technology's.

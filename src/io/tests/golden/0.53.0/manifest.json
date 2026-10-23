@@ -31,7 +31,7 @@
     "Region": 2,
     "Route": 17,
     "Row": 24,
-    "Shape": 93,
+    "Shape": 100,
     "Site": 10,
     "SpacingRule": 47,
     "Technology": 1,
@@ -44,7 +44,7 @@
     "ViaRule": 9,
     "ViaRuleLayer": 24,
     "ViaRuleReference": 3,
-    "Wire": 21
+    "Wire": 37
   },
   "netlist.c1.led": {
     "Design": 3,

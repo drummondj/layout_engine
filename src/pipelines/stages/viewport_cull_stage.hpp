@@ -303,13 +303,14 @@ namespace le
             return cached.index;
         }
 
-        // The Placement.type/Route.use filter, resolved against Root: the
-        // Designs whose placements are hidden, and a hidden flag per Route
-        // pool index. Rebuilt when the filter or Root changes (it's
-        // per-Design and per-Route, not per-shape). The mask cache is
-        // dropped when the filter or the hidden Designs change; a Route's
-        // use changing needs nothing extra - the resolver rebuilds that
-        // Route's tile, so its chunk (and mask) is new.
+        // The Placement and route value filters, resolved against Root: the
+        // Designs whose placements are hidden (by type), a hidden flag per
+        // Route pool index (by use), and the placement-status and routing
+        // status/SHAPE masks checked per placement and per Wire or Shape.
+        // Rebuilt when the filter or Root changes. The mask cache is
+        // dropped when the filter or the hidden Designs change; an object's
+        // value changing needs nothing extra - the resolver rebuilds its
+        // tile, so its chunk (and mask) is new.
         void update_filter(const ViewRenderOptions &options)
         {
             std::erase_if(visibility_cache_, [](const auto &entry)
@@ -327,7 +328,9 @@ namespace le
             const Root &root = *options.root;
             FilterContext next{.active = true, .filter = options.hidden_objects, .root = options.root,
                                .root_mutation_version = options.root_mutation_version,
-                               .hidden_designs = designs_of_placement_types(root, options.hidden_objects.placement_types)};
+                               .hidden_designs = designs_of_placement_types(root, options.hidden_objects.placement_types),
+                               .hidden_placement_statuses = placement_status_mask(options.hidden_objects),
+                               .hidden_wiring = RouteWiringFilter::from(options.hidden_objects)};
             if (!options.hidden_objects.route_uses.empty())
                 for (const RouteId route_id : root.get_route_ids())
                     if (const RouteData *route = root.get_route(route_id); route && options.hidden_objects.route_uses.contains(route_use(*route)))
@@ -353,32 +356,35 @@ namespace le
                 return cached.visibility;
 
             ChunkVisibility visibility;
-            if (!filter_.hidden_routes.empty())
+            auto route_hidden = [&](RouteId route)
+            { return route.valid() && route.index < filter_.hidden_routes.size() && filter_.hidden_routes[route.index]; };
+            if (!filter_.hidden_routes.empty() || filter_.hidden_wiring.any())
                 for (const auto &[layer, sources] : chunk.sources->shapes)
                 {
                     std::vector<bool> hidden(sources.size());
                     bool any = false;
                     for (std::size_t i = 0; i < sources.size(); ++i)
                     {
-                        RouteId route;
+                        bool hide = false;
                         if (const ShapeData *shape = root.get_shape(sources[i].shape))
-                            route = shape->route();
+                            hide = shape->route().valid() && (route_hidden(shape->route()) || filter_.hidden_wiring.hides(*shape));
                         else if (const WireData *wire = root.get_wire(sources[i].wire))
-                            route = wire->route;
-                        if (route.valid() && route.index < filter_.hidden_routes.size() && filter_.hidden_routes[route.index])
+                            hide = route_hidden(wire->route) || filter_.hidden_wiring.hides(*wire);
+                        if (hide)
                             hidden[i] = any = true;
                     }
                     if (any)
                         visibility.hidden_shapes.emplace(layer, std::move(hidden));
                 }
-            if (!filter_.hidden_designs.empty())
+            if (!filter_.hidden_designs.empty() || filter_.hidden_placement_statuses.any)
             {
                 const std::vector<PlacementId> &placements = chunk.sources->placements;
                 std::vector<bool> hidden(placements.size());
                 bool any = false;
                 for (std::size_t i = 0; i < placements.size(); ++i)
                     if (const PlacementData *placement = root.get_placement(placements[i]);
-                        placement && filter_.hidden_designs.contains(placement->reference_design))
+                        placement && (filter_.hidden_designs.contains(placement->reference_design) ||
+                                      filter_.hidden_placement_statuses.hides(placement->placement_status)))
                         hidden[i] = any = true;
                 if (any)
                     visibility.hidden_placements = std::move(hidden);
@@ -413,6 +419,8 @@ namespace le
             std::uint64_t root_mutation_version = 0;
             std::unordered_set<DesignId> hidden_designs;
             std::vector<bool> hidden_routes; // by RouteId::index
+            EnumFilterMask<PlacementStatus> hidden_placement_statuses;
+            RouteWiringFilter hidden_wiring;
         };
         FilterContext filter_;
 

@@ -644,7 +644,7 @@ namespace le
 
         // DUMMY (SPECIALNETS): a single "+ ROUTED M1 100 + SHAPE FILLWIRE
         // ( 0 0 ) ( 100 0 ) ;" - one Shape on M1, one 2-point Path, width
-        // 100. SHAPE FILLWIRE itself isn't modeled (no schema field).
+        // 100.
         const RouteId dummy_id = find_id_by_name_and_kind("DUMMY", true);
         ASSERT_TRUE(dummy_id.valid());
         const RouteData *dummy = root.get_route(dummy_id);
@@ -659,8 +659,11 @@ namespace le
         EXPECT_EQ(dummy_shapes[0].paths[0].polygon.points[0].x, 0);
         EXPECT_EQ(dummy_shapes[0].paths[0].polygon.points[1].x, 100);
         // ... stored as one Wire: a Manhattan segment needs no general Shape.
-        EXPECT_EQ(root.get_route_wires(dummy_id).size(), 1u);
+        ASSERT_EQ(root.get_route_wires(dummy_id).size(), 1u);
         EXPECT_TRUE(root.get_route_shapes(dummy_id).empty());
+        const WireData *dummy_wire = root.get_wire(root.get_route_wires(dummy_id)[0]);
+        EXPECT_EQ(dummy_wire->routing_status, RoutingStatus::ROUTED);
+        EXPECT_EQ(dummy_wire->route_shape, RouteShape::FILLWIRE);
 
         // N6 (NETS): 3 separate top-level ROUTED statements, all on M1,
         // no explicit WIDTH given -> M1's width (unset, so 0). The
@@ -1144,5 +1147,130 @@ namespace le
         ASSERT_EQ(m1->widths.size(), 1u);
         EXPECT_EQ(m1->widths[0], 200);
         EXPECT_EQ(wire_width(root, *m1, m1->segments[0].width_index), 200);
+    }
+}
+
+namespace le
+{
+    // Routing status, SHAPE, SHIELD and SPECIALNETS RECT/POLYGON/VIA
+    // statements: each distinct wiring on a layer is its own Wire (and
+    // Shape, for what a Wire can't hold).
+    class DEFReaderRouteWiringFixture : public ::testing::Test
+    {
+    protected:
+        void SetUp() override
+        {
+            const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 100});
+            root.create_layer(LayerData{.technology = technology_id, .name = "V1", .type = "CUT"});
+            root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING", .width = 100});
+            const ViaId tech_via = root.create_via(ViaData{.technology = technology_id, .name = "TECH_VIA"});
+            for (const char *layer : {"V1", "M1", "M2"})
+                root.create_via_layer(ViaLayerData{.via = tech_via, .layer_name = layer});
+            ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/route_wiring.def", root, "test_lib"), 0);
+            layout_id = root.get_design_layout(find_design_by_name(root, "route_wiring_test"));
+            ASSERT_TRUE(layout_id.valid());
+        }
+
+        RouteId route(const std::string &name) const
+        {
+            for (const RouteId id : root.get_layout_routes(layout_id))
+                if (root.get_route(id)->name == name)
+                    return id;
+            return RouteId{};
+        }
+
+        // The Wire of `route_id` on `layer` with that status and shape.
+        const WireData *wire_with(RouteId route_id, const std::string &layer, std::optional<RoutingStatus> status,
+                                  std::optional<RouteShape> shape) const
+        {
+            for (const WireId id : root.get_route_wires(route_id))
+                if (const WireData *wire = root.get_wire(id); wire && root.get_layer(wire->layer)->name == layer &&
+                                                               wire->routing_status == status && wire->route_shape == shape)
+                    return wire;
+            return nullptr;
+        }
+
+        Root root;
+        DEFReader reader;
+        LayoutId layout_id;
+    };
+
+    TEST_F(DEFReaderRouteWiringFixture, EachPathKeepsItsStatementsStatusAndItsOwnShape)
+    {
+        const RouteId vdd = route("VDD");
+        const WireData *stripe = wire_with(vdd, "M1", RoutingStatus::ROUTED, RouteShape::STRIPE);
+        ASSERT_NE(stripe, nullptr);
+        EXPECT_EQ(stripe->segments.size(), 1u);
+        const WireData *followpin = wire_with(vdd, "M2", RoutingStatus::ROUTED, RouteShape::FOLLOWPIN);
+        ASSERT_NE(followpin, nullptr);
+        EXPECT_TRUE(followpin->segments[0].vertical);
+        const WireData *fixed = wire_with(vdd, "M1", RoutingStatus::FIXED, std::nullopt);
+        ASSERT_NE(fixed, nullptr);
+        EXPECT_EQ(fixed->segments[0].y, 2000);
+    }
+
+    TEST_F(DEFReaderRouteWiringFixture, ShieldWiringNamesTheNetItShields)
+    {
+        const RouteId vdd = route("VDD");
+        EXPECT_EQ(root.get_route(vdd)->shield_nets, (CompactVector<std::string>{"SIG"}));
+        const WireData *shield = wire_with(vdd, "M2", RoutingStatus::SHIELD, std::nullopt);
+        ASSERT_NE(shield, nullptr);
+        EXPECT_EQ(shield->shield_index, std::optional<unsigned char>(0));
+        EXPECT_EQ(shield->segments[0].y, 3000);
+    }
+
+    TEST_F(DEFReaderRouteWiringFixture, RegularNetsKeepFixedAndNoshield)
+    {
+        const RouteId sig = route("SIG");
+        const WireData *fixed = wire_with(sig, "M1", RoutingStatus::FIXED, std::nullopt);
+        ASSERT_NE(fixed, nullptr);
+        EXPECT_EQ(fixed->segments.size(), 2u); // the NEW path continues the FIXED statement
+        EXPECT_NE(wire_with(sig, "M2", RoutingStatus::NOSHIELD, std::nullopt), nullptr);
+        EXPECT_TRUE(root.get_route(sig)->shield_nets.empty());
+    }
+
+    TEST_F(DEFReaderRouteWiringFixture, RectsAndPolygonsAreRouteShapesWithTheirWiringAndMask)
+    {
+        const RouteId vdd = route("VDD");
+        const ShapeData *rect = nullptr;
+        const ShapeData *polygon = nullptr;
+        for (const ShapeId id : root.get_route_shapes(vdd))
+        {
+            const ShapeData *shape = root.get_shape(id);
+            if (!shape->rects.empty())
+                rect = shape;
+            if (!shape->polygons.empty())
+                polygon = shape;
+        }
+        ASSERT_NE(rect, nullptr);
+        EXPECT_EQ(root.get_layer(rect->layer)->name, "M1");
+        EXPECT_EQ(rect->routing_status, RoutingStatus::FIXED);
+        EXPECT_EQ(rect->route_shape, RouteShape::RING);
+        ASSERT_EQ(rect->rects.size(), 1u);
+        EXPECT_EQ(rect->rects[0].ll.x, 0);
+        EXPECT_EQ(rect->rects[0].ur.y, 100);
+        EXPECT_EQ(rect->rect_masks, (CompactVector<int>{2}));
+        ASSERT_NE(polygon, nullptr);
+        EXPECT_EQ(root.get_layer(polygon->layer)->name, "M2");
+        EXPECT_EQ(polygon->routing_status, RoutingStatus::COVER);
+        EXPECT_FALSE(polygon->route_shape.has_value());
+        EXPECT_EQ(polygon->polygons[0].points.size(), 3u);
+        EXPECT_TRUE(polygon->polygon_masks.empty());
+    }
+
+    TEST_F(DEFReaderRouteWiringFixture, ViaStatementsPlaceTheirViaAtEveryPointOnItsRoutingLayer)
+    {
+        const RouteId vdd = route("VDD");
+        // The parser gives a VIA statement without a status ROUTED.
+        const WireData *tech = wire_with(vdd, "M1", RoutingStatus::ROUTED, std::nullopt);
+        ASSERT_NE(tech, nullptr);
+        ASSERT_EQ(tech->vias.size(), 2u);
+        EXPECT_EQ(tech->vias[0].orientation, Orientation::FS);
+        EXPECT_EQ(tech->vias[1].x, 600);
+        const WireData *design = wire_with(vdd, "M1", RoutingStatus::ROUTED, RouteShape::STRIPE);
+        ASSERT_NE(design, nullptr);
+        ASSERT_EQ(design->vias.size(), 1u);
+        EXPECT_TRUE(design->vias[0].layout_via.valid());
     }
 }

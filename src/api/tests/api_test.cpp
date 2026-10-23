@@ -655,7 +655,7 @@ TEST_F(ApiFixture, FitSceneInLayoutViewFramesTheDiereaNotTheOrigin)
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
 
     const double diearea_um[4] = {1000.0, 1000.0, 1100.0, 1100.0};
-    le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{.index = UINT32_MAX, .generation = 0}, "BOUNDARY", 0, nullptr, 0, 0, nullptr, 0, 1, diearea_um, 4, 0, 0.0, 0, 0.0, 0);
+    le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{.index = UINT32_MAX, .generation = 0}, "BOUNDARY", 0, nullptr, 0, 0, nullptr, 0, 1, diearea_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
 
     // TESTCELL placed at (1010,1010)um - well inside the diearea above -
     // so its own PIN A rect ((2,2)-(8,8)um local) lands at world
@@ -1006,7 +1006,7 @@ TEST_F(ApiFixture, UnsetOptionalReferenceFieldDisplaysAsEmptyStringNotADanglingT
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
 
     const double diearea_um[4] = {0.0, 0.0, 100.0, 100.0};
-    const LeShapeId diearea_shape_id = le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{.index = UINT32_MAX, .generation = 0}, "BOUNDARY", 0, nullptr, 0, 0, nullptr, 0, 1, diearea_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId diearea_shape_id = le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{.index = UINT32_MAX, .generation = 0}, "BOUNDARY", 0, nullptr, 0, 0, nullptr, 0, 1, diearea_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(diearea_shape_id.index, UINT32_MAX);
 
     const LeObjectRef shape_ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = diearea_shape_id.index, .generation = diearea_shape_id.generation};
@@ -1047,7 +1047,7 @@ TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMe
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     ASSERT_NE(m1_layer.index, UINT32_MAX);
     const double route_rect_um[4] = {0.0, 0.0, 1.0, 5.0};
-    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(route_shape_id.index, UINT32_MAX);
 
     const LeObjectRef shape_ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = route_shape_id.index, .generation = route_shape_id.generation};
@@ -1073,7 +1073,7 @@ TEST_F(ApiFixture, AFlippedViewMirrorsThePictureAndTheMouseFollowsIt)
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
     const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
     const double route_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
-    const LeShapeId route_shape = le_create_shape(handle, le_shape_owner_route(route_id), le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId route_shape = le_create_shape(handle, le_shape_owner_route(route_id), le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(route_shape.index, UINT32_MAX);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_viewport_size(handle, 100, 100);
@@ -1129,7 +1129,7 @@ TEST_F(ApiFixture, AFlippedViewsCursorCoordinatesAreCentredOnTheBoundary)
     const LeDesignId top_design = le_create_design(handle, le_create_library(handle, "TOPLIB"), "TOP");
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
     const double die[] = {1, 4, 0, 0, 100, 0, 100, 50, 0, 50};
-    ASSERT_NE(le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index,
+    ASSERT_NE(le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index,
               UINT32_MAX);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_viewport_size(handle, 200, 100);
@@ -1162,7 +1162,7 @@ TEST_F(ApiFixture, AFlippedViewsAxesCrossAtTheBoundaryCentre)
     const LeLayoutId top_layout = le_create_layout(handle, top_design);
     // A 100 x 50 um diearea from (-20, -10): its centre is (30, 15) um.
     const double die[] = {1, 4, -20, -10, 80, -10, 80, 40, -20, 40};
-    ASSERT_NE(le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index,
+    ASSERT_NE(le_create_shape(handle, le_shape_owner_layout(top_layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index,
               UINT32_MAX);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_layer_name_visible(handle, "BOUNDARY", false); // only the axes and grid dots draw
@@ -1221,7 +1221,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewPrefersARouteOwnShapeOverAPlacementsBou
     const double route_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     ASSERT_NE(m1_layer.index, UINT32_MAX);
-    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(route_shape_id.index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
@@ -1260,7 +1260,7 @@ TEST_F(ApiFixture, AClickFindsARouteShapeAtItsNewPlaceAfterAnEdit)
     const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
     const double route_rect_um[4] = {0.0, 0.0, 2.0, 2.0};
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
@@ -1277,7 +1277,7 @@ TEST_F(ApiFixture, AClickFindsARouteShapeAtItsNewPlaceAfterAnEdit)
     ASSERT_EQ(click(5, 95), 1); // (1,1) um
 
     const double moved_um[4] = {12.0, 12.0, 14.0, 14.0};
-    ASSERT_EQ(le_update_shape(handle, shape_id, 0, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved_um, 4, 0, 0.0, 0, 0.0, 0, 0), 0);
+    ASSERT_EQ(le_update_shape(handle, shape_id, 0, m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved_um, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
     EXPECT_EQ(click(5, 95), 0);  // nothing at the old place
     ASSERT_EQ(click(65, 35), 1); // (13,13) um
     EXPECT_EQ(le_selected_object_ref(handle, 0).index, shape_id.index);
@@ -1349,7 +1349,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewSelectsAPhysicalPortOwnShape)
     const double port_rect_um[4] = {2.0, 2.0, 4.0, 4.0};
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     ASSERT_NE(m1_layer.index, UINT32_MAX);
-    const LeShapeId port_shape_id = le_create_shape(handle, le_shape_owner_physical_port_segment(segment_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, port_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId port_shape_id = le_create_shape(handle, le_shape_owner_physical_port_segment(segment_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, port_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(port_shape_id.index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
@@ -1388,10 +1388,10 @@ TEST_F(ApiFixture, SelectObjectRefWithRouteKindSelectsEveryPieceOfEveryChildShap
     ASSERT_NE(route_id.index, UINT32_MAX);
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     const double rect_a_um[4] = {0.0, 0.0, 1.0, 1.0};
-    const LeShapeId shape_a = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_a_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_a = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_a_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_a.index, UINT32_MAX);
     const double rect_b_um[4] = {2.0, 2.0, 3.0, 3.0};
-    const LeShapeId shape_b = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_b_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_b = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_b_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_b.index, UINT32_MAX);
 
     const LeObjectRef route_ref = LeObjectRef{.kind = LE_OBJECT_KIND_ROUTE, .index = route_id.index, .generation = route_id.generation};
@@ -1433,7 +1433,7 @@ TEST_F(ApiFixture, MouseClickInLayoutViewDoesNotSelectARouteOnAHiddenLayer)
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     ASSERT_NE(m1_layer.index, UINT32_MAX);
     const double route_rect_um[4] = {0.0, 0.0, 6.0, 6.0};
-    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(route_shape_id.index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
@@ -1460,7 +1460,7 @@ TEST_F(ApiFixture, SelectObjectRefWithPhysicalPortKindSelectsEveryPieceOfEverySe
     ASSERT_NE(segment_id.index, UINT32_MAX);
     const LeLayerId m1_layer = le_layer_by_name(handle, "M1");
     const double rect_um[4] = {2.0, 2.0, 4.0, 4.0};
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_physical_port_segment(segment_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_physical_port_segment(segment_id), m1_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
 
     const LeObjectRef port_ref = LeObjectRef{.kind = LE_OBJECT_KIND_PHYSICAL_PORT, .index = port_id.index, .generation = port_id.generation};
@@ -4359,14 +4359,14 @@ namespace
     LeTerminalPortId create_terminal_port_with_rect(LeHandle *handle, LeTerminalId terminal_id, const char *layer_name, const double rect_um[4])
     {
         const LeTerminalPortId port_id = le_create_terminal_port(handle, terminal_id, nullptr);
-        le_create_shape(handle, le_shape_owner_terminal_port(port_id), named_layer(handle, layer_name), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+        le_create_shape(handle, le_shape_owner_terminal_port(port_id), named_layer(handle, layer_name), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
         return port_id;
     }
 
     LeObstructionId create_obstruction_with_rect(LeHandle *handle, LeAbstractId abstract_id, const char *layer_name, const double rect_um[4])
     {
         const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
-        le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, layer_name), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+        le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, layer_name), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
         return obstruction_id;
     }
 }
@@ -4576,13 +4576,13 @@ TEST_F(ApiFixture, CreateShapeWithNullHandleOrUnknownLayerOrUnknownParentReturns
     // actually exercise the "unknown layer" rejection path.
     const LeLayerId no_such_layer{.index = 999, .generation = 0};
 
-    EXPECT_EQ(le_create_shape(nullptr, le_shape_owner_terminal_port(port_id), m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, le_shape_owner_terminal_port(port_id), no_such_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, LeShapeOwner{LE_SHAPE_OWNER_NONE, UINT32_MAX, 0}, m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(nullptr, le_shape_owner_terminal_port(port_id), m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, le_shape_owner_terminal_port(port_id), no_such_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeShapeOwner{LE_SHAPE_OWNER_NONE, UINT32_MAX, 0}, m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
 
-    EXPECT_EQ(le_create_shape(nullptr, le_shape_owner_obstruction(obstruction_id), m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), no_such_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
-    EXPECT_EQ(le_create_shape(handle, LeShapeOwner{LE_SHAPE_OWNER_NONE, UINT32_MAX, 0}, m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(nullptr, le_shape_owner_obstruction(obstruction_id), m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), no_such_layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, LeShapeOwner{LE_SHAPE_OWNER_NONE, UINT32_MAX, 0}, m4, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
 }
 
 TEST_F(ApiFixture, TerminalPortShapeCountAndAtEnumerateAndReadBackWhatWasCreated)
@@ -4630,7 +4630,7 @@ TEST_F(ApiFixture, UpdateShapeLayerNameRenamesWithoutTouchingGeometryOrParent)
     ASSERT_NE(shape_id.index, UINT32_MAX);
 
     const LeLayerId m6 = named_layer(handle, "M6");
-    EXPECT_EQ(le_update_shape(handle, shape_id, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0), 0);
+    EXPECT_EQ(le_update_shape(handle, shape_id, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
 
     EXPECT_STREQ(le_shape_layer_name(handle, shape_id), "M6");
     ASSERT_EQ(le_shape_rect_count(handle, shape_id), 1); // untouched
@@ -4651,8 +4651,8 @@ TEST_F(ApiFixture, UpdateShapeLayerNameWithNullHandleOrUnknownIdReturnsNonzero)
     ASSERT_NE(shape_id.index, UINT32_MAX);
     const LeLayerId m6 = named_layer(handle, "M6");
 
-    EXPECT_NE(le_update_shape(nullptr, shape_id, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0), 0);
-    EXPECT_NE(le_update_shape(handle, LeShapeId{.index = UINT32_MAX, .generation = 0}, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0), 0);
+    EXPECT_NE(le_update_shape(nullptr, shape_id, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
+    EXPECT_NE(le_update_shape(handle, LeShapeId{.index = UINT32_MAX, .generation = 0}, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
 
     EXPECT_STREQ(le_shape_layer_name(handle, shape_id), "M4"); // untouched
 }
@@ -4667,18 +4667,18 @@ TEST_F(ApiFixture, CreateShapeWithRectsThenUpdateReplacesThemAndRemoveShapeRectW
     // Rect is always exactly 4 numbers - see Field.list_compound_kind()'s
     // own "flat" docstring), just the coordinates back to back.
     constexpr double rects[] = {0.1, 0.1, 0.3, 0.4, 1.0, 1.0, 2.0, 2.0};
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rects, 8, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rects, 8, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_rect_count(handle, shape_id), 2);
     EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 1).ur_x_um, 2.0);
 
     // Malformed -rects encoding (not a multiple of 4) is rejected.
     constexpr double malformed[] = {0.1, 0.1, 0.3};
-    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M5"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, malformed, 3, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M5"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, malformed, 3, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
 
     // update_shape's own -rects flag replaces the whole list, not appends.
     constexpr double replacement[] = {5.0, 5.0, 6.0, 6.0};
-    EXPECT_EQ(le_update_shape(handle, shape_id, 0, LeLayerId{.index = UINT32_MAX, .generation = 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, replacement, 4, 0, 0.0, 0, 0.0, 0, 0), 0);
+    EXPECT_EQ(le_update_shape(handle, shape_id, 0, LeLayerId{.index = UINT32_MAX, .generation = 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, replacement, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
     ASSERT_EQ(le_shape_rect_count(handle, shape_id), 1);
     EXPECT_DOUBLE_EQ(le_shape_rect_at(handle, shape_id, 0).ur_x_um, 6.0);
 
@@ -4699,7 +4699,7 @@ TEST_F(ApiFixture, CreateShapeWithPolygonThenRemoveShapePolygonWorks)
     // each polygon's own point count varies, so it's prefixed per record,
     // unlike -rects' fixed 4-per-record shape above.
     constexpr double triangle[] = {1, 3, 0.0, 0.0, 1.0, 0.0, 0.5, 1.0};
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 1, triangle, 8, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 1, triangle, 8, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_polygon_count(handle, shape_id), 1);
     ASSERT_EQ(le_shape_polygon_point_count(handle, shape_id, 0), 3);
@@ -4710,11 +4710,11 @@ TEST_F(ApiFixture, CreateShapeWithPolygonThenRemoveShapePolygonWorks)
 
     // Malformed: point_count claims 3 but only 2 points of data follow.
     constexpr double truncated[] = {1, 3, 0.0, 0.0, 1.0, 0.0};
-    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M5"), nullptr, 0, nullptr, 0, 1, truncated, 6, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M5"), nullptr, 0, nullptr, 0, 1, truncated, 6, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
 
     // Malformed: point_count below the minimum of 2.
     constexpr double too_few[] = {1, 1, 0.0, 0.0};
-    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M6"), nullptr, 0, nullptr, 0, 1, too_few, 4, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M6"), nullptr, 0, nullptr, 0, 1, too_few, 4, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
 
     EXPECT_NE(le_remove_shape_polygon(handle, shape_id, 5), 0);
     EXPECT_EQ(le_remove_shape_polygon(handle, shape_id, 0), 0);
@@ -4733,7 +4733,7 @@ TEST_F(ApiFixture, CreateShapeWithPathThenRemoveShapePathWorks)
     // Path = {polygon: Polygon, width: dbu} has one scalar sibling
     // alongside its own point-list field.
     constexpr double centerline[] = {1, 0.1, 2, 0.0, 0.0, 1.0, 0.0};
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 1, centerline, 7, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 1, centerline, 7, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_path_count(handle, shape_id), 1);
     EXPECT_DOUBLE_EQ(le_shape_path_width_um(handle, shape_id, 0), 0.1);
@@ -4745,7 +4745,7 @@ TEST_F(ApiFixture, CreateShapeWithPathThenRemoveShapePathWorks)
 
     // Malformed: point_count claims 2 but only 1 point of data follows.
     constexpr double truncated[] = {1, 0.1, 2, 0.0, 0.0};
-    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M5"), nullptr, 1, truncated, 5, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0).index, UINT32_MAX);
+    EXPECT_EQ(le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M5"), nullptr, 1, truncated, 5, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index, UINT32_MAX);
 
     EXPECT_NE(le_remove_shape_path(handle, shape_id, 5), 0);
     EXPECT_EQ(le_remove_shape_path(handle, shape_id, 0), 0);
@@ -4760,7 +4760,7 @@ TEST_F(ApiFixture, RemovingAShapePieceIsUndoable)
     constexpr double triangles[] = {2, 3, 0.0, 0.0, 1.0, 0.0, 0.5, 1.0, 3, 5.0, 5.0, 6.0, 5.0, 5.5, 6.0};
     constexpr double centerlines[] = {2, 0.1, 2, 0.0, 0.0, 1.0, 0.0, 0.2, 2, 0.0, 4.0, 1.0, 4.0};
     const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 1, centerlines, 13, 1,
-                                               triangles, 16, 1, rects, 8, 0, 0.0, 0, 0.0, 0);
+                                               triangles, 16, 1, rects, 8, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
 
     struct Kind
@@ -4880,7 +4880,7 @@ TEST_F(ApiFixture, UndoRedoRoundTripsAGeneratedUpdateCallThroughBeginEndCommand)
     const LeLayerId m6 = named_layer(handle, "M6");
 
     le_begin_command(handle, "update_shape test");
-    EXPECT_EQ(le_update_shape(handle, shape_id, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0), 0);
+    EXPECT_EQ(le_update_shape(handle, shape_id, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
     le_end_command(handle, 1);
 
     EXPECT_STREQ(le_shape_layer_name(handle, shape_id), "M6");
@@ -5455,7 +5455,7 @@ TEST_F(ApiFixture, ClickSelectsAndMovesOnlyOneRectOfATwoRectShapeNotBothOrTheWro
 
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
     const double rects_um[8] = {0.1, 0.1, 0.3, 0.4, 0.5, 0.1, 0.7, 0.4};
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_shape_rect_count(handle, shape_id), 2);
 
@@ -5506,7 +5506,7 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
 
     const LeObstructionId obstruction_id = le_create_obstruction(handle, abstract_id);
     const double rects_um[8] = {0.1, 0.1, 0.3, 0.4, 0.5, 0.1, 0.7, 0.4};
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_obstruction(obstruction_id), named_layer(handle, "M4"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rects_um, 8, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
 
     le_set_viewport_size(handle, 200, 200);
@@ -5740,7 +5740,7 @@ TEST_F(ApiFixture, FreeShapeOnALayerRendersAndHidesWithTheCustomShapePurpose)
     const LeAbstractId abstract_id = le_current_abstract(handle);
     const LeLayerId m1 = le_layer_by_name(handle, "M1");
     const double rect_um[] = {0.2, 0.2, 1.0, 1.0};
-    const LeShapeId free_shape = le_create_shape(handle, le_shape_owner_in_abstract(abstract_id), m1, "", 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId free_shape = le_create_shape(handle, le_shape_owner_in_abstract(abstract_id), m1, "", 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(free_shape.index, UINT32_MAX);
 
     EXPECT_TRUE(region_has_colored_pixel(le_render_pixel_buffer(handle), 50, 50, 150, 150));
@@ -6047,7 +6047,7 @@ TEST_F(ApiFixture, ResizingAPathSegmentKeepsTheRouteConnected)
     const LeRouteId route = le_create_route(handle, layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
     // {count, (width, n, x, y ...)...} in um: up (1,1)-(1,5), across (1,5)-(8,5), down (8,5)-(8,1).
     const double paths_um[] = {3, 0.2, 2, 1, 1, 1, 5, 0.2, 2, 1, 5, 8, 5, 0.2, 2, 8, 5, 8, 1};
-    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_route(route), le_layer_by_name(handle, "M1"), nullptr, 1, paths_um, static_cast<int32_t>(std::size(paths_um)), 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId shape_id = le_create_shape(handle, le_shape_owner_route(route), le_layer_by_name(handle, "M1"), nullptr, 1, paths_um, static_cast<int32_t>(std::size(paths_um)), 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(shape_id.index, UINT32_MAX);
 
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
@@ -6123,7 +6123,7 @@ TEST_F(ApiFixture, ResizeDoesNotArmWhileAPlacementIsSelected)
     ASSERT_NE(placement_id.index, UINT32_MAX);
     const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
     const double route_rect_um[4] = {20.0, 20.0, 26.0, 26.0};
-    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(route_shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_mode(handle, LE_MODE_EDIT);
@@ -6153,7 +6153,7 @@ TEST_F(ApiFixture, MoveDoesNotArmWithPlacementsAndOtherObjectsSelectedTogether)
     ASSERT_NE(placement_id.index, UINT32_MAX);
     const LeRouteId route_id = le_create_route(handle, top_layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", /*is_special=*/0, /*has_width=*/0, 0.0, /*has_voltage=*/0, 0.0, nullptr);
     const double route_rect_um[4] = {20.0, 20.0, 26.0, 26.0};
-    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0);
+    const LeShapeId route_shape_id = le_create_shape(handle, le_shape_owner_route(route_id), le_layer_by_name(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, route_rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
     ASSERT_NE(route_shape_id.index, UINT32_MAX);
     ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
     le_set_mode(handle, LE_MODE_EDIT);
@@ -7060,7 +7060,7 @@ namespace
         le_create_placement(handle, layout, testcell_design.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", /*physical_only=*/0, "PLACED", 1, 0.0, 0.0, "N", 0, 0.0, nullptr);
         const LeRouteId route = le_create_route(handle, layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "VDD", /*is_special=*/1, 0, 0.0, 0, 0.0, "POWER");
         const double rect_um[4] = {12.0, 2.0, 18.0, 4.0};
-        le_create_shape(handle, le_shape_owner_route(route), named_layer(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0);
+        le_create_shape(handle, le_shape_owner_route(route), named_layer(handle, "M1"), nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0, "FIXED", "STRIPE", 0, 0);
         ASSERT_EQ(le_set_current_design_layout_by_id(handle, top_design), 0);
         le_set_viewport_size(handle, 100, 100);
         le_zoom(handle, 0.005 - 1.0, 0, 100);
@@ -7104,6 +7104,68 @@ TEST_F(ApiFixture, ObjectFilterValuesListPlacementTypesAndRouteUses)
     for (int32_t i = 0; i < le_object_filter_value_count(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE); ++i)
         types.emplace_back(le_object_filter_value_at(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, i));
     EXPECT_EQ(types, (std::vector<std::string>{"CORE", "UNSET"}));
+}
+
+TEST_F(ApiFixture, ObjectFilterValuesListStatusesAndShapes)
+{
+    auto values = [&](int32_t filter)
+    {
+        std::vector<std::string> out;
+        for (int32_t i = 0; i < le_object_filter_value_count(handle, filter); ++i)
+            out.emplace_back(le_object_filter_value_at(handle, filter, i));
+        return out;
+    };
+    EXPECT_EQ(values(LE_OBJECT_FILTER_PLACEMENT_STATUS), (std::vector<std::string>{"UNPLACED", "PLACED", "FIXED", "COVER", "SOFTFIXED"}));
+    EXPECT_EQ(values(LE_OBJECT_FILTER_ROUTING_STATUS), (std::vector<std::string>{"ROUTED", "FIXED", "COVER", "NOSHIELD", "SHIELD"}));
+    const std::vector<std::string> shapes = values(LE_OBJECT_FILTER_ROUTE_SHAPE);
+    ASSERT_EQ(shapes.size(), 13u);
+    EXPECT_EQ(shapes.front(), "RING");
+    EXPECT_EQ(shapes.back(), "UNSET");
+}
+
+TEST_F(ApiFixture, AHiddenOrUnselectableRoutingStatusOrShapeCannotBeClickedOrDragSelected)
+{
+    load_filter_layout(handle);
+    ASSERT_EQ(click_kind(handle, kOnRoute), LE_OBJECT_KIND_SHAPE);
+
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTING_STATUS, "ROUTED", 0); // the route shape is FIXED
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_SHAPE, "UNSET", 0);
+    EXPECT_EQ(click_kind(handle, kOnRoute), LE_OBJECT_KIND_SHAPE);
+
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTING_STATUS, "FIXED", 0);
+    EXPECT_EQ(click_kind(handle, kOnRoute), -1);
+    EXPECT_EQ(drag_all_kinds(handle), std::multiset<int32_t>{LE_OBJECT_KIND_PLACEMENT});
+
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTING_STATUS, "FIXED", 1);
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_SHAPE, "STRIPE", 0);
+    EXPECT_EQ(click_kind(handle, kOnRoute), -1);
+    EXPECT_EQ(drag_all_kinds(handle), std::multiset<int32_t>{LE_OBJECT_KIND_PLACEMENT});
+}
+
+TEST_F(ApiFixture, AHiddenOrUnselectablePlacementStatusCannotBeClickedOrDragSelected)
+{
+    load_filter_layout(handle);
+    ASSERT_EQ(click_kind(handle, kOnPlacement), LE_OBJECT_KIND_PLACEMENT);
+
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_STATUS, "FIXED", 0); // U1 is PLACED
+    EXPECT_EQ(click_kind(handle, kOnPlacement), LE_OBJECT_KIND_PLACEMENT);
+
+    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_PLACEMENT_STATUS, "PLACED", 0);
+    EXPECT_EQ(click_kind(handle, kOnPlacement), -1);
+    EXPECT_EQ(drag_all_kinds(handle), std::multiset<int32_t>{LE_OBJECT_KIND_SHAPE});
+}
+
+TEST_F(ApiFixture, HidingARoutingStatusRemovesItsShapesFromTheRender)
+{
+    load_filter_layout(handle);
+    LePixelBuffer shown = le_render_pixel_buffer(handle);
+    ASSERT_NE(shown.data, nullptr);
+    ASSERT_TRUE(region_has_opaque_pixel(shown, 62, 82, 88, 88)); // inside the route rect
+
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTING_STATUS, "fixed", 0);
+    LePixelBuffer hidden = le_render_pixel_buffer(handle);
+    ASSERT_NE(hidden.data, nullptr);
+    EXPECT_FALSE(region_has_opaque_pixel(hidden, 62, 82, 88, 88));
 }
 
 TEST_F(ApiFixture, ObjectFilterValuesAreVisibleAndSelectableByDefaultAndMatchCaseInsensitively)
