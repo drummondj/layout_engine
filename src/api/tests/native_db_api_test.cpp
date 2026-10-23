@@ -139,6 +139,9 @@ TEST_F(NativeDbApi, TheSessionComesBackWithTheFile)
     ASSERT_TRUE(routes.has_value());
     le_set_purpose_visible(source, static_cast<int32_t>(*routes), 0);
     le_set_object_filter_value_visible(source, LE_OBJECT_FILTER_ROUTE_USE, "CLOCK", 0);
+    le_set_object_filter_value_visible(source, LE_OBJECT_FILTER_ROUTE_SHAPE, "FOLLOWPIN", 0);
+    le_set_object_filter_value_selectable(source, LE_OBJECT_FILTER_ROUTING_STATUS, "FIXED", 0);
+    le_set_object_filter_value_visible(source, LE_OBJECT_FILTER_PLACEMENT_STATUS, "COVER", 0);
     const le::LayoutId layout = source->current_layout();
     ASSERT_TRUE(source->root.get_layout(layout));
     ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
@@ -160,6 +163,9 @@ TEST_F(NativeDbApi, TheSessionComesBackWithTheFile)
     EXPECT_EQ(le_is_layer_name_selectable(loaded, "M1"), 0);
     EXPECT_EQ(le_is_purpose_visible(loaded, static_cast<int32_t>(*routes)), 0);
     EXPECT_EQ(le_is_object_filter_value_visible(loaded, LE_OBJECT_FILTER_ROUTE_USE, "CLOCK"), 0);
+    EXPECT_EQ(le_is_object_filter_value_visible(loaded, LE_OBJECT_FILTER_ROUTE_SHAPE, "FOLLOWPIN"), 0);
+    EXPECT_EQ(le_is_object_filter_value_selectable(loaded, LE_OBJECT_FILTER_ROUTING_STATUS, "FIXED"), 0);
+    EXPECT_EQ(le_is_object_filter_value_visible(loaded, LE_OBJECT_FILTER_PLACEMENT_STATUS, "COVER"), 0);
     EXPECT_EQ(le_has_unsaved_database_changes(loaded), 0) << "restoring the session isn't an edit";
     le_destroy(loaded);
 

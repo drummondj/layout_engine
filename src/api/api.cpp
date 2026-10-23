@@ -318,34 +318,72 @@ namespace
                handle->is_view_layer_selectable("PLACEMENT", le::ViewLayerPurpose::PLACEMENT);
     }
 
-    // Whether `object` survives the Placement.type/Route.use filters - its
-    // value is neither hidden nor unselectable. A Route's shape pieces and
-    // vias carry the Route's use; everything else passes.
+    // Whether `object` survives the Placement and route value filters -
+    // none of its values is hidden or unselectable. A Route's shape pieces
+    // and vias carry the Route's use and their own Wire's or Shape's
+    // routing status and SHAPE; everything else passes.
     bool passes_object_filters(const LeHandle *handle, const LeHandle::SelectedObject &object)
     {
         const le::ObjectFilterSets &hidden = handle->hidden_objects();
         const le::ObjectFilterSets &unselectable = handle->unselectable_objects();
+        const le::Root &root = handle->root;
         if (const auto *piece = std::get_if<LeHandle::ShapePiece>(&object))
         {
-            if (hidden.route_uses.empty() && unselectable.route_uses.empty())
-                return true;
-            const le::RouteData *route = handle->root.get_route(le::geometry_route(handle->root, piece->owner()));
+            const le::GeometryId owner = piece->owner();
+            const le::RouteData *route = root.get_route(le::geometry_route(root, owner));
             if (!route)
                 return true;
-            const std::string use = le::route_use(*route);
-            return !hidden.route_uses.contains(use) && !unselectable.route_uses.contains(use);
+            if (!hidden.route_uses.empty() || !unselectable.route_uses.empty())
+            {
+                const std::string use = le::route_use(*route);
+                if (hidden.route_uses.contains(use) || unselectable.route_uses.contains(use))
+                    return false;
+            }
+            const le::RouteWiringFilter hidden_wiring = le::RouteWiringFilter::from(hidden);
+            const le::RouteWiringFilter unselectable_wiring = le::RouteWiringFilter::from(unselectable);
+            auto filtered = [&](const auto &wiring)
+            { return hidden_wiring.hides(wiring) || unselectable_wiring.hides(wiring); };
+            if (const le::ShapeData *shape = root.get_shape(owner.shape))
+                return !filtered(*shape);
+            if (const le::WireData *wire = root.get_wire(owner.wire))
+                return !filtered(*wire);
+            return true;
         }
         if (const auto *placement_id = std::get_if<le::PlacementId>(&object))
         {
-            if (hidden.placement_types.empty() && unselectable.placement_types.empty())
-                return true;
-            const le::PlacementData *placement = handle->root.get_placement(*placement_id);
+            const le::PlacementData *placement = root.get_placement(*placement_id);
             if (!placement)
                 return true;
-            const std::string type = le::placement_type(handle->root, placement->reference_design);
-            return !hidden.placement_types.contains(type) && !unselectable.placement_types.contains(type);
+            if (!hidden.placement_types.empty() || !unselectable.placement_types.empty())
+            {
+                const std::string type = le::placement_type(root, placement->reference_design);
+                if (hidden.placement_types.contains(type) || unselectable.placement_types.contains(type))
+                    return false;
+            }
+            return !le::placement_status_mask(hidden).hides(placement->placement_status) &&
+                   !le::placement_status_mask(unselectable).hides(placement->placement_status);
         }
         return true;
+    }
+
+    // The values an LeObjectFilter offers; null for an unknown one.
+    const std::vector<std::string> *object_filter_values(const LeHandle *handle, int32_t filter)
+    {
+        switch (filter)
+        {
+        case LE_OBJECT_FILTER_PLACEMENT_TYPE:
+            return &handle->placement_type_values();
+        case LE_OBJECT_FILTER_ROUTE_USE:
+            return &le::route_use_values();
+        case LE_OBJECT_FILTER_PLACEMENT_STATUS:
+            return &le::placement_status_values();
+        case LE_OBJECT_FILTER_ROUTING_STATUS:
+            return &le::routing_status_values();
+        case LE_OBJECT_FILTER_ROUTE_SHAPE:
+            return &le::route_shape_values();
+        default:
+            return nullptr;
+        }
     }
 
     bool rows_selectable(const LeHandle *handle)
@@ -2599,7 +2637,11 @@ namespace
         j["purposes"] = {{"visible", purposes_visible}, {"selectable", purposes_selectable}};
 
         const auto filters = [](const le::ObjectFilterSets &sets) {
-            return nlohmann::json{{"placement_types", filter_values_json(sets.placement_types)}, {"route_uses", filter_values_json(sets.route_uses)}};
+            return nlohmann::json{{"placement_types", filter_values_json(sets.placement_types)},
+                                  {"route_uses", filter_values_json(sets.route_uses)},
+                                  {"placement_statuses", filter_values_json(sets.placement_statuses)},
+                                  {"routing_statuses", filter_values_json(sets.routing_statuses)},
+                                  {"route_shapes", filter_values_json(sets.route_shapes)}};
         };
         j["filters"] = {{"hidden", filters(handle->hidden_objects())}, {"unselectable", filters(handle->unselectable_objects())}};
         return j.dump();
@@ -2646,7 +2688,10 @@ namespace
         {
             if (!filters.contains(key) || !filters[key].is_object())
                 continue;
-            for (const auto &[list, filter] : {std::pair{"placement_types", LE_OBJECT_FILTER_PLACEMENT_TYPE}, std::pair{"route_uses", LE_OBJECT_FILTER_ROUTE_USE}})
+            for (const auto &[list, filter] : {std::pair{"placement_types", LE_OBJECT_FILTER_PLACEMENT_TYPE}, std::pair{"route_uses", LE_OBJECT_FILTER_ROUTE_USE},
+                                               std::pair{"placement_statuses", LE_OBJECT_FILTER_PLACEMENT_STATUS},
+                                               std::pair{"routing_statuses", LE_OBJECT_FILTER_ROUTING_STATUS},
+                                               std::pair{"route_shapes", LE_OBJECT_FILTER_ROUTE_SHAPE}})
                 if (filters[key].contains(list) && filters[key][list].is_array())
                     for (const auto &value : filters[key][list])
                         if (value.is_string())
@@ -4474,11 +4519,8 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        if (filter == LE_OBJECT_FILTER_PLACEMENT_TYPE)
-            return static_cast<int32_t>(handle->placement_type_values().size());
-        if (filter == LE_OBJECT_FILTER_ROUTE_USE)
-            return static_cast<int32_t>(le::route_use_values().size());
-        return 0;
+        const std::vector<std::string> *values = object_filter_values(handle, filter);
+        return values ? static_cast<int32_t>(values->size()) : 0;
     }
 
     const char *le_object_filter_value_at(LeHandle *handle, int32_t filter, int32_t index)
@@ -4486,9 +4528,7 @@ extern "C"
         if (!handle || index < 0)
             return nullptr;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        const std::vector<std::string> *values = filter == LE_OBJECT_FILTER_PLACEMENT_TYPE ? &handle->placement_type_values()
-                                                 : filter == LE_OBJECT_FILTER_ROUTE_USE    ? &le::route_use_values()
-                                                                                           : nullptr;
+        const std::vector<std::string> *values = object_filter_values(handle, filter);
         if (!values || static_cast<size_t>(index) >= values->size())
             return nullptr;
         return (*values)[static_cast<size_t>(index)].c_str();

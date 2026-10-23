@@ -325,6 +325,55 @@ TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksItsWiresToo)
     EXPECT_EQ(hidden_counts(power_hidden.view_data.at(HierarchyId{top_layout})), (std::pair<std::size_t, std::size_t>{1, 0}));
 }
 
+TEST_F(ViewportCullStageFixture, AHiddenRoutingStatusOrShapeMasksExactlyThoseWiresAndShapes)
+{
+    const RouteId vdd = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .is_special = true});
+    auto add_wire = [&](int64_t y, std::optional<RoutingStatus> status, std::optional<RouteShape> shape)
+    {
+        WireBuilder builder(root, m1);
+        ASSERT_TRUE(builder.add_path(Path{.width = 4, .polygon = {.points = {Point{0, y}, Point{50, y}}}}));
+        WireData wire = std::move(builder).build(vdd);
+        wire.routing_status = status;
+        wire.route_shape = shape;
+        root.create_wire(std::move(wire));
+    };
+    add_wire(0, RoutingStatus::FIXED, RouteShape::STRIPE);
+    add_wire(10, std::nullopt, std::nullopt); // ROUTED, no SHAPE
+    ShapeData ring{.owner = le::ShapeOwner::route(vdd), .layer = m1, .rects = {Rect{.ll = Point{0, 20}, .ur = Point{50, 25}}}};
+    ring.routing_status = RoutingStatus::COVER;
+    ring.route_shape = RouteShape::RING;
+    root.create_shape(std::move(ring));
+    root.bump_mutation_version();
+    hierarchy_resolver_runner.run(view_layers_handle, 0, options_with_viewport(Rect{}));
+    const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+    auto hidden_shapes = [&](ObjectFilterSets filter)
+    { return hidden_counts(cull_runner.run(hierarchy_resolver_runner.last_handle(), 1, with_hidden(everything, std::move(filter))).view_data.at(HierarchyId{top_layout})).first; };
+
+    EXPECT_EQ(hidden_shapes({.routing_statuses = {"FIXED"}}), 1u);
+    EXPECT_EQ(hidden_shapes({.routing_statuses = {"ROUTED"}}), 1u); // the unset one
+    EXPECT_EQ(hidden_shapes({.routing_statuses = {"COVER", "FIXED"}}), 2u);
+    EXPECT_EQ(hidden_shapes({.route_shapes = {"RING"}}), 1u);
+    EXPECT_EQ(hidden_shapes({.route_shapes = {"UNSET"}}), 1u);
+    EXPECT_EQ(hidden_shapes({.routing_statuses = {"FIXED"}, .route_shapes = {"RING"}}), 2u);
+    EXPECT_EQ(hidden_shapes({.routing_statuses = {"SHIELD"}}), 0u);
+}
+
+TEST_F(ViewportCullStageFixture, AHiddenPlacementStatusIsNeitherDescendedIntoNorDrawn)
+{
+    for (const PlacementId id : root.get_layout_placements(block_layout))
+        root.get_placement(id)->placement_status = PlacementStatus::FIXED;
+    const PlacementId block0 = root.get_layout_placements(top_layout).front();
+    root.get_placement(block0)->placement_status = PlacementStatus::PLACED;
+    const ViewRenderOptions everything = options_with_viewport(Rect{.ll = Point{0, 0}, .ur = Point{10000, 10000}});
+
+    const HierarchyResolverOutput &hidden = cull_runner.run(cold_output, 0, with_hidden(everything, {.placement_statuses = {"FIXED"}}));
+    EXPECT_FALSE(hidden.view_data.contains(HierarchyId{leaf_abstract}));
+    const ViewData &block = hidden.view_data.at(HierarchyId{block_layout});
+    EXPECT_EQ(placement_count(block), 0u);
+    EXPECT_EQ(hidden_counts(block), (std::pair<std::size_t, std::size_t>{0, 2}));
+    EXPECT_EQ(placement_count(hidden.view_data.at(HierarchyId{top_layout})), 1u);
+}
+
 TEST_F(ViewportCullStageFixture, MasksAreReusedAcrossPansAndEditsAndRebuiltWhenTheFilterChanges)
 {
     root.get_abstract(leaf_abstract)->type = "CORE";

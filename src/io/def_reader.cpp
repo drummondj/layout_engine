@@ -2,8 +2,11 @@
 #include "def_reader.hpp"
 #include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <deque>
+#include <limits>
 #include <utility>
 
 namespace
@@ -164,43 +167,92 @@ namespace
         return top * 100 + cut * 10 + bottom;
     }
 
-    // One routed layer of a net: its Wire, and a Shape for what a Wire
-    // can't hold (see WireBuilder).
+    // What a net's wiring is beyond its geometry: its routing status,
+    // SHAPE and shielded net (an index into the Route's shield_nets).
+    struct RouteWiring
+    {
+        std::optional<le::RoutingStatus> routing_status;
+        std::optional<le::RouteShape> route_shape;
+        std::optional<unsigned char> shield_index;
+
+        bool operator==(const RouteWiring &) const = default;
+    };
+
+    // One routed layer of a net with one wiring: its Wire, and a Shape for
+    // what a Wire can't hold (see WireBuilder).
     struct RoutedLayer
     {
         std::string name;
+        RouteWiring wiring;
         le::WireBuilder wire;
         le::ShapeData fallback;
     };
 
-    // Walks one defiPath's ordered element stream (LAYER/WIDTH/POINT/
-    // FLUSHPOINT/VIA/VIAROTATION/VIAMASK/VIADATA, ...) into `layers`, one
-    // entry per layer name, shared by all of a net's wires and paths
-    // (ROUTED, NEW, ...). VIAROTATION/VIAMASK/VIADATA are separate stream
-    // elements after their VIA (defiPath's getters read only at that
-    // element), so a via is pending until a different element type
-    // arrives. Not handled: DEFIPATH_RECT (rare), and TAPER/TAPERRULE/
-    // SHAPE/STYLE (no schema field) - skipped, not erroring.
-    void append_routing_from_path(le::Root &root, le::LayoutId layout_id, std::unordered_map<std::string, le::WireViaTarget> &via_targets,
-                                  std::vector<RoutedLayer> &layers, defiPath *path, double unit_scale)
+    // The RoutedLayer for `layer_name` with `wiring`, created on first use.
+    // Logs and returns nullptr for a layer name that isn't a Technology
+    // Layer; geometry on it is then dropped.
+    RoutedLayer *find_or_create_routed_layer(le::Root &root, std::deque<RoutedLayer> &layers, const std::string &layer_name,
+                                             const RouteWiring &wiring)
     {
-        // Logs once and returns nullptr for a layer name that isn't a
-        // Technology Layer; the path's elements on it are then dropped.
-        auto find_or_create = [&](const std::string &layer_name) -> RoutedLayer *
+        for (RoutedLayer &layer : layers)
+            if (layer.name == layer_name && layer.wiring == wiring)
+                return &layer;
+        const le::LayerId layer_id = root.get_layer_by_name(layer_name);
+        if (!layer_id.valid())
         {
-            for (RoutedLayer &layer : layers)
-                if (layer.name == layer_name)
-                    return &layer;
-            const le::LayerId layer_id = root.get_layer_by_name(layer_name);
-            if (!layer_id.valid())
-            {
-                log_error("Routed path on unknown LAYER '{}' - ignored.", layer_name);
-                return nullptr;
-            }
-            layers.push_back(RoutedLayer{.name = layer_name, .wire = le::WireBuilder(root, layer_id), .fallback = le::ShapeData{.layer = layer_id}});
-            return &layers.back();
-        };
+            log_error("Routed geometry on unknown LAYER '{}' - ignored.", layer_name);
+            return nullptr;
+        }
+        le::ShapeData fallback{.layer = layer_id};
+        fallback.routing_status = wiring.routing_status;
+        fallback.route_shape = wiring.route_shape;
+        fallback.shield_index = wiring.shield_index;
+        return &layers.emplace_back(RoutedLayer{.name = layer_name, .wiring = wiring, .wire = le::WireBuilder(root, layer_id), .fallback = std::move(fallback)});
+    }
 
+    // The layer a SPECIALNETS "+ VIA" placement is stored on: the first
+    // ROUTING layer of the via it names (a design via before a technology
+    // one, or a VIARULE reference's bottom layer).
+    std::optional<std::string> via_routing_layer(const le::Root &root, le::LayoutId layout_id, const std::string &via_name)
+    {
+        const le::WireViaTarget target = le::resolve_wire_via(root, layout_id, via_name);
+        const std::vector<le::ViaLayerId> &layer_ids =
+            target.layout_via.valid() ? root.get_layout_via_layers(target.layout_via) : root.get_via_layers(target.via);
+        for (const le::ViaLayerId id : layer_ids)
+            if (const le::ViaLayerData *via_layer = root.get_via_layer(id))
+                if (const le::LayerData *layer = root.get_layer(root.get_layer_by_name(via_layer->layer_name)); layer && layer->type == "ROUTING")
+                    return via_layer->layer_name;
+        const le::ViaRuleReferenceId rule =
+            target.layout_via.valid() ? root.get_layout_via_via_rule(target.layout_via) : root.get_via_via_rule(target.via);
+        if (const le::ViaRuleReferenceData *reference = root.get_via_rule_reference(rule))
+            return reference->bot_layer_name;
+        return std::nullopt;
+    }
+
+    // A SHAPE keyword as a RouteShape; unset (logged) for an unknown one.
+    std::optional<le::RouteShape> route_shape_from_def(const char *keyword)
+    {
+        if (!keyword || !*keyword)
+            return std::nullopt;
+        std::optional<le::RouteShape> shape = le::route_shape_from_string(keyword);
+        if (!shape)
+            log_error("Unknown SHAPE '{}' - ignored.", keyword);
+        return shape;
+    }
+
+    // Walks one defiPath's ordered element stream (LAYER/WIDTH/SHAPE/
+    // POINT/FLUSHPOINT/VIA/VIAROTATION/VIAMASK/VIADATA, ...) into `layers`,
+    // one entry per layer name and wiring, shared by all of a net's wires
+    // and paths (ROUTED, NEW, ...). `wiring` is the wire's status and
+    // shield; a SHAPE sets the path's shape. VIAROTATION/VIAMASK/VIADATA
+    // are separate stream elements after their VIA (defiPath's getters
+    // read only at that element), so a via is pending until a different
+    // element type arrives. Not handled: DEFIPATH_RECT (rare), and TAPER/
+    // TAPERRULE/STYLE (no schema field) - skipped, not erroring.
+    void append_routing_from_path(le::Root &root, le::LayoutId layout_id, std::unordered_map<std::string, le::WireViaTarget> &via_targets,
+                                  std::deque<RoutedLayer> &layers, defiPath *path, RouteWiring wiring, double unit_scale)
+    {
+        std::string current_layer;
         RoutedLayer *current = nullptr;
         int64_t current_width = 0;
         std::vector<le::Point> current_points;
@@ -280,7 +332,8 @@ namespace
             {
             case DEFIPATH_LAYER:
                 flush_path();
-                current = find_or_create(path->getLayer());
+                current_layer = path->getLayer();
+                current = find_or_create_routed_layer(root, layers, current_layer, wiring);
                 // A LAYER occurrence without its own WIDTH (the common
                 // case) routes at the Layer's LEF WIDTH; a WIDTH token
                 // overrides it until the next LAYER.
@@ -291,6 +344,14 @@ namespace
                 break;
             case DEFIPATH_WIDTH:
                 current_width = scale_dbu(path->getWidth(), unit_scale);
+                break;
+            case DEFIPATH_SHAPE:
+                // Precedes the path's points, so nothing is pending on the
+                // previous wiring.
+                flush_path();
+                wiring.route_shape = route_shape_from_def(path->getShape());
+                if (!current_layer.empty())
+                    current = find_or_create_routed_layer(root, layers, current_layer, wiring);
                 break;
             case DEFIPATH_POINT:
             {
@@ -943,6 +1004,60 @@ namespace le
             data.use = net->use();
         if (is_special && net->hasVoltage())
             data.voltage = net->voltage();
+
+        // Every net its SHIELD wiring shields, so wiring can refer to one
+        // by index.
+        auto shield_index = [&](const char *shield_net) -> std::optional<unsigned char>
+        {
+            if (!shield_net || !*shield_net)
+                return std::nullopt;
+            const auto it = std::ranges::find(data.shield_nets, shield_net);
+            if (it != data.shield_nets.end())
+                return static_cast<unsigned char>(it - data.shield_nets.begin());
+            if (data.shield_nets.size() > std::numeric_limits<unsigned char>::max())
+            {
+                log_error("NET {} shields more than 256 nets - SHIELD {} kept without its net.", net->name(), shield_net);
+                return std::nullopt;
+            }
+            data.shield_nets.push_back(shield_net);
+            return static_cast<unsigned char>(data.shield_nets.size() - 1);
+        };
+        // A wiring statement's status and shield (SHIELD's net).
+        auto statement_wiring = [&](const char *status, int has_shield, const char *shield_net, const char *shape) -> RouteWiring
+        {
+            RouteWiring wiring;
+            if (status && *status)
+            {
+                wiring.routing_status = le::routing_status_from_string(status);
+                if (!wiring.routing_status)
+                    log_error("NET {}: unknown routing status '{}' - ignored.", net->name(), status);
+            }
+            if (has_shield)
+                wiring.shield_index = shield_index(shield_net);
+            wiring.route_shape = route_shape_from_def(shape);
+            return wiring;
+        };
+
+        std::vector<RouteWiring> wire_wirings;
+        for (int i = 0; i < net->numWires(); i++)
+        {
+            defiWire *wire = net->wire(i);
+            const bool shield = wire->wireType() && std::string_view(wire->wireType()) == "SHIELD";
+            wire_wirings.push_back(statement_wiring(wire->wireType(), shield, shield ? wire->wireShieldNetName() : nullptr, nullptr));
+        }
+        std::vector<RouteWiring> rect_wirings, polygon_wirings, via_wirings;
+        if (is_special)
+        {
+            for (int i = 0; i < net->numRectangles(); i++)
+                rect_wirings.push_back(statement_wiring(net->rectRouteStatus(i), net->hasRectRouteStatusShield(i),
+                                                        net->rectRouteStatusShieldName(i), net->rectShapeType(i)));
+            for (int i = 0; i < net->numPolygons(); i++)
+                polygon_wirings.push_back(statement_wiring(net->polyRouteStatus(i), net->hasPolyRouteStatusShield(i),
+                                                           net->polyRouteStatusShieldName(i), net->polyShapeType(i)));
+            for (int i = 0; i < net->numViaSpecs(); i++)
+                via_wirings.push_back(statement_wiring(net->viaRouteStatus(i), net->hasViaRouteStatusShield(i),
+                                                       net->viaRouteStatusShieldName(i), net->viaShapeType(i)));
+        }
         // Per-layer WIDTH overrides (DEF SPECIALNETS WIDTH layerName
         // dist, can appear more than once per net) aren't modeled -
         // Route.width would need to become a per-layer child klass (same
@@ -953,22 +1068,84 @@ namespace le
 
         const RouteId route_id = reader->root_->create_route(std::move(data));
 
-        std::vector<RoutedLayer> layers;
+        Root &root = *reader->root_;
+        const double unit_scale = reader->unit_scale_;
+        auto scaled = [&](int x, int y)
+        { return Point{.x = scale_dbu(x, unit_scale), .y = scale_dbu(y, unit_scale)}; };
+        std::deque<RoutedLayer> layers;
         for (int i = 0; i < net->numWires(); i++)
         {
             defiWire *wire = net->wire(i);
             for (int j = 0; j < wire->numPaths(); j++)
-                append_routing_from_path(*reader->root_, reader->layout_id_, reader->wire_vias_, layers, wire->path(j), reader->unit_scale_);
+                append_routing_from_path(root, reader->layout_id_, reader->wire_vias_, layers, wire->path(j), wire_wirings[i], unit_scale);
         }
+
+        // SPECIALNETS RECT/POLYGON/VIA statements (DEF 5.6/5.8). A mask,
+        // when any is set, is stored for every rect/polygon of the Shape.
+        auto push_masked = [](auto &items, CompactVector<int> &masks, auto item, int mask)
+        {
+            if (mask != 0 && masks.size() < items.size())
+                masks.resize(items.size(), 0);
+            items.push_back(std::move(item));
+            if (mask != 0 || !masks.empty())
+                masks.push_back(mask);
+        };
+        for (int i = 0; i < static_cast<int>(rect_wirings.size()); i++)
+            if (RoutedLayer *layer = find_or_create_routed_layer(root, layers, net->rectName(i), rect_wirings[i]))
+                push_masked(layer->fallback.rects, layer->fallback.rect_masks,
+                            Rect{.ll = scaled(net->xl(i), net->yl(i)), .ur = scaled(net->xh(i), net->yh(i))}, net->rectMask(i));
+        for (int i = 0; i < static_cast<int>(polygon_wirings.size()); i++)
+        {
+            const defiPoints points = net->getPolygon(i);
+            Polygon polygon;
+            for (int k = 0; k < points.numPoints; k++)
+                polygon.points.push_back(scaled(points.x[k], points.y[k]));
+            if (RoutedLayer *layer = find_or_create_routed_layer(root, layers, net->polygonName(i), polygon_wirings[i]))
+                push_masked(layer->fallback.polygons, layer->fallback.polygon_masks, std::move(polygon), net->polyMask(i));
+        }
+        for (int i = 0; i < static_cast<int>(via_wirings.size()); i++)
+        {
+            const std::string via_name = net->viaName(i);
+            const std::optional<std::string> layer_name = via_routing_layer(root, reader->layout_id_, via_name);
+            if (!layer_name)
+            {
+                log_error("NET {}: VIA {} has no routing layer - ignored.", net->name(), via_name);
+                continue;
+            }
+            RoutedLayer *layer = find_or_create_routed_layer(root, layers, *layer_name, via_wirings[i]);
+            if (!layer)
+                continue;
+            auto target = reader->wire_vias_.find(via_name);
+            if (target == reader->wire_vias_.end())
+                target = reader->wire_vias_.emplace(via_name, resolve_wire_via(root, reader->layout_id_, via_name)).first;
+            const std::optional<Orientation> orientation = orientation_from_string(net->viaOrientStr(i));
+            const int mask = combine_via_mask(net->topMaskNum(i), net->cutMaskNum(i), net->bottomMaskNum(i));
+            const defiPoints points = net->getViaPts(i);
+            for (int k = 0; k < points.numPoints; k++)
+            {
+                const Point origin = scaled(points.x[k], points.y[k]);
+                if (!layer->wire.add_via(target->second, origin, orientation.value_or(Orientation::N), mask, 0))
+                    layer->fallback.vias.push_back(ShapeVia{.via_name = via_name, .origin = origin, .orientation = orientation,
+                                                            .mask = mask != 0 ? std::optional<int>(mask) : std::nullopt});
+            }
+        }
+
         for (RoutedLayer &layer : layers)
         {
             if (!layer.wire.empty())
-                reader->root_->create_wire(std::move(layer.wire).build(route_id));
+            {
+                WireData wire = std::move(layer.wire).build(route_id);
+                wire.routing_status = layer.wiring.routing_status;
+                wire.route_shape = layer.wiring.route_shape;
+                wire.shield_index = layer.wiring.shield_index;
+                root.create_wire(std::move(wire));
+            }
             ShapeData &fallback = layer.fallback;
-            if (fallback.paths.empty() && fallback.vias.empty() && fallback.via_iterates.empty())
+            if (fallback.paths.empty() && fallback.vias.empty() && fallback.via_iterates.empty() && fallback.rects.empty() &&
+                fallback.polygons.empty())
                 continue;
             fallback.owner = le::ShapeOwner::route(route_id);
-            reader->root_->create_shape(std::move(fallback));
+            root.create_shape(std::move(fallback));
         }
         return 0;
     }
