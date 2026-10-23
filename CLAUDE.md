@@ -193,7 +193,11 @@ fails on a temp path that isn't unique to its process.
   `to_c`/`from_c` id conversions; `WriteView`'s undoable
   `create_/update_/delete_<type>`, the views' `shape_*` ops over
   `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp`),
-  versioned by `LE_EXTENSION_API_VERSION`. `cmake/le_extensions.cmake`
+  versioned by `LE_EXTENSION_API_VERSION`. Mutation listeners
+  (`Registry::add_mutation_listener`) get Root's change-log entries from
+  `dispatch_mutation_listeners` (`extension.cpp`), which `HandleWriteLock`
+  and `WriteView` call after releasing the lock (deferred to the end of a
+  typed command). `cmake/le_extensions.cmake`
   builds each directory in `LE_EXTENSION_DIRS` (its `le_extension.toml`
   checked and ordered by `codegen/codegen/extension_manifest.py`, its
   `le_extension.cmake` calling `le_add_extension()`) into the

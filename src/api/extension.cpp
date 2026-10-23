@@ -7,6 +7,10 @@
 #include "../geometry/shape_ops.hpp"
 #include "le_handle.hpp"
 
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <exception>
 #include <filesystem>
 
 namespace le::ext
@@ -26,6 +30,12 @@ namespace le::ext
     {
         if (!extensions_.empty())
             overlays_.emplace_back(extensions_.back().name, draw);
+    }
+
+    void Registry::add_mutation_listener(void (*on_mutation)(ExtensionContext &ctx, const MutationEvent &event))
+    {
+        if (!extensions_.empty() && on_mutation)
+            mutation_listeners_.emplace_back(extensions_.back().name, on_mutation);
     }
 
     void ExtensionContext::request_redraw()
@@ -78,7 +88,10 @@ namespace le::ext
 
     ReadView::ReadView(LeHandle *handle, std::try_to_lock_t) : handle_(handle), lock_(handle->mutex_, std::try_to_lock), root_(&handle->root) {}
 
-    WriteView::WriteView(LeHandle *handle) : handle_(handle), lock_(handle->mutex_), root_(&handle->root) {}
+    WriteView::WriteView(LeHandle *handle)
+        : handle_(handle), lock_(handle->mutex_), root_(&handle->root), begin_(handle->root.change_log().end_sequence())
+    {
+    }
 
     // Opens the step under this view's lock, as le_begin_command does
     // under its own.
@@ -100,8 +113,12 @@ namespace le::ext
             handle_->release_renders();
         }
         root_->bump_mutation_version();
+        handle_->note_write_finished(begin_);
+        const bool deliver = !handle_->renders_held();
         lock_.unlock();
         handle_->notify_render_needed();
+        if (deliver)
+            dispatch_mutation_listeners(handle_);
     }
 
     namespace
@@ -271,6 +288,71 @@ namespace le::ext
         if (!slot)
             slot = make();
         return slot.get();
+    }
+}
+
+void dispatch_mutation_listeners(LeHandle *handle)
+{
+    const auto &listeners = le::ext::registry().mutation_listeners();
+    if (listeners.empty())
+        return;
+    LeHandle::MutationDispatch &dispatch = handle->mutation_dispatch;
+    if (dispatch.thread.load() == std::this_thread::get_id())
+        return; // a listener's own change, left out when it returns
+    dispatch.pending.store(true);
+    // A thread that finds another dispatching leaves its change to it: the
+    // dispatcher loops until nothing is pending, then checks once more
+    // after letting go of the mutex.
+    while (dispatch.pending.load() && dispatch.mutex.try_lock())
+    {
+        std::lock_guard<std::mutex> guard(dispatch.mutex, std::adopt_lock);
+        while (dispatch.pending.exchange(false))
+        {
+            le::ext::MutationEvent event;
+            std::vector<le::ChangeLogEntry> changes;
+            {
+                std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+                const le::ChangeLog &log = handle->root.change_log();
+                const uint64_t end = log.end_sequence();
+                if (end == dispatch.delivered)
+                    continue;
+                const std::vector<std::pair<uint64_t, uint64_t>> own = std::exchange(dispatch.own_changes, {});
+                if (!log.covers(dispatch.delivered))
+                    event.everything = true;
+                else
+                {
+                    uint64_t sequence = dispatch.delivered;
+                    log.for_each_since(dispatch.delivered, [&](const le::ChangeLogEntry &entry)
+                                       {
+                                           if (std::ranges::none_of(own, [&](const auto &range)
+                                                                    { return sequence >= range.first && sequence < range.second; }))
+                                               changes.push_back(entry);
+                                           ++sequence; });
+                }
+                dispatch.delivered = end;
+            }
+            if (!event.everything && changes.empty())
+                continue;
+            event.changes = changes;
+            dispatch.thread.store(std::this_thread::get_id());
+            for (const auto &[name, on_mutation] : listeners)
+            {
+                le::ext::ExtensionContext ctx(handle, name);
+                try
+                {
+                    on_mutation(ctx, event);
+                }
+                catch (const std::exception &error)
+                {
+                    spdlog::error("{}: mutation listener failed: {}", name, error.what());
+                }
+                catch (...)
+                {
+                    spdlog::error("{}: mutation listener failed", name);
+                }
+            }
+            dispatch.thread.store(std::thread::id{});
+        }
     }
 }
 

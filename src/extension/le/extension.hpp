@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <typeinfo>
@@ -64,6 +65,19 @@ namespace le::ext
         void (*load)(ExtensionContext &ctx, const nlohmann::json &section, int version) = nullptr;
     };
 
+    /// @brief What changed in the database since mutation listeners were
+    /// last called (Registry::add_mutation_listener).
+    struct MutationEvent
+    {
+        /// @brief Too much changed to list - a file read, `link`, or more
+        /// edits than Root's change log holds: treat everything as changed.
+        bool everything = false;
+        /// @brief Every create, update and delete, in order (Root's change
+        /// log entries: the object, what happened, and its owner). Empty
+        /// when `everything`. Valid only during the call.
+        std::span<const ChangeLogEntry> changes;
+    };
+
     /// @brief What the extensions built into this process registered.
     /// register_all() adds each extension's info, then calls its
     /// `le_ext_<name>_register(Registry &)` - in dependency order, once.
@@ -86,6 +100,23 @@ namespace le::ext
         /// @brief Every overlay: (extension name, draw), in registration order.
         const std::vector<std::pair<std::string, void (*)(OverlayContext &)>> &overlays() const { return overlays_; }
 
+        /// @brief Calls `on_mutation` after the database changes: once per
+        /// typed Tcl command, GUI edit or other C API call, after its lock
+        /// is released - so it may read(), write() and call le_*. It runs on
+        /// the thread that made the change, one call at a time per session.
+        /// Changes it (or another listener) makes during the call aren't
+        /// reported back to listeners; ones another thread makes meanwhile
+        /// are, in a following call. Edits made through a mutable Root
+        /// pointer are reported only if their maker calls
+        /// note_<type>_changed().
+        void add_mutation_listener(void (*on_mutation)(ExtensionContext &ctx, const MutationEvent &event));
+        /// @brief Every mutation listener: (extension name, callback), in
+        /// registration order.
+        const std::vector<std::pair<std::string, void (*)(ExtensionContext &, const MutationEvent &)>> &mutation_listeners() const
+        {
+            return mutation_listeners_;
+        }
+
         /// @brief Records where an extension's files are (le_shell does,
         /// from extensions.json).
         void set_directory(const std::string &extension, std::string directory);
@@ -97,6 +128,7 @@ namespace le::ext
         std::vector<ExtensionInfo> extensions_;
         std::map<std::string, SettingsSection> settings_;
         std::vector<std::pair<std::string, void (*)(OverlayContext &)>> overlays_;
+        std::vector<std::pair<std::string, void (*)(ExtensionContext &, const MutationEvent &)>> mutation_listeners_;
     };
 
     /// @brief This process's registry. Filled once by register_all() at
@@ -251,6 +283,7 @@ namespace le::ext
         LeHandle *handle_;
         std::unique_lock<std::shared_mutex> lock_;
         Root *root_;
+        uint64_t begin_; // the change log's end when the view opened
         bool owns_step_ = false;
         bool succeeded_ = true;
     };

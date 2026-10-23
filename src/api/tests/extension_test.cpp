@@ -2,7 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
+#include <functional>
 #include <future>
 #include <memory>
 #include <thread>
@@ -551,5 +553,171 @@ TEST(WriteViewEdits, RemovingAShapePieceTakesItsMaskAndUndoes)
         EXPECT_EQ(view.root().get_shape(shape)->rects.size(), 3u);
         EXPECT_EQ(view.root().get_shape(shape)->rect_masks, (std::vector<int>{1, 2, 3}));
     }
+    le_destroy(handle);
+}
+
+namespace
+{
+    // One mutation listener for the whole test binary (the registry is
+    // process-wide); it records events for `watched` only, and can be told
+    // to read or edit from inside the call.
+    struct ListenerLog
+    {
+        LeHandle *watched = nullptr;
+        std::vector<le::ext::MutationEvent> events; // `changes` copied into `changes`
+        std::vector<std::vector<le::ChangeLogEntry>> changes;
+        std::function<void(le::ext::ExtensionContext &)> respond;
+        std::thread::id thread;
+    };
+
+    ListenerLog &listener_log()
+    {
+        static ListenerLog log;
+        return log;
+    }
+
+    void record_mutation(le::ext::ExtensionContext &ctx, const le::ext::MutationEvent &event)
+    {
+        ListenerLog &log = listener_log();
+        if (ctx.handle() != log.watched)
+            return;
+        log.events.push_back(le::ext::MutationEvent{.everything = event.everything});
+        log.changes.emplace_back(event.changes.begin(), event.changes.end());
+        log.thread = std::this_thread::get_id();
+        if (log.respond)
+            log.respond(ctx);
+    }
+
+    // A handle the listener watches, with its log cleared.
+    LeHandle *watched_handle()
+    {
+        static const bool registered = []
+        {
+            le::ext::registry().add(le::ext::ExtensionInfo{.name = "mutation_listener_test", .version = "1"});
+            le::ext::registry().add_mutation_listener(&record_mutation);
+            return true;
+        }();
+        (void)registered;
+        LeHandle *handle = le_create();
+        listener_log() = ListenerLog{.watched = handle};
+        return handle;
+    }
+
+    bool has_change(const std::vector<le::ChangeLogEntry> &changes, le::ChangeKlass klass, le::ChangeOp op)
+    {
+        return std::ranges::any_of(changes, [&](const le::ChangeLogEntry &entry)
+                                   { return entry.klass == klass && entry.op == op; });
+    }
+}
+
+TEST(MutationListeners, EachCApiEditIsOneEventListingWhatChanged)
+{
+    LeHandle *handle = watched_handle();
+    const LeLibraryId library = le_create_library(handle, "lib");
+    ASSERT_EQ(listener_log().events.size(), 1u);
+    EXPECT_FALSE(listener_log().events[0].everything);
+    ASSERT_EQ(listener_log().changes[0].size(), 1u);
+    EXPECT_EQ(listener_log().changes[0][0].klass, le::ChangeKlass::Library);
+    EXPECT_EQ(listener_log().changes[0][0].op, le::ChangeOp::CREATE);
+    EXPECT_EQ(listener_log().changes[0][0].index, library.index);
+    EXPECT_EQ(listener_log().thread, std::this_thread::get_id());
+
+    le_create_design(handle, library, "top");
+    ASSERT_EQ(listener_log().events.size(), 2u);
+    EXPECT_TRUE(has_change(listener_log().changes[1], le::ChangeKlass::Design, le::ChangeOp::CREATE));
+    le_destroy(handle);
+}
+
+TEST(MutationListeners, ViewChangesAreNotMutations)
+{
+    LeHandle *handle = watched_handle();
+    le_set_mode(handle, LE_MODE_EDIT);
+    le_set_viewport_size(handle, 100, 100);
+    le_deselect_all(handle);
+    EXPECT_TRUE(listener_log().events.empty());
+    le_destroy(handle);
+}
+
+TEST(MutationListeners, ATypedCommandIsOneEventWhenItEnds)
+{
+    LeHandle *handle = watched_handle();
+    le_begin_command(handle, "two edits");
+    const LeLibraryId library = le_create_library(handle, "lib");
+    le_create_design(handle, library, "top");
+    EXPECT_TRUE(listener_log().events.empty());
+    le_end_command(handle, 1);
+    ASSERT_EQ(listener_log().events.size(), 1u);
+    EXPECT_EQ(listener_log().changes[0].size(), 2u);
+
+    ASSERT_NE(le_undo(handle), 0);
+    ASSERT_EQ(listener_log().events.size(), 2u);
+    EXPECT_TRUE(has_change(listener_log().changes[1], le::ChangeKlass::Design, le::ChangeOp::DELETE));
+    le_destroy(handle);
+}
+
+TEST(MutationListeners, AFileReadReportsEverything)
+{
+    LeHandle *handle = watched_handle();
+    ASSERT_EQ(le_read_lef(handle, (std::string(API_TEST_FIXTURES_DIR) + "/testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_FALSE(listener_log().events.empty());
+    EXPECT_TRUE(listener_log().events.back().everything);
+    EXPECT_TRUE(listener_log().changes.back().empty());
+    le_destroy(handle);
+}
+
+TEST(MutationListeners, AWriteViewIsOneEvent)
+{
+    LeHandle *handle = watched_handle();
+    le::ext::ExtensionContext ctx(handle, "mutation_listener_test");
+    {
+        le::ext::WriteView view = ctx.write("abstract");
+        add_abstract(view);
+        EXPECT_TRUE(listener_log().events.empty()) << "not while the view is open";
+    }
+    ASSERT_EQ(listener_log().events.size(), 1u);
+    EXPECT_TRUE(has_change(listener_log().changes[0], le::ChangeKlass::Abstract, le::ChangeOp::CREATE));
+    le_destroy(handle);
+}
+
+TEST(MutationListeners, AListenerCanReadAndEditButIsNotToldOfItsOwnEdits)
+{
+    LeHandle *handle = watched_handle();
+    listener_log().respond = [](le::ext::ExtensionContext &ctx)
+    {
+        const std::size_t libraries = ctx.read().root().get_library_ids().size();
+        if (libraries == 1) // the edit below would loop if it were reported back
+            ctx.write("derived").create_library({.name = "derived"});
+    };
+    const auto outcome = within_timeout([handle]
+                                        {
+                                            le_create_library(handle, "lib");
+                                            return le_library_count(handle); });
+    ASSERT_TRUE(outcome.has_value()) << "deadlocked";
+    EXPECT_EQ(*outcome, 2);
+    EXPECT_EQ(listener_log().events.size(), 1u);
+
+    listener_log().respond = nullptr;
+    le_create_library(handle, "later");
+    ASSERT_EQ(listener_log().events.size(), 2u);
+    ASSERT_EQ(listener_log().changes[1].size(), 1u) << "not the listener's earlier edit either";
+    le_destroy(handle);
+}
+
+TEST(MutationListeners, AnotherThreadsEditDuringACallComesInTheNextCall)
+{
+    LeHandle *handle = watched_handle();
+    listener_log().respond = [handle](le::ext::ExtensionContext &)
+    {
+        listener_log().respond = nullptr;
+        std::thread([handle] { le_create_library(handle, "from_another_thread"); }).join();
+    };
+    const auto outcome = within_timeout([handle]
+                                        {
+                                            le_create_library(handle, "lib");
+                                            return listener_log().events.size(); });
+    ASSERT_TRUE(outcome.has_value()) << "deadlocked";
+    ASSERT_EQ(*outcome, 2u);
+    ASSERT_EQ(listener_log().changes[1].size(), 1u);
+    EXPECT_EQ(listener_log().changes[1][0].klass, le::ChangeKlass::Library);
     le_destroy(handle);
 }
