@@ -133,6 +133,7 @@ namespace le::gui
                 bool snap_available[4] = {true, false, false, false};
                 int32_t orientation_ops_enabled = 0;
                 bool is_move_anchored = false;
+                bool all_fixed = false; // every selected placement is FIXED
             } placement_move;
 
             // secondary_toolbar.cpp's resize toolbar - shown while Resize
@@ -213,6 +214,8 @@ namespace le::gui
         void arm_move();
         void arm_resize();
         void delete_selected_pieces();
+        // Lock: makes the selected placements FIXED; unlock: PLACED.
+        void set_selected_placements_fixed(bool fixed);
         void set_shape_snap_mode(int32_t kind, int32_t mode);
         void set_placement_snap_mode(int32_t mode);
         void rotate_placement();

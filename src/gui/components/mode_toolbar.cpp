@@ -130,6 +130,14 @@ namespace le::gui
                             provider.state().selected_shape_piece_count == 0 ? "Select shape parts to delete first" : nullptr))
                 provider.delete_selected_pieces();
 
+            // Lock: fixes the selected placements in place; once every one
+            // is FIXED it becomes Unlock, which makes them PLACED again.
+            ImGui::SameLine();
+            const bool all_fixed = placement_count > 0 && provider.state().placement_move.all_fixed;
+            if (draw_button(all_fixed ? ICON_LC_LOCK_OPEN : ICON_LC_LOCK, all_fixed ? "Unlock" : "Lock", nullptr,
+                            placement_count == 0 ? "Select placements to lock or unlock first" : nullptr))
+                provider.set_selected_placements_fixed(!all_fixed);
+
             // No Rotate/Align buttons until those features exist.
             ImGui::SameLine();
             if (draw_button(ICON_LC_UNDO_2, "Undo", "ctrl-z"))

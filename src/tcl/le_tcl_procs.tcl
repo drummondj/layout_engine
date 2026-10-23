@@ -121,7 +121,7 @@ set ::command_help [dict create]
 set ::command_categories {}
 foreach {_le_category _le_names} {
     Abstract {read_lef write_lef}
-    Layout {read_def write_def flip_placement rotate_placement}
+    Layout {read_def write_def flip_placement rotate_placement set_placement_status}
     Schematic {read_verilog write_verilog_stubs link get_nets get_ports get_instances delete_net update_instance update_net}
     GUI {
         show_gui close_gui open_design zoom zoom_area set_viewport_size dump_png
@@ -1564,6 +1564,39 @@ register_command_help flip_placement \
     "Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it." \
     {
         {<direction> {type str required 1 description {horizontal or vertical}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_placement_status { status args } {
+    if {$status eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+        return "set_placement_status <status> \[<placements>...\] \[-help\] - Sets the status of placements, the selected ones by default"
+    }
+    set status [string toupper $status]
+    if {$status ni {UNPLACED PLACED FIXED COVER SOFTFIXED}} {
+        error "set_placement_status: unknown status \"$status\" - expected UNPLACED, PLACED, FIXED, COVER or SOFTFIXED"
+    }
+    set placements [concat {*}$args]
+    if {[llength $placements] == 0} {
+        set placements [lsearch -all -inline -glob [get_selection] placement:*]
+    }
+    if {[llength $placements] == 0} {
+        error "set_placement_status: no placements given or selected"
+    }
+    foreach placement $placements {
+        update_placement $placement -placement_status $status
+    }
+    # Placements given a hidden status would vanish from the view.
+    if {![get_placement_status_visible $status]} {
+        set_placement_status_visible $status 1
+    }
+    return [llength $placements]
+}
+register_command_help set_placement_status \
+    "set_placement_status <status> \[<placements>...\] \[-help\]" \
+    "Sets the DEF status of the given placements, or of the selected ones, as one undoable edit, and returns how many changed. If that status is hidden in the Layers panel it's shown again, so they don't disappear. The GUI's Lock and Unlock buttons use FIXED and PLACED." \
+    {
+        {<status> {type str required 1 description {UNPLACED, PLACED, FIXED, COVER or SOFTFIXED}}}
+        {<placements> {type token... required 0 description {Placement tokens - the selected placements if omitted}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
