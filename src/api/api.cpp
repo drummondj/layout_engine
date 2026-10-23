@@ -2158,6 +2158,14 @@ namespace
         handle->refresh_move_geometry(std::move(geometry));
     }
 
+    // Shows `status` in the Layers panel's placement-status filter, so a
+    // placement just given it doesn't disappear.
+    void reveal_placement_status_unlocked(LeHandle *handle, le::PlacementStatus status)
+    {
+        if (!handle->is_object_filter_visible(LE_OBJECT_FILTER_PLACEMENT_STATUS, le::to_string(status)))
+            handle->set_object_filter_visible(LE_OBJECT_FILTER_PLACEMENT_STATUS, le::to_string(status), true);
+    }
+
     // le_mouse_up's Edit-mode branch - unlocked
     // variant, called with handle->mutex_ already held. First click (no
     // anchor yet) sets the move's anchor (LeHandle::move_set_anchor, which
@@ -2228,19 +2236,26 @@ namespace
         // Placement Move - location
         // and orientation (the toolbar's pending rotate/flip, possibly
         // forced by site snapping) land together, in the same transaction.
+        // A moved UNPLACED placement becomes PLACED.
+        bool placed_any = false;
         for (const le::PlacementMoveTarget &target : placement_targets)
         {
             const le::PlacementData *existing = handle->root.get_placement(target.id);
             if (!existing)
                 continue;
             const le::PlacementData before = *existing;
-            handle->root.update_placement(target.id, before.layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                                          target.location, target.orientation, std::nullopt, std::nullopt);
+            const bool place = before.placement_status == le::PlacementStatus::UNPLACED;
+            placed_any = placed_any || place;
+            handle->root.update_placement(target.id, before.layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                          place ? std::optional(le::PlacementStatus::PLACED) : std::nullopt, target.location,
+                                          target.orientation, std::nullopt, std::nullopt);
             handle->root.bump_mutation_version();
             if (le::editing::Transaction *txn = handle->command_history.current())
                 txn->record_update<le::PlacementId, le::PlacementData>(target.id, before, *handle->root.get_placement(target.id), &le::apply_placement_snapshot);
         }
         handle->command_history.end(/*succeeded=*/true);
+        if (placed_any)
+            reveal_placement_status_unlocked(handle, le::PlacementStatus::PLACED);
 
         std::vector<le::ShapeData> geometry;
         geometry.reserve(moving_pieces.size());
@@ -4299,6 +4314,21 @@ extern "C"
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(selected_placements_unlocked(handle).size());
+    }
+
+    int32_t le_selected_placements_all_fixed(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        const std::vector<le::PlacementId> placements = selected_placements_unlocked(handle);
+        return !placements.empty() && std::ranges::all_of(placements, [&](le::PlacementId id)
+                                                           {
+                                                               const le::PlacementData *placement = handle->root.get_placement(id);
+                                                               return placement && placement->placement_status == le::PlacementStatus::FIXED;
+                                                           })
+                   ? 1
+                   : 0;
     }
 
     int32_t le_placement_orientation_ops_enabled(LeHandle *handle)

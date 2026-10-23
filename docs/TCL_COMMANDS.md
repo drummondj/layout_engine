@@ -8,7 +8,7 @@ Every Tcl command le_shell provides. Objects are named by tokens such as `layer:
 
 - [Technology](#technology) (89 commands)
 - [Abstract](#abstract) (35 commands)
-- [Layout](#layout) (53 commands)
+- [Layout](#layout) (54 commands)
 - [Schematic](#schematic) (32 commands)
 - [GUI](#gui) (48 commands)
 - [Settings](#settings) (25 commands)
@@ -1758,7 +1758,7 @@ Writes a LEF file. -abstract writes one abstract's MACRO (the current abstract i
 
 ## Layout
 
-[`create_blockage`](#create_blockage), [`create_g_cell_grid`](#create_g_cell_grid), [`create_layout`](#create_layout), [`create_layout_via`](#create_layout_via), [`create_physical_port`](#create_physical_port), [`create_physical_port_segment`](#create_physical_port_segment), [`create_placement`](#create_placement), [`create_region`](#create_region), [`create_route`](#create_route), [`create_row`](#create_row), [`create_track`](#create_track), [`create_wire`](#create_wire), [`current_layout`](#current_layout), [`delete_blockage`](#delete_blockage), [`delete_g_cell_grid`](#delete_g_cell_grid), [`delete_layout`](#delete_layout), [`delete_layout_via`](#delete_layout_via), [`delete_physical_port`](#delete_physical_port), [`delete_physical_port_segment`](#delete_physical_port_segment), [`delete_placement`](#delete_placement), [`delete_region`](#delete_region), [`delete_route`](#delete_route), [`delete_row`](#delete_row), [`delete_track`](#delete_track), [`delete_wire`](#delete_wire), [`flip_placement`](#flip_placement), [`get_blockages`](#get_blockages), [`get_g_cell_grids`](#get_g_cell_grids), [`get_layout_vias`](#get_layout_vias), [`get_layouts`](#get_layouts), [`get_physical_port_segments`](#get_physical_port_segments), [`get_physical_ports`](#get_physical_ports), [`get_placements`](#get_placements), [`get_regions`](#get_regions), [`get_routes`](#get_routes), [`get_rows`](#get_rows), [`get_tracks`](#get_tracks), [`get_wires`](#get_wires), [`read_def`](#read_def), [`rotate_placement`](#rotate_placement), [`update_blockage`](#update_blockage), [`update_g_cell_grid`](#update_g_cell_grid), [`update_layout`](#update_layout), [`update_layout_via`](#update_layout_via), [`update_physical_port`](#update_physical_port), [`update_physical_port_segment`](#update_physical_port_segment), [`update_placement`](#update_placement), [`update_region`](#update_region), [`update_route`](#update_route), [`update_row`](#update_row), [`update_track`](#update_track), [`update_wire`](#update_wire), [`write_def`](#write_def)
+[`create_blockage`](#create_blockage), [`create_g_cell_grid`](#create_g_cell_grid), [`create_layout`](#create_layout), [`create_layout_via`](#create_layout_via), [`create_physical_port`](#create_physical_port), [`create_physical_port_segment`](#create_physical_port_segment), [`create_placement`](#create_placement), [`create_region`](#create_region), [`create_route`](#create_route), [`create_row`](#create_row), [`create_track`](#create_track), [`create_wire`](#create_wire), [`current_layout`](#current_layout), [`delete_blockage`](#delete_blockage), [`delete_g_cell_grid`](#delete_g_cell_grid), [`delete_layout`](#delete_layout), [`delete_layout_via`](#delete_layout_via), [`delete_physical_port`](#delete_physical_port), [`delete_physical_port_segment`](#delete_physical_port_segment), [`delete_placement`](#delete_placement), [`delete_region`](#delete_region), [`delete_route`](#delete_route), [`delete_row`](#delete_row), [`delete_track`](#delete_track), [`delete_wire`](#delete_wire), [`flip_placement`](#flip_placement), [`get_blockages`](#get_blockages), [`get_g_cell_grids`](#get_g_cell_grids), [`get_layout_vias`](#get_layout_vias), [`get_layouts`](#get_layouts), [`get_physical_port_segments`](#get_physical_port_segments), [`get_physical_ports`](#get_physical_ports), [`get_placements`](#get_placements), [`get_regions`](#get_regions), [`get_routes`](#get_routes), [`get_rows`](#get_rows), [`get_tracks`](#get_tracks), [`get_wires`](#get_wires), [`read_def`](#read_def), [`rotate_placement`](#rotate_placement), [`set_placement_status`](#set_placement_status), [`update_blockage`](#update_blockage), [`update_g_cell_grid`](#update_g_cell_grid), [`update_layout`](#update_layout), [`update_layout_via`](#update_layout_via), [`update_physical_port`](#update_physical_port), [`update_physical_port_segment`](#update_physical_port_segment), [`update_placement`](#update_placement), [`update_region`](#update_region), [`update_route`](#update_route), [`update_row`](#update_row), [`update_track`](#update_track), [`update_wire`](#update_wire), [`write_def`](#write_def)
 
 ### create_blockage
 
@@ -2233,6 +2233,17 @@ Reads a DEF file as a layout. The technology and cells it uses must already be r
 `rotate_placement [-help]`
 
 Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, a move is under way, or site snapping is on and the row's site doesn't allow R90.
+
+### set_placement_status
+
+`set_placement_status <status> [<placements>...] [-help]`
+
+Sets the DEF status of the given placements, or of the selected ones, as one undoable edit, and returns how many changed. If that status is hidden in the Layers panel it's shown again, so they don't disappear. The GUI's Lock and Unlock buttons use FIXED and PLACED.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | UNPLACED, PLACED, FIXED, COVER or SOFTFIXED |
+| `<placements>` | `token...` | no | Placement tokens - the selected placements if omitted |
 
 ### update_blockage
 

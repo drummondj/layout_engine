@@ -978,6 +978,16 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures/gate_netlist_clean.v
     )
 
+    # set_placement_status (src/tcl/tests/placement_status_test.tcl).
+    add_test(
+        NAME le_tcl_placement_status
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/placement_status_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
+    )
+
     # Schematic<->Layout link mutation side-effect regression check
     # (src/tcl/tests/mutation_cascade_test.tcl) - delete_net cascade and update_net/
     # update_instance rename propagation, through the real TCL layer.

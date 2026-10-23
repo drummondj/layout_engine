@@ -838,6 +838,11 @@ extern "C"
     /// if handle is null.
     int32_t le_selected_placement_count(LeHandle *handle);
 
+    /// @brief 1 if at least one Placement is selected and every selected
+    /// Placement is FIXED - the GUI's lock button then offers to unlock
+    /// them. 0 otherwise, or if handle is null.
+    int32_t le_selected_placements_all_fixed(LeHandle *handle);
+
     /// @brief Which LeOrientationOps le_apply_placement_orientation_op
     /// would accept right now, as a bitmask (1 << op). 0 with no placement
     /// selected, while a Move is under way (anchored by its first click, the

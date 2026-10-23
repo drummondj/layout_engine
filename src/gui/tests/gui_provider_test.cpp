@@ -133,6 +133,23 @@ TEST_F(GuiProviderFixture, LayerManagerListsStatusesAndShapesAndQueuesTheirComma
     EXPECT_EQ(queued(), "set_route_shape_visible {RING} false");
 }
 
+// The Lock/Unlock button queues set_placement_status, so it shows in the
+// console history.
+TEST_F(GuiProviderFixture, LockingPlacementsIsQueuedAsATclCommand)
+{
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    EXPECT_FALSE(provider.state().placement_move.all_fixed);
+    provider.set_selected_placements_fixed(true);
+    const char *command = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(command, nullptr);
+    EXPECT_EQ(std::string(command), "set_placement_status FIXED");
+    provider.set_selected_placements_fixed(false);
+    command = le_take_next_pending_tcl_command(handle);
+    ASSERT_NE(command, nullptr);
+    EXPECT_EQ(std::string(command), "set_placement_status PLACED");
+}
+
 TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many"), 0);
