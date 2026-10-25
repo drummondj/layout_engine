@@ -2073,7 +2073,7 @@ Deletes a Wire and everything it owns.
 
 `flip_placement <direction> [-help]`
 
-Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it.
+Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, one is FIXED or COVER, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2232,13 +2232,13 @@ Reads a DEF file as a layout. The technology and cells it uses must already be r
 
 `rotate_placement [-help]`
 
-Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, a move is under way, or site snapping is on and the row's site doesn't allow R90.
+Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, one is FIXED or COVER, a move is under way, or site snapping is on and the row's site doesn't allow R90.
 
 ### set_placement_status
 
 `set_placement_status <status> [<placements>...] [-help]`
 
-Sets the DEF status of the given placements, or of the selected ones, as one undoable edit, and returns how many changed. If that status is hidden in the Layers panel it's shown again, so they don't disappear. The GUI's Lock and Unlock buttons use FIXED and PLACED.
+Sets the DEF status of the given placements, or of the selected ones, as one undoable edit, and returns how many changed. If that status is hidden in the Layers panel it's shown again, so they don't disappear. FIXED and COVER placements can't be moved, rotated or flipped until unlocked. An error while a move is under way. The GUI's Lock and Unlock buttons use FIXED and PLACED.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |

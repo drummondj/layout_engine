@@ -1535,6 +1535,7 @@ proc apply_placement_orientation_op_checked {command op} {
         0 { return "" }
         1 { error "$command: no placement is selected" }
         2 { error "$command: not allowed right now - a move is under way, or site snapping is on and the row's site SYMMETRY doesn't permit it" }
+        3 { error "$command: FIXED or COVER placements are selected - unlock them first (set_placement_status PLACED)" }
         default { error "$command: failed" }
     }
 }
@@ -1547,7 +1548,7 @@ proc rotate_placement {args} {
 }
 register_command_help rotate_placement \
     "rotate_placement \[-help\]" \
-    "Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, a move is under way, or site snapping is on and the row's site doesn't allow R90." \
+    "Rotates each selected placement 90 degrees counterclockwise about its center (N, W, S, E), as one undoable edit. An error if no placement is selected, one is FIXED or COVER, a move is under way, or site snapping is on and the row's site doesn't allow R90." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -1564,7 +1565,7 @@ proc flip_placement { direction } {
 }
 register_command_help flip_placement \
     "flip_placement <direction> \[-help\]" \
-    "Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it." \
+    "Flips each selected placement about its center, as one undoable edit: horizontal mirrors it left-right (N to FN), vertical top-bottom (N to FS). An error if no placement is selected, one is FIXED or COVER, a move is under way, or site snapping is on and the row's site symmetry doesn't allow it." \
     {
         {<direction> {type str required 1 description {horizontal or vertical}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
@@ -1585,6 +1586,9 @@ proc set_placement_status { status args } {
     if {[llength $placements] == 0} {
         error "set_placement_status: no placements given or selected"
     }
+    if {[is_move_anchored_cmd]} {
+        error "set_placement_status: a move is under way - finish or cancel it (Escape) first"
+    }
     foreach placement $placements {
         update_placement $placement -placement_status $status
     }
@@ -1596,7 +1600,7 @@ proc set_placement_status { status args } {
 }
 register_command_help set_placement_status \
     "set_placement_status <status> \[<placements>...\] \[-help\]" \
-    "Sets the DEF status of the given placements, or of the selected ones, as one undoable edit, and returns how many changed. If that status is hidden in the Layers panel it's shown again, so they don't disappear. The GUI's Lock and Unlock buttons use FIXED and PLACED." \
+    "Sets the DEF status of the given placements, or of the selected ones, as one undoable edit, and returns how many changed. If that status is hidden in the Layers panel it's shown again, so they don't disappear. FIXED and COVER placements can't be moved, rotated or flipped until unlocked. An error while a move is under way. The GUI's Lock and Unlock buttons use FIXED and PLACED." \
     {
         {<status> {type str required 1 description {UNPLACED, PLACED, FIXED, COVER or SOFTFIXED}}}
         {<placements> {type token... required 0 description {Placement tokens - the selected placements if omitted}}}

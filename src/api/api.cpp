@@ -1429,9 +1429,19 @@ namespace
     // showing (merely arming Move doesn't count) - or outside a Layout view; otherwise each op the
     // PlacementSnapper permits for every one of them (only ever restricted
     // under SITE snapping, by the row's Site symmetry).
+    // Whether any of `placements` is FIXED or COVER.
+    bool any_placement_locked(const LeHandle *handle, const std::vector<le::PlacementId> &placements)
+    {
+        return std::ranges::any_of(placements, [&](le::PlacementId id)
+                                   {
+                                       const le::PlacementData *placement = handle->root.get_placement(id);
+                                       return placement && le::placement_is_locked(placement->placement_status);
+                                   });
+    }
+
     int32_t orientation_ops_enabled_unlocked(const LeHandle *handle, const std::vector<le::PlacementId> &placements)
     {
-        if (placements.empty() || handle->move().anchor || !handle->current_layout().valid())
+        if (placements.empty() || handle->move().anchor || !handle->current_layout().valid() || any_placement_locked(handle, placements))
             return 0;
 
         const le::PlacementSnapper snapper(handle->root, handle->current_layout(), handle->placement_snap_mode());
@@ -2121,8 +2131,7 @@ namespace
         return static_cast<int32_t>(std::ranges::count_if(selected_placements_unlocked(handle), [&](le::PlacementId id)
                                                           {
                                                               const le::PlacementData *placement = handle->root.get_placement(id);
-                                                              return placement && (placement->placement_status == le::PlacementStatus::FIXED ||
-                                                                                   placement->placement_status == le::PlacementStatus::COVER);
+                                                              return placement && le::placement_is_locked(placement->placement_status);
                                                           }));
     }
 
@@ -2256,7 +2265,7 @@ namespace
         for (const le::PlacementMoveTarget &target : placement_targets)
         {
             const le::PlacementData *existing = handle->root.get_placement(target.id);
-            if (!existing)
+            if (!existing || le::placement_is_locked(existing->placement_status)) // locked while the Move was armed
                 continue;
             const le::PlacementData before = *existing;
             const bool place = before.placement_status == le::PlacementStatus::UNPLACED;
@@ -4371,6 +4380,8 @@ extern "C"
         const std::vector<le::PlacementId> placements = selected_placements_unlocked(handle);
         if (placements.empty())
             return 1;
+        if (any_placement_locked(handle, placements))
+            return 3;
         if (!(orientation_ops_enabled_unlocked(handle, placements) & (1 << op)))
             return 2;
 

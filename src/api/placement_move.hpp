@@ -16,6 +16,13 @@
 
 namespace le
 {
+    /// @brief Whether a placement with `status` stays where it is: FIXED and
+    /// COVER placements can't be moved, rotated or flipped until unlocked.
+    inline bool placement_is_locked(PlacementStatus status)
+    {
+        return status == PlacementStatus::FIXED || status == PlacementStatus::COVER;
+    }
+
     /// @brief Placement Move snapping -
     /// what a moving Placement's own location (the lower-left of its
     /// placed bbox, DEF's own convention) snaps to. Values are the C API's

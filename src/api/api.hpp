@@ -851,7 +851,8 @@ extern "C"
     /// @brief Which LeOrientationOps le_apply_placement_orientation_op
     /// would accept right now, as a bitmask (1 << op). 0 with no placement
     /// selected, while a Move is under way (anchored by its first click, the
-    /// ghost showing - arming alone doesn't count), or outside a Layout view. Under
+    /// ghost showing - arming alone doesn't count), with a FIXED or COVER
+    /// placement selected, or outside a Layout view. Under
     /// SITE snapping, a CORE cell's op also needs its row's Site SYMMETRY
     /// to permit it (R90: rotate, Y: horizontal flip, X: vertical flip);
     /// every other snap mode leaves all three enabled. 0 if handle is null.
@@ -860,9 +861,10 @@ extern "C"
     /// @brief Rotates (90 degrees counterclockwise, N -> W) or flips
     /// (horizontal: N -> FN, vertical: N -> FS) every selected placement
     /// about its own bbox center, committed immediately as one undoable
-    /// edit. Returns 0 on success, 1 if no placement is selected, 2 if the
-    /// op isn't enabled (le_placement_orientation_ops_enabled), -1 if
-    /// handle is null or `op` is out of range.
+    /// edit. Returns 0 on success, 1 if no placement is selected, 3 if a
+    /// selected placement is FIXED or COVER, 2 if the op isn't otherwise
+    /// enabled (le_placement_orientation_ops_enabled), -1 if handle is null
+    /// or `op` is out of range.
     int32_t le_apply_placement_orientation_op(LeHandle *handle, int32_t op);
 
     /// @brief Which of a Shape's geometry lists a selected piece belongs

@@ -50,7 +50,10 @@ select $u1
 set_placement_status FIXED
 check "arm_move refuses a FIXED placement" 1 [catch {arm_move} err]
 check "...saying why" 1 [string match "*unlock them first*" $err]
+check "update_placement can't move a FIXED placement" 1 [catch {update_placement $u1 -location {5 5}}]
+check "...or rotate it" 1 [catch {update_placement $u1 -orientation W}]
 set_placement_status PLACED
 check "arm_move accepts it once unlocked" 0 [catch {arm_move}]
+check "update_placement moves it once unlocked" 0 [catch {update_placement $u1 -location {5 5}}]
 
 puts "PASS"

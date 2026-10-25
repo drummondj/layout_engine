@@ -354,6 +354,10 @@ void arm_move_cmd();
 /// le_selected_locked_placement_count.
 int selected_locked_placement_count_cmd();
 
+/// @brief Whether a Move is under way (its first click made) - mirrors
+/// le_is_move_anchored.
+bool is_move_anchored_cmd();
+
 /// @brief Backing for the `delete_selected_pieces` Tcl command - mirrors
 /// le_delete_selected_pieces directly (returns how many were deleted).
 int delete_selected_pieces_cmd();

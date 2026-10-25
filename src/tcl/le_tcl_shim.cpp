@@ -957,6 +957,11 @@ int selected_locked_placement_count_cmd()
     return le_selected_locked_placement_count(session());
 }
 
+bool is_move_anchored_cmd()
+{
+    return le_is_move_anchored(session()) != 0;
+}
+
 int delete_selected_pieces_cmd()
 {
     return le_delete_selected_pieces(session());

@@ -19,6 +19,11 @@
 
 namespace le::edit
 {
+    /// @brief update_placement's check (Klass.update_check): a FIXED or
+    /// COVER placement's location and orientation can't change unless the
+    /// same update unlocks it.
+    std::optional<std::string> check_placement_update(const PlacementData &before, const PlacementChanges &changes);
+
 #include "generated/api/edit_ops_decls.inc"
 
     /// @brief The Technology's dbu per micron (DATABASE MICRONS), if one

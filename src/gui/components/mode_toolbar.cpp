@@ -136,10 +136,13 @@ namespace le::gui
 
             // Lock: fixes the selected placements in place; once every one
             // is FIXED it becomes Unlock, which makes them PLACED again.
+            // Disabled while a Move is under way.
             ImGui::SameLine();
             const bool all_fixed = placement_count > 0 && provider.state().placement_move.all_fixed;
             if (draw_button(all_fixed ? ICON_LC_LOCK_OPEN : ICON_LC_LOCK, all_fixed ? "Unlock" : "Lock", nullptr,
-                            placement_count == 0 ? "Select placements to lock or unlock first" : nullptr))
+                            placement_count == 0                             ? "Select placements to lock or unlock first"
+                            : provider.state().placement_move.is_move_anchored ? "Not available while moving (Esc to cancel the move)"
+                                                                               : nullptr))
                 provider.set_selected_placements_fixed(!all_fixed);
 
             // No Rotate/Align buttons until those features exist.
