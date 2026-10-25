@@ -1,11 +1,11 @@
 {
-  "version": "0.52.0",
-  "fingerprint": "dff7363ce1677cc3",
+  "version": "0.53.0",
+  "fingerprint": "d68b383fbb42ff92",
   "descriptor": {
     "format": 1,
     "name": "layout_engine",
     "namespace": "le",
-    "version": "0.52.0",
+    "version": "0.53.0",
     "classes": [
       {
         "name": "Technology",
@@ -2430,6 +2430,27 @@
             "type": "bool"
           },
           {
+            "name": "routing_status",
+            "kind": "enum",
+            "type": "RoutingStatus",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "route_shape",
+            "kind": "enum",
+            "type": "RouteShape",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "shield_index",
+            "kind": "scalar",
+            "type": "unsigned char",
+            "optional": true,
+            "presence": true
+          },
+          {
             "name": "vias",
             "kind": "struct",
             "type": "ShapeVia",
@@ -3448,6 +3469,86 @@
         ]
       },
       {
+        "name": "RoutingStatus",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "ROUTED",
+            "value": 0
+          },
+          {
+            "name": "FIXED",
+            "value": 1
+          },
+          {
+            "name": "COVER",
+            "value": 2
+          },
+          {
+            "name": "NOSHIELD",
+            "value": 3
+          },
+          {
+            "name": "SHIELD",
+            "value": 4
+          }
+        ]
+      },
+      {
+        "name": "RouteShape",
+        "kind": "enum",
+        "values": [
+          {
+            "name": "RING",
+            "value": 0
+          },
+          {
+            "name": "PADRING",
+            "value": 1
+          },
+          {
+            "name": "BLOCKRING",
+            "value": 2
+          },
+          {
+            "name": "STRIPE",
+            "value": 3
+          },
+          {
+            "name": "FOLLOWPIN",
+            "value": 4
+          },
+          {
+            "name": "IOWIRE",
+            "value": 5
+          },
+          {
+            "name": "COREWIRE",
+            "value": 6
+          },
+          {
+            "name": "BLOCKWIRE",
+            "value": 7
+          },
+          {
+            "name": "BLOCKAGEWIRE",
+            "value": 8
+          },
+          {
+            "name": "FILLWIRE",
+            "value": 9
+          },
+          {
+            "name": "FILLWIREOPC",
+            "value": 10
+          },
+          {
+            "name": "DRCFILL",
+            "value": 11
+          }
+        ]
+      },
+      {
         "name": "BlockageKind",
         "kind": "enum",
         "values": [
@@ -4041,6 +4142,12 @@
             "kind": "child",
             "type": "Shape",
             "list": true
+          },
+          {
+            "name": "shield_nets",
+            "kind": "scalar",
+            "type": "str",
+            "list": true
           }
         ]
       },
@@ -4058,6 +4165,27 @@
             "name": "layer",
             "kind": "ref",
             "type": "Layer"
+          },
+          {
+            "name": "routing_status",
+            "kind": "enum",
+            "type": "RoutingStatus",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "route_shape",
+            "kind": "enum",
+            "type": "RouteShape",
+            "optional": true,
+            "presence": true
+          },
+          {
+            "name": "shield_index",
+            "kind": "scalar",
+            "type": "unsigned char",
+            "optional": true,
+            "presence": true
           },
           {
             "name": "segments",

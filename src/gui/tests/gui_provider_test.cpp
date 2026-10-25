@@ -104,6 +104,35 @@ TEST_F(GuiProviderFixture, LayerManagerListsPlacementTypesAndRouteUsesWithTheirS
     EXPECT_EQ(uses.front().value, "SIGNAL");
 }
 
+// The placement-status, routing-status and route-shape rows, and the Tcl
+// command a toggle queues.
+TEST_F(GuiProviderFixture, LayerManagerListsStatusesAndShapesAndQueuesTheirCommands)
+{
+    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_SHAPE, "FOLLOWPIN", 0);
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    const auto &state = provider.state().layer_manager;
+    EXPECT_EQ(state.placement_statuses.size(), 5u);
+    EXPECT_EQ(state.routing_statuses.front().value, "ROUTED");
+    const auto followpin = std::ranges::find_if(state.route_shapes, [](const auto &row)
+                                                { return row.value == "FOLLOWPIN"; });
+    ASSERT_NE(followpin, state.route_shapes.end());
+    EXPECT_FALSE(followpin->visible);
+    EXPECT_EQ(state.route_shapes.back().value, "UNSET");
+
+    auto queued = [&]
+    {
+        const char *command = le_take_next_pending_tcl_command(handle);
+        return command ? std::string(command) : std::string();
+    };
+    provider.set_object_filter_visible(LE_OBJECT_FILTER_PLACEMENT_STATUS, "FIXED", false);
+    EXPECT_EQ(queued(), "set_placement_status_visible {FIXED} false");
+    provider.set_object_filter_selectable(LE_OBJECT_FILTER_ROUTING_STATUS, "COVER", true);
+    EXPECT_EQ(queued(), "set_routing_status_selectable {COVER} true");
+    provider.set_object_filter_visible(LE_OBJECT_FILTER_ROUTE_SHAPE, "RING", false);
+    EXPECT_EQ(queued(), "set_route_shape_visible {RING} false");
+}
+
 TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many"), 0);

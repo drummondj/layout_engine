@@ -132,11 +132,17 @@ namespace le::gui
         constexpr std::string_view kRoutePurpose = "route";
         constexpr std::string_view kPlacementPurpose = "placement";
 
-        // A purpose's Placement.type/Route.use values, indented under its
-        // row - each hides or locks just the objects with that value.
-        void draw_filter_rows(GuiProvider &provider, int32_t filter, const std::vector<GuiProvider::FilterRow> &rows)
+        // One of a purpose's value filters (e.g. a route's use or status),
+        // indented under its row: a heading, then a row per value - each
+        // hides or locks just the objects with that value.
+        void draw_filter_rows(GuiProvider &provider, int32_t filter, const char *heading, const std::vector<GuiProvider::FilterRow> &rows)
         {
             ImGui::PushID(filter);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Indent();
+            ImGui::TextDisabled("%s", heading);
+            ImGui::Unindent();
             for (const GuiProvider::FilterRow &row : rows)
             {
                 draw_toggle_row(
@@ -364,9 +370,16 @@ namespace le::gui
             if (!show_filters)
                 continue;
             if (purpose.name == kPlacementPurpose)
-                draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_TYPE, state.layer_manager.placement_types);
+            {
+                draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_TYPE, "Type", state.layer_manager.placement_types);
+                draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_STATUS, "Status", state.layer_manager.placement_statuses);
+            }
             else if (purpose.name == kRoutePurpose)
-                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_USE, state.layer_manager.route_uses);
+            {
+                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_USE, "Use", state.layer_manager.route_uses);
+                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTING_STATUS, "Status", state.layer_manager.routing_statuses);
+                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_SHAPE, "Shape", state.layer_manager.route_shapes);
+            }
         }
 
         ImGui::EndTable();

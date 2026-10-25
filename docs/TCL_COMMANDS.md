@@ -10,7 +10,7 @@ Every Tcl command le_shell provides. Objects are named by tokens such as `layer:
 - [Abstract](#abstract) (35 commands)
 - [Layout](#layout) (53 commands)
 - [Schematic](#schematic) (32 commands)
-- [GUI](#gui) (36 commands)
+- [GUI](#gui) (48 commands)
 - [Settings](#settings) (25 commands)
 - [General](#general) (40 commands)
 
@@ -1927,14 +1927,17 @@ Creates a Track and returns its token. Track: A routing track pattern (DEF TRACK
 
 ### create_wire
 
-`create_wire -route <token> -layer <token> [-help]`
+`create_wire -route <token> -layer <token> [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
 
-Creates a Wire and returns its token. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
+Creates a Wire and returns its token. Wire: A route's wiring and vias on one layer with one status and shape, in a compact form: Manhattan segments and references to defined vias.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-route` | `token` | yes | Parent Route token |
 | `-layer` | `token` | yes | The routing layer, as a layer:<name> token |
+| `-routing_status` | `RoutingStatus` | no | Wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
+| `-route_shape` | `RouteShape` | no | What this wiring is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
+| `-shield_index` | `int` | no | For SHIELD wiring: the index into its route's shield_nets of the net it shields |
 
 ### current_layout
 
@@ -2207,7 +2210,7 @@ Returns the Track objects matching the given names and filters, as tokens. Track
 
 `get_wires [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the Wire objects matching the given names and filters, as tokens. Wire: A route's wiring and vias on one layer, in a compact form: Manhattan segments and references to defined vias.
+Returns the Wire objects matching the given names and filters, as tokens. Wire: A route's wiring and vias on one layer with one status and shape, in a compact form: Manhattan segments and references to defined vias.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2398,7 +2401,7 @@ Changes the given fields of a Track; omitted flags leave a field unchanged.
 
 ### update_wire
 
-`update_wire <id> [-route <token>] [-layer <token>] [-help]`
+`update_wire <id> [-route <token>] [-layer <token>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
 
 Changes the given fields of a Wire; omitted flags leave a field unchanged.
 
@@ -2406,6 +2409,9 @@ Changes the given fields of a Wire; omitted flags leave a field unchanged.
 | --- | --- | --- | --- |
 | `-route` | `token` | no | Move it to this Route (token) |
 | `-layer` | `token` | no | The routing layer, as a layer:<name> token |
+| `-routing_status` | `RoutingStatus` | no | Wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
+| `-route_shape` | `RouteShape` | no | What this wiring is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
+| `-shield_index` | `int` | no | For SHIELD wiring: the index into its route's shield_nets of the net it shields |
 
 ### write_def
 
@@ -2806,7 +2812,7 @@ Writes an empty Verilog module for every design in -library (or the only library
 
 ## GUI
 
-[`arm_move`](#arm_move), [`arm_resize`](#arm_resize), [`clear_rulers`](#clear_rulers), [`close_gui`](#close_gui), [`delete_selected_pieces`](#delete_selected_pieces), [`deselect_all`](#deselect_all), [`dump_png`](#dump_png), [`get_hierarchy_depth`](#get_hierarchy_depth), [`get_layer_selectable`](#get_layer_selectable), [`get_layer_visible`](#get_layer_visible), [`get_mode`](#get_mode), [`get_placement_type_selectable`](#get_placement_type_selectable), [`get_placement_type_visible`](#get_placement_type_visible), [`get_purpose_selectable`](#get_purpose_selectable), [`get_purpose_visible`](#get_purpose_visible), [`get_route_use_selectable`](#get_route_use_selectable), [`get_route_use_visible`](#get_route_use_visible), [`get_selection`](#get_selection), [`get_view_flip`](#get_view_flip), [`open_design`](#open_design), [`select`](#select), [`set_hierarchy_depth`](#set_hierarchy_depth), [`set_layer_selectable`](#set_layer_selectable), [`set_layer_visible`](#set_layer_visible), [`set_mode`](#set_mode), [`set_placement_type_selectable`](#set_placement_type_selectable), [`set_placement_type_visible`](#set_placement_type_visible), [`set_purpose_selectable`](#set_purpose_selectable), [`set_purpose_visible`](#set_purpose_visible), [`set_route_use_selectable`](#set_route_use_selectable), [`set_route_use_visible`](#set_route_use_visible), [`set_view_flip`](#set_view_flip), [`set_viewport_size`](#set_viewport_size), [`show_gui`](#show_gui), [`zoom`](#zoom), [`zoom_area`](#zoom_area)
+[`arm_move`](#arm_move), [`arm_resize`](#arm_resize), [`clear_rulers`](#clear_rulers), [`close_gui`](#close_gui), [`delete_selected_pieces`](#delete_selected_pieces), [`deselect_all`](#deselect_all), [`dump_png`](#dump_png), [`get_hierarchy_depth`](#get_hierarchy_depth), [`get_layer_selectable`](#get_layer_selectable), [`get_layer_visible`](#get_layer_visible), [`get_mode`](#get_mode), [`get_placement_status_selectable`](#get_placement_status_selectable), [`get_placement_status_visible`](#get_placement_status_visible), [`get_placement_type_selectable`](#get_placement_type_selectable), [`get_placement_type_visible`](#get_placement_type_visible), [`get_purpose_selectable`](#get_purpose_selectable), [`get_purpose_visible`](#get_purpose_visible), [`get_route_shape_selectable`](#get_route_shape_selectable), [`get_route_shape_visible`](#get_route_shape_visible), [`get_route_use_selectable`](#get_route_use_selectable), [`get_route_use_visible`](#get_route_use_visible), [`get_routing_status_selectable`](#get_routing_status_selectable), [`get_routing_status_visible`](#get_routing_status_visible), [`get_selection`](#get_selection), [`get_view_flip`](#get_view_flip), [`open_design`](#open_design), [`select`](#select), [`set_hierarchy_depth`](#set_hierarchy_depth), [`set_layer_selectable`](#set_layer_selectable), [`set_layer_visible`](#set_layer_visible), [`set_mode`](#set_mode), [`set_placement_status_selectable`](#set_placement_status_selectable), [`set_placement_status_visible`](#set_placement_status_visible), [`set_placement_type_selectable`](#set_placement_type_selectable), [`set_placement_type_visible`](#set_placement_type_visible), [`set_purpose_selectable`](#set_purpose_selectable), [`set_purpose_visible`](#set_purpose_visible), [`set_route_shape_selectable`](#set_route_shape_selectable), [`set_route_shape_visible`](#set_route_shape_visible), [`set_route_use_selectable`](#set_route_use_selectable), [`set_route_use_visible`](#set_route_use_visible), [`set_routing_status_selectable`](#set_routing_status_selectable), [`set_routing_status_visible`](#set_routing_status_visible), [`set_view_flip`](#set_view_flip), [`set_viewport_size`](#set_viewport_size), [`show_gui`](#show_gui), [`zoom`](#zoom), [`zoom_area`](#zoom_area)
 
 ### arm_move
 
@@ -2886,6 +2892,26 @@ Returns 1 if the layer <layer_name> is visible, 0 if it's hidden. An unknown lay
 
 Returns the interaction mode: select, edit or ruler.
 
+### get_placement_status_selectable
+
+`get_placement_status_selectable <status> [-help]`
+
+Returns 1 if placements whose DEF status is <status> can be selected, 0 otherwise - see set_placement_status_selectable.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Placement status: UNPLACED, PLACED, FIXED, COVER or SOFTFIXED |
+
+### get_placement_status_visible
+
+`get_placement_status_visible <status> [-help]`
+
+Returns 1 if placements whose DEF status is <status> are visible, 0 otherwise - see set_placement_status_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Placement status: UNPLACED, PLACED, FIXED, COVER or SOFTFIXED |
+
 ### get_placement_type_selectable
 
 `get_placement_type_selectable <type> [-help]`
@@ -2926,6 +2952,26 @@ Returns 1 if the purpose <purpose> is visible, 0 if it's hidden - see set_purpos
 | --- | --- | --- | --- |
 | `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
 
+### get_route_shape_selectable
+
+`get_route_shape_selectable <shape> [-help]`
+
+Returns 1 if special-net wiring whose DEF SHAPE is <shape> can be selected, 0 otherwise - see set_route_shape_selectable.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shape>` | `str` | yes | Route shape (DEF SPECIALNETS SHAPE), e.g. RING, STRIPE, FOLLOWPIN or COREWIRE, or UNSET for wiring with none |
+
+### get_route_shape_visible
+
+`get_route_shape_visible <shape> [-help]`
+
+Returns 1 if special-net wiring whose DEF SHAPE is <shape> are visible, 0 otherwise - see set_route_shape_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shape>` | `str` | yes | Route shape (DEF SPECIALNETS SHAPE), e.g. RING, STRIPE, FOLLOWPIN or COREWIRE, or UNSET for wiring with none |
+
 ### get_route_use_selectable
 
 `get_route_use_selectable <use> [-help]`
@@ -2945,6 +2991,26 @@ Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_ro
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
+
+### get_routing_status_selectable
+
+`get_routing_status_selectable <status> [-help]`
+
+Returns 1 if route wiring whose DEF status is <status> can be selected, 0 otherwise - see set_routing_status_selectable.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Routing status: ROUTED, FIXED, COVER, NOSHIELD or SHIELD - wiring with no status is ROUTED |
+
+### get_routing_status_visible
+
+`get_routing_status_visible <status> [-help]`
+
+Returns 1 if route wiring whose DEF status is <status> are visible, 0 otherwise - see set_routing_status_visible.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Routing status: ROUTED, FIXED, COVER, NOSHIELD or SHIELD - wiring with no status is ROUTED |
 
 ### get_selection
 
@@ -3021,6 +3087,28 @@ Switches the interaction mode: select (the default), edit or ruler. The GUI's s/
 | --- | --- | --- | --- |
 | `<mode>` | `str` | yes | One of select, edit, ruler |
 
+### set_placement_status_selectable
+
+`set_placement_status_selectable <status> <selectable> [-help]`
+
+Sets whether placements whose DEF status is <status> can be selected. Everything is selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Placement status: UNPLACED, PLACED, FIXED, COVER or SOFTFIXED |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
+
+### set_placement_status_visible
+
+`set_placement_status_visible <status> <visible> [-help]`
+
+Shows or hides placements whose DEF status is <status> - their outline, name and content. Everything is visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Placement status: UNPLACED, PLACED, FIXED, COVER or SOFTFIXED |
+| `<visible>` | `bool` | yes | true to show, false to hide |
+
 ### set_placement_type_selectable
 
 `set_placement_type_selectable <type> <selectable> [-help]`
@@ -3065,6 +3153,28 @@ Shows or hides one purpose - e.g. obstructions - across every layer. <purpose> i
 | `<purpose>` | `str` | yes | One of terminal, obstruction, boundary, trackPreferred, trackNonPreferred, routingBlockage, row, gcellgrid, placementBlockage, route, region, placement, customShape, debug, flightline, portMarker |
 | `<visible>` | `bool` | yes | true to show, false to hide |
 
+### set_route_shape_selectable
+
+`set_route_shape_selectable <shape> <selectable> [-help]`
+
+Sets whether special-net wiring whose DEF SHAPE is <shape> can be selected. Everything is selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shape>` | `str` | yes | Route shape (DEF SPECIALNETS SHAPE), e.g. RING, STRIPE, FOLLOWPIN or COREWIRE, or UNSET for wiring with none |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
+
+### set_route_shape_visible
+
+`set_route_shape_visible <shape> <visible> [-help]`
+
+Shows or hides special-net wiring whose DEF SHAPE is <shape> - its shapes and vias. Everything is visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<shape>` | `str` | yes | Route shape (DEF SPECIALNETS SHAPE), e.g. RING, STRIPE, FOLLOWPIN or COREWIRE, or UNSET for wiring with none |
+| `<visible>` | `bool` | yes | true to show, false to hide |
+
 ### set_route_use_selectable
 
 `set_route_use_selectable <use> <selectable> [-help]`
@@ -3085,6 +3195,28 @@ Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<use>` | `str` | yes | Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL |
+| `<visible>` | `bool` | yes | true to show, false to hide |
+
+### set_routing_status_selectable
+
+`set_routing_status_selectable <status> <selectable> [-help]`
+
+Sets whether route wiring whose DEF status is <status> can be selected. Everything is selectable by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Routing status: ROUTED, FIXED, COVER, NOSHIELD or SHIELD - wiring with no status is ROUTED |
+| `<selectable>` | `bool` | yes | true to allow selecting, false to prevent it |
+
+### set_routing_status_visible
+
+`set_routing_status_visible <status> <visible> [-help]`
+
+Shows or hides route wiring whose DEF status is <status> - its shapes and vias. Everything is visible by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<status>` | `str` | yes | Routing status: ROUTED, FIXED, COVER, NOSHIELD or SHIELD - wiring with no status is ROUTED |
 | `<visible>` | `bool` | yes | true to show, false to hide |
 
 ### set_view_flip
@@ -3398,7 +3530,7 @@ Creates a Library and returns its token. Library: A library containing designs
 
 ### create_shape
 
-`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
+`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
 
 Creates a Shape and returns its token. Shape: A shape on a layer.
 
@@ -3421,6 +3553,9 @@ Creates a Shape and returns its token. Shape: A shape on a layer.
 | `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
 | `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
 | `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
+| `-routing_status` | `RoutingStatus` | no | For a route's shape: its wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
+| `-route_shape` | `RouteShape` | no | For a route's shape: what it is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
+| `-shield_index` | `int` | no | For a route's SHIELD shape: the index into its route's shield_nets of the net it shields |
 
 ### db_info
 
@@ -3784,7 +3919,7 @@ Changes the given fields of a Library; omitted flags leave a field unchanged.
 
 ### update_shape
 
-`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-help]`
+`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
 
 Changes the given fields of a Shape; omitted flags leave a field unchanged.
 
@@ -3798,6 +3933,9 @@ Changes the given fields of a Shape; omitted flags leave a field unchanged.
 | `-spacing` | `um` | no | LEF LAYER ... SPACING (OBS/PORT minimum-spacing override), in microns - the layer's own rules apply if not given. Mutually exclusive with design_rule_width. |
 | `-design_rule_width` | `um` | no | LEF LAYER ... DESIGNRULEWIDTH, in microns. Mutually exclusive with spacing. |
 | `-except_pg_net` | `bool` | no | LEF LAYER ... EXCEPTPGNET (5.7) - write_lef writes it for OBS only |
+| `-routing_status` | `RoutingStatus` | no | For a route's shape: its wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
+| `-route_shape` | `RouteShape` | no | For a route's shape: what it is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
+| `-shield_index` | `int` | no | For a route's SHIELD shape: the index into its route's shield_nets of the net it shields |
 
 ### write_db
 

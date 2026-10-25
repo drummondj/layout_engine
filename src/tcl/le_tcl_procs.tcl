@@ -132,6 +132,9 @@ foreach {_le_category _le_names} {
         get_purpose_visible set_purpose_visible get_purpose_selectable set_purpose_selectable
         get_placement_type_visible set_placement_type_visible get_placement_type_selectable set_placement_type_selectable
         get_route_use_visible set_route_use_visible get_route_use_selectable set_route_use_selectable
+        get_placement_status_visible set_placement_status_visible get_placement_status_selectable set_placement_status_selectable
+        get_routing_status_visible set_routing_status_visible get_routing_status_selectable set_routing_status_selectable
+        get_route_shape_visible set_route_shape_visible get_route_shape_selectable set_route_shape_selectable
     }
     Settings {
         load_settings save_settings get_confirm_overwrite set_confirm_overwrite
@@ -1118,143 +1121,74 @@ register_command_help get_purpose_selectable \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     "
 
-# --- Placement.type / Route.use filters (backed by set_object_filter_visible_cmd/
-# get_object_filter_visible_cmd/set_object_filter_selectable_cmd/
-# get_object_filter_selectable_cmd -> le_*_object_filter_value_*). The
-# second argument of each _cmd is an LeObjectFilter: 0 placement type, 1
-# route use. Values match case-insensitively.
+# --- Placement and route value filters (backed by
+# set_object_filter_visible_cmd/get_object_filter_visible_cmd/
+# set_object_filter_selectable_cmd/get_object_filter_selectable_cmd ->
+# le_*_object_filter_value_*). Values match case-insensitively.
 
-proc set_placement_type_visible { type args } {
-    if {$type eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "set_placement_type_visible <type> <visible> \[-help\] - Sets one placement type's visibility"
+# Defines set_/get_<noun>_visible and set_/get_<noun>_selectable for one
+# LeObjectFilter. <arg> names the value argument; <objects> is what a value
+# selects, with "<arg>" in it (e.g. "routes whose DEF USE is <use>");
+# <hides> what hiding them hides; <value_help> the argument's description.
+proc _le_define_object_filter_commands {filter noun arg objects hides value_help} {
+    set label [string map {_ " "} $noun]
+    foreach {axis state verb} {visible {true to show, false to hide} visibility selectable {true to allow selecting, false to prevent it} selectability} {
+        set set_name set_${noun}_${axis}
+        set get_name get_${noun}_${axis}
+        proc $set_name [list $arg args] [string map [list @SET@ $set_name @ARG@ $arg @AXIS@ $axis @LABEL@ $label @VERB@ $verb @FILTER@ $filter] {
+            if {$@ARG@ eq "-help" || [lsearch -exact $args "-help"] >= 0} {
+                return "@SET@ <@ARG@> <@AXIS@> \[-help\] - Sets one @LABEL@'s @VERB@"
+            }
+            if {[llength $args] != 1} {
+                error "@SET@: expected exactly 2 arguments (@ARG@, @AXIS@), got [expr {1 + [llength $args]}]"
+            }
+            set_object_filter_@AXIS@_cmd @FILTER@ $@ARG@ [lindex $args 0]
+            return ""
+        }]
+        proc $get_name [list $arg] [string map [list @GET@ $get_name @ARG@ $arg @AXIS@ $axis @LABEL@ $label @VERB@ $verb @FILTER@ $filter] {
+            if {$@ARG@ eq "-help"} {
+                return "@GET@ <@ARG@> \[-help\] - Returns one @LABEL@'s @VERB@"
+            }
+            return [get_object_filter_@AXIS@_cmd @FILTER@ $@ARG@]
+        }]
+        if {$axis eq "visible"} {
+            set set_description "Shows or hides $objects - $hides. Everything is visible by default."
+            set get_description "Returns 1 if $objects are visible, 0 otherwise - see $set_name."
+        } else {
+            set set_description "Sets whether $objects can be selected. Everything is selectable by default."
+            set get_description "Returns 1 if $objects can be selected, 0 otherwise - see $set_name."
+        }
+        register_command_help $set_name "$set_name <$arg> <$axis> \[-help\]" $set_description [list \
+            [list <$arg> [list type str required 1 description $value_help]] \
+            [list <$axis> [list type bool required 1 description $state]] \
+            {-help {type flag required 0 description {Show this usage message and return immediately}}}]
+        register_command_help $get_name "$get_name <$arg> \[-help\]" $get_description [list \
+            [list <$arg> [list type str required 1 description $value_help]] \
+            {-help {type flag required 0 description {Show this usage message and return immediately}}}]
     }
-    if {[llength $args] != 1} {
-        error "set_placement_type_visible: expected exactly 2 arguments (type, visible), got [expr {1 + [llength $args]}]"
-    }
-    set_object_filter_visible_cmd 0 $type [lindex $args 0]
-    return ""
 }
-register_command_help set_placement_type_visible \
-    "set_placement_type_visible <type> <visible> \[-help\]" \
-    "Shows or hides placements whose type (the placed cell's LEF MACRO CLASS) is <type> - their outline, name and content. Everything is visible by default." \
-    {
-        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
-        {<visible> {type bool required 1 description {true to show, false to hide}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
 
-proc get_placement_type_visible { type } {
-    if {$type eq "-help"} {
-        return "get_placement_type_visible <type> \[-help\] - Returns one placement type's visibility"
-    }
-    return [get_object_filter_visible_cmd 0 $type]
-}
-register_command_help get_placement_type_visible \
-    "get_placement_type_visible <type> \[-help\]" \
-    "Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> are visible, 0 otherwise - see set_placement_type_visible." \
-    {
-        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc set_placement_type_selectable { type args } {
-    if {$type eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "set_placement_type_selectable <type> <selectable> \[-help\] - Sets one placement type's selectability"
-    }
-    if {[llength $args] != 1} {
-        error "set_placement_type_selectable: expected exactly 2 arguments (type, selectable), got [expr {1 + [llength $args]}]"
-    }
-    set_object_filter_selectable_cmd 0 $type [lindex $args 0]
-    return ""
-}
-register_command_help set_placement_type_selectable \
-    "set_placement_type_selectable <type> <selectable> \[-help\]" \
-    "Sets whether placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected. Everything is selectable by default." \
-    {
-        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
-        {<selectable> {type bool required 1 description {true to allow selecting, false to prevent it}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc get_placement_type_selectable { type } {
-    if {$type eq "-help"} {
-        return "get_placement_type_selectable <type> \[-help\] - Returns one placement type's selectability"
-    }
-    return [get_object_filter_selectable_cmd 0 $type]
-}
-register_command_help get_placement_type_selectable \
-    "get_placement_type_selectable <type> \[-help\]" \
-    "Returns 1 if placements whose type (the placed cell's LEF MACRO CLASS) is <type> can be selected, 0 otherwise - see set_placement_type_selectable." \
-    {
-        {<type> {type str required 1 description {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc set_route_use_visible { use args } {
-    if {$use eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "set_route_use_visible <use> <visible> \[-help\] - Sets one route use's visibility"
-    }
-    if {[llength $args] != 1} {
-        error "set_route_use_visible: expected exactly 2 arguments (use, visible), got [expr {1 + [llength $args]}]"
-    }
-    set_object_filter_visible_cmd 1 $use [lindex $args 0]
-    return ""
-}
-register_command_help set_route_use_visible \
-    "set_route_use_visible <use> <visible> \[-help\]" \
-    "Shows or hides routes whose DEF USE is <use> - their shapes and vias. Everything is visible by default." \
-    {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
-        {<visible> {type bool required 1 description {true to show, false to hide}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc get_route_use_visible { use } {
-    if {$use eq "-help"} {
-        return "get_route_use_visible <use> \[-help\] - Returns one route use's visibility"
-    }
-    return [get_object_filter_visible_cmd 1 $use]
-}
-register_command_help get_route_use_visible \
-    "get_route_use_visible <use> \[-help\]" \
-    "Returns 1 if routes whose DEF USE is <use> are visible, 0 otherwise - see set_route_use_visible." \
-    {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc set_route_use_selectable { use args } {
-    if {$use eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "set_route_use_selectable <use> <selectable> \[-help\] - Sets one route use's selectability"
-    }
-    if {[llength $args] != 1} {
-        error "set_route_use_selectable: expected exactly 2 arguments (use, selectable), got [expr {1 + [llength $args]}]"
-    }
-    set_object_filter_selectable_cmd 1 $use [lindex $args 0]
-    return ""
-}
-register_command_help set_route_use_selectable \
-    "set_route_use_selectable <use> <selectable> \[-help\]" \
-    "Sets whether routes whose DEF USE is <use> can be selected. Everything is selectable by default." \
-    {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
-        {<selectable> {type bool required 1 description {true to allow selecting, false to prevent it}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
-
-proc get_route_use_selectable { use } {
-    if {$use eq "-help"} {
-        return "get_route_use_selectable <use> \[-help\] - Returns one route use's selectability"
-    }
-    return [get_object_filter_selectable_cmd 1 $use]
-}
-register_command_help get_route_use_selectable \
-    "get_route_use_selectable <use> \[-help\]" \
-    "Returns 1 if routes whose DEF USE is <use> can be selected, 0 otherwise - see set_route_use_selectable." \
-    {
-        {<use> {type str required 1 description {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}}}
-        {-help {type flag required 0 description {Show this usage message and return immediately}}}
-    }
+# The second argument is an LeObjectFilter.
+_le_define_object_filter_commands 0 placement_type type \
+    "placements whose type (the placed cell's LEF MACRO CLASS) is <type>" \
+    "their outline, name and content" \
+    {Placement type - the placed cell's LEF MACRO CLASS, e.g. CORE, "CORE SPACER", PAD, "ENDCAP PRE", or UNSET}
+_le_define_object_filter_commands 1 route_use use \
+    "routes whose DEF USE is <use>" \
+    "their shapes and vias" \
+    {Route use (DEF USE), e.g. SIGNAL, POWER, GROUND or CLOCK - a route with no USE is SIGNAL}
+_le_define_object_filter_commands 2 placement_status status \
+    "placements whose DEF status is <status>" \
+    "their outline, name and content" \
+    {Placement status: UNPLACED, PLACED, FIXED, COVER or SOFTFIXED}
+_le_define_object_filter_commands 3 routing_status status \
+    "route wiring whose DEF status is <status>" \
+    "its shapes and vias" \
+    {Routing status: ROUTED, FIXED, COVER, NOSHIELD or SHIELD - wiring with no status is ROUTED}
+_le_define_object_filter_commands 4 route_shape shape \
+    "special-net wiring whose DEF SHAPE is <shape>" \
+    "its shapes and vias" \
+    {Route shape (DEF SPECIALNETS SHAPE), e.g. RING, STRIPE, FOLLOWPIN or COREWIRE, or UNSET for wiring with none}
 
 # --- mode (backed by set_mode_cmd/get_mode_cmd -> le_set_mode/le_get_mode).
 # Takes/returns a friendly keyword, not LeMode's own raw ordinal - mirrors

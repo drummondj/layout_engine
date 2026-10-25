@@ -92,8 +92,11 @@ namespace le::gui
             {
                 std::vector<LayerRow> layers;
                 std::vector<PurposeRow> purposes;
-                std::vector<FilterRow> placement_types; // LE_OBJECT_FILTER_PLACEMENT_TYPE, under PLACEMENT
-                std::vector<FilterRow> route_uses;      // LE_OBJECT_FILTER_ROUTE_USE, under ROUTE
+                std::vector<FilterRow> placement_types;    // LE_OBJECT_FILTER_PLACEMENT_TYPE, under PLACEMENT
+                std::vector<FilterRow> placement_statuses; // LE_OBJECT_FILTER_PLACEMENT_STATUS, under PLACEMENT
+                std::vector<FilterRow> route_uses;         // LE_OBJECT_FILTER_ROUTE_USE, under ROUTE
+                std::vector<FilterRow> routing_statuses;   // LE_OBJECT_FILTER_ROUTING_STATUS, under ROUTE
+                std::vector<FilterRow> route_shapes;       // LE_OBJECT_FILTER_ROUTE_SHAPE, under ROUTE
             } layer_manager;
 
             // settings_panel.cpp. Grid spacing is in um, -1 while unknown

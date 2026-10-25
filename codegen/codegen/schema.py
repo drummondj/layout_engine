@@ -63,6 +63,10 @@ TYPEMAP = {
 # to_dbu/to_um or to_dbu2/to_um2.
 DBU_TYPES = ("dbu", "dbu2", "dbu32")
 
+# Unsigned integer types narrower than int a create/update field may use:
+# each crosses the C API as an int32_t, range-checked against its maximum.
+SMALL_UINT_MAX = {"unsigned char": 255, "unsigned short": 65535}
+
 
 def _to_dbu_fn(type_name: str) -> str:
     return "to_dbu2" if type_name == "dbu2" else "to_dbu"
@@ -870,6 +874,7 @@ class Klass:
         create_fields = self.get_create_fields()
         reference_fields = self.get_reference_create_fields()
         enum_fields = [f for f in create_fields if f.is_enum_type()]
+        small_uint_fields = [f for f in create_fields if f.type in SMALL_UINT_MAX]
         dbu_fields = [f for f in create_fields if f.cmd_uses_dbu()]
 
         add(f"const Le{self.name}Id invalid{{.index = UINT32_MAX, .generation = 0}};")
@@ -929,6 +934,15 @@ class Klass:
                     add(f'    spdlog::error("create_{snake}: unrecognized {f.name} \'{{}}\'", {f.name});')
                     add("    return invalid;")
                     add("}")
+
+        for f in small_uint_fields:
+            add()
+            out_of_range = f"{f.name} < 0 || {f.name} > {SMALL_UINT_MAX[f.type]}"
+            add(f"if ({out_of_range})" if f.create_required() else f"if (has_{f.name} && ({out_of_range}))")
+            add("{")
+            add(f'    spdlog::error("create_{snake}: {f.name} {{}} is out of range (0 to {SMALL_UINT_MAX[f.type]})", {f.name});')
+            add("    return invalid;")
+            add("}")
 
         if dbu_fields:
             add()
@@ -1603,6 +1617,16 @@ class Klass:
                 )
                 add("    return 1;")
                 add("}")
+
+        for f in create_fields:
+            if f.type not in SMALL_UINT_MAX:
+                continue
+            add()
+            add(f"if (has_{f.name} && ({f.name} < 0 || {f.name} > {SMALL_UINT_MAX[f.type]}))")
+            add("{")
+            add(f'    spdlog::error("update_{snake}: {f.name} {{}} is out of range (0 to {SMALL_UINT_MAX[f.type]})", {f.name});')
+            add("    return 1;")
+            add("}")
 
         if dbu_fields:
             add()
@@ -2805,6 +2829,8 @@ class Field:
         """
         # dbu/dbu2 values cross the TCL layer in microns / square microns.
         label = {"dbu": "um", "dbu2": "um2", "dbu32": "um"}.get(self.type, self.type)
+        if self.type in SMALL_UINT_MAX:
+            label = "int"
         return f"{label}..." if self.is_list else label
 
     def compound_klass(self) -> Optional[Klass]:
@@ -3222,8 +3248,8 @@ class Field:
         if self.is_compound_create_field() or self.list_compound_kind() is not None:
             return True
         if mode == "update":
-            return self.type in ("int", "double", "dbu", "dbu2", "bool")
-        return self.create_required() is False and self.type in ("int", "double", "dbu", "dbu2")
+            return self.type in ("int", "double", "dbu", "dbu2", "bool") or self.type in SMALL_UINT_MAX
+        return self.create_required() is False and (self.type in ("int", "double", "dbu", "dbu2") or self.type in SMALL_UINT_MAX)
 
     def create_c_param_name(self) -> str:
         """
@@ -3253,7 +3279,7 @@ class Field:
             return "double"
         if self.type == "bool":
             return "int32_t"
-        if self.type == "int":
+        if self.type == "int" or self.type in SMALL_UINT_MAX:
             return "int32_t"
         if self.type == "double":
             return "double"
@@ -3376,6 +3402,8 @@ class Field:
             return f"{_to_dbu_fn(self.type)}({name}, *dbu_per_um)"
         if self.type == "bool":
             return f"{name} != 0"
+        if self.type in SMALL_UINT_MAX:
+            return f"static_cast<{self.type}>({name})"
         return name
 
     @staticmethod
@@ -3435,6 +3463,9 @@ class Field:
         if self.type in ("int", "double"):
             cpp_type = "int" if self.type == "int" else "double"
             return name if self.create_required() else f"has_{self.name} ? std::optional<{cpp_type}>({name}) : std::nullopt"
+        if self.type in SMALL_UINT_MAX:
+            expr = self.cmd_value_expr()
+            return expr if self.create_required() else f"has_{self.name} ? std::optional<{self.type}>({expr}) : std::nullopt"
         raise ValueError(f"create_struct_init_expr: unsupported create-field type {self.type!r} on field {self.name!r}")
 
     def cmd_tcl_call_args(self, mode: str = "create") -> List[str]:
@@ -3745,6 +3776,8 @@ class Field:
             return "bool"
         if self.type == "int":
             return "int"
+        if self.type in SMALL_UINT_MAX:
+            return self.type
         if self.type == "double":
             return "double"
         raise ValueError(f"root_value_cpp_type: unsupported create-field type {self.type!r} on field {self.name!r}")
@@ -3817,7 +3850,9 @@ class Field:
         get_cpp_type() directly, since that already applies the
         std::optional<> wrapper this method exists to unwrap).
         """
-        return f"{TYPEMAP[self.type][0] if self.type in TYPEMAP else self.type}{{}}"
+        cpp_type = TYPEMAP[self.type][0] if self.type in TYPEMAP else self.type
+        # A multi-word builtin ("unsigned char") can't be written T{}.
+        return f"static_cast<{cpp_type}>(0)" if " " in cpp_type else f"{cpp_type}{{}}"
 
     def _optional_value_needs_unwrap(self) -> bool:
         """

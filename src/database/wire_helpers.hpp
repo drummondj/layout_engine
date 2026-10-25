@@ -112,13 +112,24 @@ namespace le
         return out;
     }
 
+    /// @brief Copies what a route's wiring is - routing status, SHAPE and
+    /// shielded net - between a Wire and a Shape, in either direction.
+    template <typename From, typename To>
+    void copy_route_wiring(const From &from, To &to)
+    {
+        to.routing_status = from.routing_status;
+        to.route_shape = from.route_shape;
+        to.shield_index = from.shield_index;
+    }
+
     /// @brief `wire` as a general route Shape on its layer - its paths, in
-    /// order, and its vias - for code that reads any Shape's geometry
-    /// (hit-tests, shape ops, bounding boxes, DEF output). Path i of the
-    /// Shape is path i of the Wire, via i is via i.
+    /// order, its vias and its routing status/SHAPE - for code that reads
+    /// any Shape's geometry (hit-tests, shape ops, bounding boxes, DEF
+    /// output). Path i of the Shape is path i of the Wire, via i is via i.
     inline ShapeData wire_to_shape(const Root &root, const WireData &wire)
     {
         ShapeData shape{.layer = wire.layer};
+        copy_route_wiring(wire, shape);
         bool any_mask = false;
         std::vector<int> masks;
         for_each_wire_path(wire, [&](std::size_t first, std::size_t last)
@@ -291,9 +302,9 @@ namespace le
     };
 
     /// @brief `shape` (geometry on one layer: paths and plain vias only) as
-    /// a Wire of `route`, or nullopt if any of it doesn't fit - so an edit
-    /// made through wire_to_shape() can be stored back. Via names resolve
-    /// in the route's Layout.
+    /// a Wire of `route`, keeping its routing status/SHAPE, or nullopt if
+    /// any of it doesn't fit - so an edit made through wire_to_shape() can
+    /// be stored back. Via names resolve in the route's Layout.
     inline std::optional<WireData> shape_to_wire(const Root &root, const ShapeData &shape, RouteId route)
     {
         if (!shape.layer.valid() || !shape.rects.empty() || !shape.polygons.empty() || !shape.rect_iterates.empty() ||
@@ -309,6 +320,8 @@ namespace le
             if (!builder.add_via(resolve_wire_via(root, layout, via.via_name), via.origin, via.orientation.value_or(Orientation::N),
                                  via.mask.value_or(0), via.width.value_or(0)))
                 return std::nullopt;
-        return std::move(builder).build(route);
+        WireData wire = std::move(builder).build(route);
+        copy_route_wiring(shape, wire);
+        return wire;
     }
 }

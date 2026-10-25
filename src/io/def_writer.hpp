@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdio>
 #include <string>
 #include <vector>
 #include "../database/database.hpp"
@@ -56,7 +57,7 @@ namespace le
         static int write_blockages(const Root &root, LayoutId layout_id);
         static int write_vias(const Root &root, LayoutId layout_id);
         static int write_regions(const Root &root, LayoutId layout_id);
-        static int write_routes(const Root &root, LayoutId layout_id);
+        static int write_routes(FILE *file, const Root &root, LayoutId layout_id);
         static int write_non_default_rules(const Root &root, TechnologyId technology_id);
         // Shared by write_placements' STATUS and write_physical_ports'
         // STATUS (PhysicalPort and PhysicalPortSegment alike) - returns
@@ -69,13 +70,12 @@ namespace le
         // own shape (minus the dbu_per_micron conversion - see above).
         static int write_via_layers(const std::vector<ViaLayerData> &layers);
         // Shared by write_routes (regular/special net paths) - writes one
-        // Route's Wires, then its other Shapes, as a single ROUTED ...
-        // block, each path and via its own LAYER occurrence (DEF's NEW).
-        // DEF's writer API has two entirely separate, same-shaped
-        // function families for this - defwNetPath*/defwSpecialNetPath* -
-        // not one shared family the way defwBlockage*/defwPin* are
-        // reused across kinds elsewhere; is_special picks which.
-        static int write_net_path(const Root &root, RouteId route_id, bool is_special);
+        // Route's Wires, then its other Shapes, one wiring statement per
+        // routing status (each path and via its own LAYER occurrence,
+        // DEF's NEW), then a special net's RECT/POLYGON/VIA statements,
+        // printing into `file` what the defw* API can't. is_special picks
+        // the defwNetPath*/defwSpecialNetPath* family.
+        static int write_net_path(FILE *file, const Root &root, RouteId route_id, bool is_special);
 
         std::vector<std::string> messages_;
     };

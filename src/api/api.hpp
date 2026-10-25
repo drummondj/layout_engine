@@ -975,22 +975,28 @@ extern "C"
     /// directly. A no-op if handle is null.
     void le_set_purpose_selectable(LeHandle *handle, int32_t purpose, int32_t selectable);
 
-    /// @brief A per-value filter under a purpose in the Layers panel: by
-    /// Placement.type (the reference design's Abstract.type, LEF MACRO
-    /// CLASS, under PLACEMENT) or by Route.use (DEF USE, under ROUTE).
-    /// Values are matched case-insensitively; a Placement whose cell has no
-    /// type has the value "UNSET", and a Route with no use is "SIGNAL"
-    /// (DEF's default).
+    /// @brief A per-value filter under a purpose in the Layers panel. Under
+    /// PLACEMENT: by Placement.type (the reference design's Abstract.type,
+    /// LEF MACRO CLASS) or Placement.placement_status (DEF COMPONENTS
+    /// status). Under ROUTE: by Route.use (DEF USE), or by a route Wire's
+    /// or Shape's routing_status (DEF ROUTED/FIXED/COVER/NOSHIELD/SHIELD)
+    /// or route_shape (DEF SPECIALNETS SHAPE). Values are matched
+    /// case-insensitively; a Placement whose cell has no type has the value
+    /// "UNSET", a Route with no use is "SIGNAL" (DEF's default), wiring with
+    /// no status is "ROUTED" and wiring with no SHAPE is "UNSET".
     typedef enum LeObjectFilter
     {
         LE_OBJECT_FILTER_PLACEMENT_TYPE = 0,
         LE_OBJECT_FILTER_ROUTE_USE = 1,
+        LE_OBJECT_FILTER_PLACEMENT_STATUS = 2,
+        LE_OBJECT_FILTER_ROUTING_STATUS = 3,
+        LE_OBJECT_FILTER_ROUTE_SHAPE = 4,
     } LeObjectFilter;
 
     /// @brief How many values `filter` offers: for PLACEMENT_TYPE every
     /// distinct type a Design gives its placements (plus "UNSET" when any
-    /// has none); for ROUTE_USE the DEF USE keywords. 0 for a
-    /// null handle or unknown filter.
+    /// has none); for the others their DEF keywords (plus "UNSET" for
+    /// ROUTE_SHAPE). 0 for a null handle or unknown filter.
     int32_t le_object_filter_value_count(LeHandle *handle, int32_t filter);
 
     /// @brief The `index`th value of `filter`, upper-case, or null if out of
@@ -1001,18 +1007,19 @@ extern "C"
     /// (visible by default). Returns nonzero for a null handle or value.
     int32_t le_is_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value);
 
-    /// @brief Shows or hides every Placement/Route with `value` - its
-    /// outline, label and placed content for a Placement, its shapes and
-    /// vias for a Route. A no-op for a null handle or value.
+    /// @brief Shows or hides every Placement, Route, or route Wire/Shape
+    /// with `value` - its outline, label and placed content for a
+    /// Placement, its shapes and vias for the others. A no-op for a null
+    /// handle or value.
     void le_set_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value, int32_t visible);
 
     /// @brief Nonzero if objects with `value` can be selected (selectable by
     /// default). Returns nonzero for a null handle or value.
     int32_t le_is_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value);
 
-    /// @brief Sets whether every Placement/Route with `value` (and, for a
-    /// Route, its shapes and vias) can be selected. A no-op for a null
-    /// handle or value.
+    /// @brief Sets whether every Placement, Route, or route Wire/Shape with
+    /// `value` (and, for the others, its shapes and vias) can be selected.
+    /// A no-op for a null handle or value.
     void le_set_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value, int32_t selectable);
 
     /// @brief Zoom the viewport, keeping the dbu point under screen pixel

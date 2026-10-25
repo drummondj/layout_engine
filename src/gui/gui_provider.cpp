@@ -125,7 +125,10 @@ namespace le::gui
                                              le_is_object_filter_value_selectable(handle_, filter, value) != 0});
         };
         refresh_filter(LE_OBJECT_FILTER_PLACEMENT_TYPE, state_.layer_manager.placement_types);
+        refresh_filter(LE_OBJECT_FILTER_PLACEMENT_STATUS, state_.layer_manager.placement_statuses);
         refresh_filter(LE_OBJECT_FILTER_ROUTE_USE, state_.layer_manager.route_uses);
+        refresh_filter(LE_OBJECT_FILTER_ROUTING_STATUS, state_.layer_manager.routing_statuses);
+        refresh_filter(LE_OBJECT_FILTER_ROUTE_SHAPE, state_.layer_manager.route_shapes);
     }
 
     LeObjectRef GuiProvider::object_parent(LeObjectRef ref) const
@@ -527,9 +530,22 @@ namespace le::gui
 
     namespace
     {
+        // The <noun> of an LeObjectFilter's set_<noun>_visible/_selectable.
         const char *object_filter_command_noun(int32_t filter)
         {
-            return filter == LE_OBJECT_FILTER_PLACEMENT_TYPE ? "placement_type" : "route_use";
+            switch (filter)
+            {
+            case LE_OBJECT_FILTER_PLACEMENT_TYPE:
+                return "placement_type";
+            case LE_OBJECT_FILTER_PLACEMENT_STATUS:
+                return "placement_status";
+            case LE_OBJECT_FILTER_ROUTING_STATUS:
+                return "routing_status";
+            case LE_OBJECT_FILTER_ROUTE_SHAPE:
+                return "route_shape";
+            default:
+                return "route_use";
+            }
         }
     }
 

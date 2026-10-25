@@ -125,3 +125,45 @@ class TestCompoundCreateField(unittest.TestCase):
             field.create_struct_init_expr(),
             "has_origin ? std::optional<le::Point>(le::Point{.x = origin_x, .y = origin_y}) : std::nullopt",
         )
+
+
+class TestSmallUnsignedCreateFields(unittest.TestCase):
+    """An unsigned char/short create field crosses the C API as an int32_t,
+    range-checked, and narrows back on the way in."""
+
+    def setUp(self):
+        self.klass = Klass(
+            name="Marker",
+            description="",
+            fields=[
+                Field(name="index", description="", type="unsigned char", is_optional=True),
+                Field(name="count", description="", type="unsigned short"),
+            ],
+        )
+        self.schema = Schema(name="t", description="", namespace="t", classes=[self.klass], version="1.0.0")
+        self.schema.link()
+
+    def test_crosses_the_c_api_as_int32(self):
+        field = self.schema.get_field("Marker", "index")
+        self.assertEqual(field.create_c_type(), "int32_t")
+        self.assertEqual(field.root_value_cpp_type(), "unsigned char")
+        self.assertEqual(field.tcl_help_type_label(), "int")
+        self.assertTrue(field.create_needs_has_flag("create"))
+
+    def test_narrows_on_the_way_in(self):
+        self.assertEqual(
+            self.schema.get_field("Marker", "index").create_struct_init_expr(),
+            "has_index ? std::optional<unsigned char>(static_cast<unsigned char>(index)) : std::nullopt",
+        )
+        self.assertEqual(self.schema.get_field("Marker", "count").create_struct_init_expr(), "static_cast<unsigned short>(count)")
+
+    def test_create_and_update_reject_an_out_of_range_value(self):
+        create = self.klass.create_api_body()
+        self.assertIn("if (has_index && (index < 0 || index > 255))", create)
+        self.assertIn("if (count < 0 || count > 65535)", create)
+        update = self.klass.update_api_body()
+        self.assertIn("if (has_index && (index < 0 || index > 255))", update)
+        self.assertIn("if (has_count && (count < 0 || count > 65535))", update)
+
+    def test_unset_default_of_a_multi_word_type_is_a_cast(self):
+        self.assertEqual(self.schema.get_field("Marker", "index")._optional_default_cpp(), "static_cast<unsigned char>(0)")
