@@ -167,3 +167,22 @@ class TestSmallUnsignedCreateFields(unittest.TestCase):
 
     def test_unset_default_of_a_multi_word_type_is_a_cast(self):
         self.assertEqual(self.schema.get_field("Marker", "index")._optional_default_cpp(), "static_cast<unsigned char>(0)")
+
+
+class TestUpdateCheck(unittest.TestCase):
+    """Klass.update_check: the generated edit op asks a hand-written
+    function before changing anything."""
+
+    def test_update_op_calls_the_check_before_updating(self):
+        klass = Klass(name="Marker", description="", update_check="check_marker_update",
+                      fields=[Field(name="size", description="", type="int")])
+        Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
+        body = klass.update_op_body()
+        check = body.index("if (const std::optional<std::string> refused = check_marker_update(before, changes))")
+        self.assertIn("return std::unexpected(*refused);", body)
+        self.assertLess(check, body.index("root.update_marker("))
+
+    def test_no_check_by_default(self):
+        klass = Klass(name="Marker", description="", fields=[Field(name="size", description="", type="int")])
+        Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
+        self.assertNotIn("refused", klass.update_op_body())

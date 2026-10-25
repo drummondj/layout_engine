@@ -75,6 +75,8 @@ namespace le::gui
                 state_.placement_move.snap_available[mode] = le_is_placement_snap_mode_available(handle_, mode) != 0;
             state_.placement_move.orientation_ops_enabled = le_placement_orientation_ops_enabled(handle_);
             state_.placement_move.is_move_anchored = le_is_move_anchored(handle_) != 0;
+            state_.placement_move.all_fixed = le_selected_placements_all_fixed(handle_) != 0;
+            state_.placement_move.locked_count = le_selected_locked_placement_count(handle_);
         }
 
         // Same build-every-frame shape layer_manager.cpp's own local
@@ -384,6 +386,8 @@ namespace le::gui
     void GuiProvider::arm_move() { run_tcl_command("arm_move"); }
     void GuiProvider::arm_resize() { run_tcl_command("arm_resize"); }
     void GuiProvider::delete_selected_pieces() { run_tcl_command("delete_selected_pieces"); }
+
+    void GuiProvider::set_selected_placements_fixed(bool fixed) { run_tcl_command(fixed ? "set_placement_status FIXED" : "set_placement_status PLACED"); }
 
     void GuiProvider::set_shape_snap_mode(int32_t kind, int32_t mode)
     {

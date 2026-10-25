@@ -297,6 +297,11 @@ unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
 
 - `Field.unique_per_parent` (with `index=True`) makes `create_x` fail on a
   sibling name clash (e.g. `Terminal.name` within its Abstract).
+- `Klass.update_check` names a hand-written `le::edit` function
+  (`api/edit_ops.hpp`) the generated `update_<type>` edit op calls first,
+  so Tcl, the C API and extensions share one rule (e.g. Placement's
+  `check_placement_update`: a FIXED/COVER placement keeps its location and
+  orientation until unlocked).
 - A class pair may have several parent/`is_child` relationships;
   `Klass.link()` pairs each `is_child` field with the parent field whose
   `parent=` names it.

@@ -743,7 +743,8 @@ extern "C"
     /// armed (including the re-arm a successful commit itself performs -
     /// see le_mouse_up) is harmless - it just re-snapshots the ghost
     /// preview from the current selection/geometry. Refused (a no-op) when
-    /// the selection mixes Placements with any other kind of object.
+    /// the selection mixes Placements with any other kind of object, or
+    /// has a FIXED or COVER Placement in it.
     void le_arm_move(LeHandle *handle);
 
     /// @brief Deletes every selected shape piece - a rect, polygon, path,
@@ -838,10 +839,20 @@ extern "C"
     /// if handle is null.
     int32_t le_selected_placement_count(LeHandle *handle);
 
+    /// @brief 1 if at least one Placement is selected and every selected
+    /// Placement is FIXED - the GUI's lock button then offers to unlock
+    /// them. 0 otherwise, or if handle is null.
+    int32_t le_selected_placements_all_fixed(LeHandle *handle);
+
+    /// @brief How many selected Placements are FIXED or COVER. Move
+    /// (le_arm_move) refuses while any is selected. 0 if handle is null.
+    int32_t le_selected_locked_placement_count(LeHandle *handle);
+
     /// @brief Which LeOrientationOps le_apply_placement_orientation_op
     /// would accept right now, as a bitmask (1 << op). 0 with no placement
     /// selected, while a Move is under way (anchored by its first click, the
-    /// ghost showing - arming alone doesn't count), or outside a Layout view. Under
+    /// ghost showing - arming alone doesn't count), with a FIXED or COVER
+    /// placement selected, or outside a Layout view. Under
     /// SITE snapping, a CORE cell's op also needs its row's Site SYMMETRY
     /// to permit it (R90: rotate, Y: horizontal flip, X: vertical flip);
     /// every other snap mode leaves all three enabled. 0 if handle is null.
@@ -850,9 +861,10 @@ extern "C"
     /// @brief Rotates (90 degrees counterclockwise, N -> W) or flips
     /// (horizontal: N -> FN, vertical: N -> FS) every selected placement
     /// about its own bbox center, committed immediately as one undoable
-    /// edit. Returns 0 on success, 1 if no placement is selected, 2 if the
-    /// op isn't enabled (le_placement_orientation_ops_enabled), -1 if
-    /// handle is null or `op` is out of range.
+    /// edit. Returns 0 on success, 1 if no placement is selected, 3 if a
+    /// selected placement is FIXED or COVER, 2 if the op isn't otherwise
+    /// enabled (le_placement_orientation_ops_enabled), -1 if handle is null
+    /// or `op` is out of range.
     int32_t le_apply_placement_orientation_op(LeHandle *handle, int32_t op);
 
     /// @brief Which of a Shape's geometry lists a selected piece belongs

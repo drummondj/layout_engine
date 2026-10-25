@@ -462,6 +462,14 @@ class Klass:
     # classes use it so far.
     render: Optional["Render"] = None
 
+    # A hand-written check the generated le::edit::update_<type> runs before
+    # changing anything: the name of a function in le::edit (declared in
+    # api/edit_ops.hpp), std::optional<std::string>(const <Klass>Data
+    # &before, const <Klass>Changes &changes), whose message refuses the
+    # update. So every editing front end (Tcl, the C API, extensions)
+    # shares one rule.
+    update_check: Optional[str] = None
+
     # Stores every list field as a CompactVector (one pointer, nothing
     # allocated when empty) instead of a std::vector (24 bytes empty) - for
     # a class with many objects that each fill few of their lists (Shape).
@@ -1734,6 +1742,9 @@ class Klass:
         for gf in self.get_global_unique_fields():
             add(f"if (changes.{gf.name} && *changes.{gf.name} != before.{gf.name} && root.get_{snake}_by_{gf.name}(*changes.{gf.name}).valid())")
             add(f'    return std::unexpected(fmt::format("a {self.name} with this {gf.name} (\'{{}}\') already exists", *changes.{gf.name}));')
+        if self.update_check:
+            add(f"if (const std::optional<std::string> refused = {self.update_check}(before, changes))")
+            add("    return std::unexpected(*refused);")
 
         call_args = ["id"]
         if single_parent is not None:

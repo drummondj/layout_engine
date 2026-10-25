@@ -183,6 +183,8 @@ namespace le::gui
                     return nullptr;
                 if (state.is_move_anchored)
                     return "not available while moving (Esc to cancel the move)";
+                if (state.locked_count > 0)
+                    return "unlock FIXED or COVER placements first";
                 return "not permitted by the row's site symmetry while snapping to sites";
             };
             row.same_line(16.0f);

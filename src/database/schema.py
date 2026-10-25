@@ -2824,6 +2824,7 @@ schema = Schema(
             name="Placement",
             tcl_category="Layout",
             description="A placed physical instance (DEF COMPONENTS).",
+            update_check="check_placement_update",
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="placements"),
                 Field(name="name", description="The name of the instance - unique within its layout", type="str", example="U1", index=True, unique_per_parent=True),

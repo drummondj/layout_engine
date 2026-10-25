@@ -106,11 +106,15 @@ namespace le::gui
             // le_arm_move refuses placements selected alongside anything
             // else - they snap differently.
             const int32_t placement_count = provider.state().placement_move.selected_count;
+            // le_arm_move also refuses FIXED and COVER placements.
             const bool mixed_selection = placement_count > 0 && provider.state().status_bar.selection_count > placement_count;
+            const bool locked = placement_count > 0 && provider.state().placement_move.locked_count > 0;
             draw_tool_button(ICON_LC_MOVE, "Move", "ctrl-m", provider.state().is_move_armed, move_state,
                              [&]
                              { provider.arm_move(); },
-                             mixed_selection ? "Not available with placements and other objects selected together" : nullptr);
+                             mixed_selection ? "Not available with placements and other objects selected together"
+                             : locked        ? "Unlock FIXED or COVER placements first"
+                                             : nullptr);
             ImGui::SameLine();
             // Resize: click an edge of a selected shape, then click again
             // to place it; its snap options appear in the secondary
@@ -129,6 +133,17 @@ namespace le::gui
             if (draw_button(ICON_LC_TRASH_2, "Delete", "Del",
                             provider.state().selected_shape_piece_count == 0 ? "Select shape parts to delete first" : nullptr))
                 provider.delete_selected_pieces();
+
+            // Lock: fixes the selected placements in place; once every one
+            // is FIXED it becomes Unlock, which makes them PLACED again.
+            // Disabled while a Move is under way.
+            ImGui::SameLine();
+            const bool all_fixed = placement_count > 0 && provider.state().placement_move.all_fixed;
+            if (draw_button(all_fixed ? ICON_LC_LOCK_OPEN : ICON_LC_LOCK, all_fixed ? "Unlock" : "Lock", nullptr,
+                            placement_count == 0                             ? "Select placements to lock or unlock first"
+                            : provider.state().placement_move.is_move_anchored ? "Not available while moving (Esc to cancel the move)"
+                                                                               : nullptr))
+                provider.set_selected_placements_fixed(!all_fixed);
 
             // No Rotate/Align buttons until those features exist.
             ImGui::SameLine();
