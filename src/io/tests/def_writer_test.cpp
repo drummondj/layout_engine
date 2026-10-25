@@ -688,9 +688,7 @@ namespace le
 
         // Every path, via, rect and polygon of every route, with its
         // wiring, sorted per route - Wires and Shapes alike, so the
-        // comparison doesn't depend on which one holds a piece. A via's
-        // layer is left out: a special net's oriented via is written as a
-        // "+ VIA" statement, which is read onto the via's own routing layer.
+        // comparison doesn't depend on which one holds a piece.
         std::map<std::string, std::vector<std::string>> describe_route_pieces(const Root &root, LayoutId layout_id)
         {
             std::map<std::string, std::vector<std::string>> routes;
@@ -710,12 +708,11 @@ namespace le
                         out.push_back(text);
                     }
                     for (const ShapeVia &via : shape.vias)
-                        out.push_back(fmt::format("via {} {} ({} {}) {} {}", wiring, via.via_name, via.origin.x, via.origin.y,
+                        out.push_back(fmt::format("via {} {} {} ({} {}) {} {}", wiring, layer, via.via_name, via.origin.x, via.origin.y,
                                                   via.orientation ? to_string(*via.orientation) : "N", via.mask.value_or(0)));
-                    // No orientation: the vendored writer has no oriented
-                    // special-net path via, and "+ VIA" can't hold an array.
                     for (const ShapeViaIterate &via : shape.via_iterates)
-                        out.push_back(fmt::format("via array {} {} ({} {}) {}x{}", wiring, via.via_name, via.origin.x, via.origin.y, via.num_x, via.num_y));
+                        out.push_back(fmt::format("via array {} {} {} ({} {}) {} {}x{}", wiring, layer, via.via_name, via.origin.x, via.origin.y,
+                                                  via.orientation ? to_string(*via.orientation) : "N", via.num_x, via.num_y));
                     for (std::size_t i = 0; i < shape.rects.size(); ++i)
                         out.push_back(fmt::format("rect {} {} ({} {}) ({} {}) mask {}", wiring, layer, shape.rects[i].ll.x, shape.rects[i].ll.y,
                                                   shape.rects[i].ur.x, shape.rects[i].ur.y, i < shape.rect_masks.size() ? shape.rect_masks[i] : 0));
@@ -759,8 +756,9 @@ namespace le
 
 namespace le
 {
-    // The same for a fixture with real vias: oriented "+ VIA" statements,
-    // a "+ VIA" with a SHAPE, NOSHIELD and SHIELD.
+    // The same for a fixture with real vias: oriented "+ VIA" statements
+    // (written back as path vias), a "+ VIA" with a SHAPE, NOSHIELD and
+    // SHIELD.
     TEST(DEFWriterRouteWiring, RouteWiringFixtureRoundTrips)
     {
         auto read = [](Root &root, const std::string &path) -> LayoutId

@@ -304,26 +304,22 @@ Found implementing `DEFWriter` (`src/io/def_writer.cpp`/`.hpp`) against
   `messages_` to push a real warning to — matches `write_tracks`' own
   silent-skip precedent for its analogous LAYER-less-Track gap).
 
-- **`defwSpecialNetRect`/`defwSpecialNetPolygon`/`defwSpecialNetVia*`**
-  print only their own `+ RECT`/`+ POLYGON`/`+ VIA` keyword. DEF 5.8 lets
-  each be preceded by a routing status, a shielded net and a SHAPE
-  (`+ FIXED + SHAPE RING + MASK 2 + RECT M3 ...`, as in
-  `complete.5.8.def`), but no `defw*` call writes that prefix in this
-  state (`defwSpecialNetPathStart`/`defwSpecialNetPathShape` need a path).
-  `DEFWriter::write_net_path` prints the prefix itself into the same
-  `FILE*` it gave `defwInitCbk`, right before the `defw*` call
+- **`defwSpecialNetRect`/`defwSpecialNetPolygon`** print only their own
+  `+ RECT`/`+ POLYGON` keyword. DEF 5.8 lets each be preceded by a routing
+  status, a shielded net and a SHAPE (`+ FIXED + SHAPE RING + MASK 2 +
+  RECT M3 ...`, as in `complete.5.8.def`), but no `defw*` call writes that
+  prefix in this state (`defwSpecialNetPathStart`/`defwSpecialNetPathShape`
+  need a path). `DEFWriter::write_net_path` prints the prefix itself into
+  the same `FILE*` it gave `defwInitCbk`, right before the `defw*` call
   (`defwSpecialNetMask` still writes the `+ MASK`).
-- **`defwSpecialNetViaWithOrient`** ends on the orientation with no
-  trailing space, and `defwSpecialNetViaPoints` starts with `(`, so the
-  pair writes `FS( 500 500 )`, which the reader lexes as one token and
-  rejects. `DEFWriter::write_net_path` writes a space between them.
-- **No oriented special-net path via**: `defwSpecialNetPathVia` has no
-  orientation form (only regular NETS' `defwNetPathViaWithOrient*` do).
-  A special net's via with an orientation is written as a `+ VIA name
-  orient ( x y )` statement instead, which the reader stores on the via's
-  first routing layer. A via array (`DO n BY m`) can't be a `+ VIA`
-  statement, so a special net's oriented via array still loses its
-  orientation.
+- **`defwSpecialNetPathVia`** has no orientation form (only regular NETS'
+  `defwNetPathViaWithOrient*` do), though DEF allows `M1_M2 FN` in a
+  special-net path, and `M1_M2 FN DO 2 BY 2 STEP ...` for an array
+  (`complete.5.8.def`). It prints just ` <name>` and leaves the writer in
+  the path, so `DEFWriter::write_net_path` prints ` <orient>` into the
+  same `FILE*` right after it, before any `defwSpecialNetPathViaData`.
+  SPECIALNETS `+ VIA name orient pt ...` statements are written back this
+  way too, as path vias.
 
 ## Naming quirk (not a functional bug)
 
