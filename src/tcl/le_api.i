@@ -136,6 +136,7 @@ int get_mode_cmd();
 void clear_rulers_cmd();
 void deselect_all_cmd();
 void arm_move_cmd();
+int selected_locked_placement_count_cmd();
 int delete_selected_pieces_cmd();
 void set_placement_snap_mode_cmd(int mode);
 int get_placement_snap_mode_cmd();

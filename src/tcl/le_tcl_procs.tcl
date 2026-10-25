@@ -1320,12 +1320,15 @@ proc arm_move {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "arm_move \[-help\] - Arms Move for the current selection"
     }
+    if {[selected_locked_placement_count_cmd] > 0} {
+        error "arm_move: FIXED or COVER placements are selected - unlock them first (set_placement_status PLACED)"
+    }
     arm_move_cmd
     return ""
 }
 register_command_help arm_move \
     "arm_move \[-help\]" \
-    "Arms the Move tool, as Ctrl-M does in the GUI: click to set the start point, move the mouse, and click again to move the selection. Stays armed for another move until Escape. Edit mode only, with something selected; refused when placements are selected together with other objects." \
+    "Arms the Move tool, as Ctrl-M does in the GUI: click to set the start point, move the mouse, and click again to move the selection. Stays armed for another move until Escape. Edit mode only, with something selected; refused when placements are selected together with other objects, and an error when a FIXED or COVER placement is selected." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

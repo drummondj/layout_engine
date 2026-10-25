@@ -2829,7 +2829,7 @@ Writes an empty Verilog module for every design in -library (or the only library
 
 `arm_move [-help]`
 
-Arms the Move tool, as Ctrl-M does in the GUI: click to set the start point, move the mouse, and click again to move the selection. Stays armed for another move until Escape. Edit mode only, with something selected; refused when placements are selected together with other objects.
+Arms the Move tool, as Ctrl-M does in the GUI: click to set the start point, move the mouse, and click again to move the selection. Stays armed for another move until Escape. Edit mode only, with something selected; refused when placements are selected together with other objects, and an error when a FIXED or COVER placement is selected.
 
 ### arm_resize
 

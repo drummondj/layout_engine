@@ -350,6 +350,10 @@ void deselect_all_cmd();
 /// directly.
 void arm_move_cmd();
 
+/// @brief How many selected placements are FIXED or COVER - mirrors
+/// le_selected_locked_placement_count.
+int selected_locked_placement_count_cmd();
+
 /// @brief Backing for the `delete_selected_pieces` Tcl command - mirrors
 /// le_delete_selected_pieces directly (returns how many were deleted).
 int delete_selected_pieces_cmd();

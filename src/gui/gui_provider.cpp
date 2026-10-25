@@ -76,6 +76,7 @@ namespace le::gui
             state_.placement_move.orientation_ops_enabled = le_placement_orientation_ops_enabled(handle_);
             state_.placement_move.is_move_anchored = le_is_move_anchored(handle_) != 0;
             state_.placement_move.all_fixed = le_selected_placements_all_fixed(handle_) != 0;
+            state_.placement_move.locked_count = le_selected_locked_placement_count(handle_);
         }
 
         // Same build-every-frame shape layer_manager.cpp's own local

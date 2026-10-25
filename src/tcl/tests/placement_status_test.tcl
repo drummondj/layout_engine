@@ -45,4 +45,12 @@ check "U2 placed" PLACED [get_properties $u2 .placement_status]
 check "U1 left alone" FIXED [get_properties $u1 .placement_status]
 check "a list of placements" 2 [set_placement_status PLACED [list $u1 $u2]]
 
+set_mode edit
+select $u1
+set_placement_status FIXED
+check "arm_move refuses a FIXED placement" 1 [catch {arm_move} err]
+check "...saying why" 1 [string match "*unlock them first*" $err]
+set_placement_status PLACED
+check "arm_move accepts it once unlocked" 0 [catch {arm_move}]
+
 puts "PASS"

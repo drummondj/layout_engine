@@ -5214,16 +5214,25 @@ TEST_F(ApiFixture, MovingAnUnplacedPlacementPlacesItUndoablyAndShowsPlacedPlacem
     EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 0}");
 }
 
-TEST_F(ApiFixture, MovingAFixedPlacementKeepsItFixed)
+TEST_F(ApiFixture, FixedAndCoverPlacementsCannotBeMoved)
 {
     const LePlacementId placement_id = select_placement_between_two_rows(handle, fixture_path("testcell.lef"), 0, 0, /*sym_y=*/1);
-    set_status(handle, placement_id, "FIXED");
+    EXPECT_EQ(le_selected_locked_placement_count(nullptr), 0);
+    EXPECT_EQ(le_selected_locked_placement_count(handle), 0);
+    for (const char *status : {"FIXED", "COVER"})
+    {
+        set_status(handle, placement_id, status);
+        EXPECT_EQ(le_selected_locked_placement_count(handle), 1) << status;
+        le_arm_move(handle);
+        EXPECT_EQ(le_is_move_armed(handle), 0) << status;
+        click_at(handle, 15, 85);
+        click_at(handle, 15, 36);
+        EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 0}") << status;
+    }
 
+    set_status(handle, placement_id, "PLACED");
     le_arm_move(handle);
-    click_at(handle, 15, 85);
-    click_at(handle, 15, 36);
-    EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 10}");
-    EXPECT_EQ(placement_property(handle, placement_id, ".placement_status"), "FIXED");
+    EXPECT_NE(le_is_move_armed(handle), 0);
 }
 
 TEST_F(ApiFixture, SelectedPlacementsAreAllFixedOnlyWhenEveryOneIs)

@@ -952,6 +952,11 @@ void arm_move_cmd()
     le_arm_move(session());
 }
 
+int selected_locked_placement_count_cmd()
+{
+    return le_selected_locked_placement_count(session());
+}
+
 int delete_selected_pieces_cmd()
 {
     return le_delete_selected_pieces(session());

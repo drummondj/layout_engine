@@ -133,7 +133,8 @@ namespace le::gui
                 bool snap_available[4] = {true, false, false, false};
                 int32_t orientation_ops_enabled = 0;
                 bool is_move_anchored = false;
-                bool all_fixed = false; // every selected placement is FIXED
+                bool all_fixed = false;   // every selected placement is FIXED
+                int32_t locked_count = 0; // selected FIXED/COVER placements, which Move refuses
             } placement_move;
 
             // secondary_toolbar.cpp's resize toolbar - shown while Resize

@@ -2114,6 +2114,18 @@ namespace
     // Move moves exactly whichever
     // pieces are selected, not necessarily every piece of their owning
     // Shapes.
+    // How many selected placements are FIXED or COVER - placements Move
+    // leaves alone.
+    int32_t locked_placement_count_unlocked(const LeHandle *handle)
+    {
+        return static_cast<int32_t>(std::ranges::count_if(selected_placements_unlocked(handle), [&](le::PlacementId id)
+                                                          {
+                                                              const le::PlacementData *placement = handle->root.get_placement(id);
+                                                              return placement && (placement->placement_status == le::PlacementStatus::FIXED ||
+                                                                                   placement->placement_status == le::PlacementStatus::COVER);
+                                                          }));
+    }
+
     void arm_move_unlocked(LeHandle *handle)
     {
         if (handle->mode() != LeHandle::Mode::EDIT)
@@ -2126,6 +2138,9 @@ namespace
         const auto is_placement = [](const LeHandle::SelectedObject &s)
         { return std::holds_alternative<le::PlacementId>(s); };
         if (std::ranges::any_of(selection, is_placement) && !std::ranges::all_of(selection, is_placement))
+            return;
+        // FIXED and COVER placements stay where they are until unlocked.
+        if (locked_placement_count_unlocked(handle) > 0)
             return;
 
         std::vector<le::ShapeData> geometry;
@@ -4314,6 +4329,14 @@ extern "C"
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(selected_placements_unlocked(handle).size());
+    }
+
+    int32_t le_selected_locked_placement_count(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return locked_placement_count_unlocked(handle);
     }
 
     int32_t le_selected_placements_all_fixed(LeHandle *handle)

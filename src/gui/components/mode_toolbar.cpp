@@ -106,11 +106,15 @@ namespace le::gui
             // le_arm_move refuses placements selected alongside anything
             // else - they snap differently.
             const int32_t placement_count = provider.state().placement_move.selected_count;
+            // le_arm_move also refuses FIXED and COVER placements.
             const bool mixed_selection = placement_count > 0 && provider.state().status_bar.selection_count > placement_count;
+            const bool locked = placement_count > 0 && provider.state().placement_move.locked_count > 0;
             draw_tool_button(ICON_LC_MOVE, "Move", "ctrl-m", provider.state().is_move_armed, move_state,
                              [&]
                              { provider.arm_move(); },
-                             mixed_selection ? "Not available with placements and other objects selected together" : nullptr);
+                             mixed_selection ? "Not available with placements and other objects selected together"
+                             : locked        ? "Unlock FIXED or COVER placements first"
+                                             : nullptr);
             ImGui::SameLine();
             // Resize: click an edge of a selected shape, then click again
             // to place it; its snap options appear in the secondary
