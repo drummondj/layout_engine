@@ -340,6 +340,45 @@ extension, so a global would exist twice and the two copies would diverge.
 State is per extension and per type: `data<State>()` in `my_ext` and in
 `other_ext` are different objects.
 
+### Being told when the database changes
+
+Register a mutation listener to hear about every change to the database,
+whoever made it (a Tcl command, a GUI edit, another extension, undo):
+
+```cpp
+void on_mutation(le::ext::ExtensionContext &ctx, const le::ext::MutationEvent &event)
+{
+    if (event.everything)
+        return rebuild_everything(ctx); // a file read, link, or a very large edit
+    for (const le::ChangeLogEntry &change : event.changes)
+        if (change.klass == le::ChangeKlass::Route)
+            ctx.data<State>().stale_routes.insert(change.index);
+}
+
+void le_ext_my_ext_register(le::ext::Registry &registry)
+{
+    registry.add_mutation_listener(&on_mutation);
+}
+```
+
+- **When it's called:** after a change's lock is released, once per typed
+  Tcl command (when it ends), GUI edit, `WriteView`, or other C API call.
+  It runs on the thread that made the change, with no lock held, so it may
+  `read()`, `write()` and call `le_*`. Changes that don't touch the database
+  (selection, the view, visibility) aren't reported.
+- **What it gets:** `event.changes` lists each create, update and delete in
+  order, as `le::ChangeLogEntry`: the class (`klass`), what happened (`op`),
+  the object's `index`/`generation`, and its owner at the time (`parent`).
+  A deleted object no longer exists by the time you're called. When
+  `event.everything` is set, the list is empty; treat everything as changed.
+- **Your own edits:** changes you (or another listener) make during the
+  call aren't reported back to listeners, so updating your own classes in
+  response doesn't loop. A change another thread makes meanwhile comes in a
+  following call.
+- **Edits through a mutable `Root` pointer:** these are reported only if
+  you call `root.note_<type>_changed(id)`; the generated
+  `create_`/`update_`/`delete_` calls always are.
+
 ## Database classes
 
 `schema_ext.py` adds classes to Layout Engine's database. They become
@@ -743,6 +782,8 @@ The first version.
   `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,
   `GuiKeyBinding`, `ExtGuiContext` (with `font`), `register_all_gui()`.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
+- Mutation listeners: `Registry::add_mutation_listener`, `MutationEvent`
+  (added in 0.3, without a version bump: it can't break an extension).
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
 - Rendering: `Render(purpose=Purpose(...), tiled=..., per_layer=..., label_field=..., outline_color=..., fill_color=..., fill_pattern=...)` on a class.

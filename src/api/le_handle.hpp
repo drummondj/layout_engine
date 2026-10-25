@@ -29,6 +29,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
@@ -151,6 +152,33 @@ struct LeHandle
     // every extension. Its own mutex, so a lookup never waits on a render.
     std::mutex extension_data_mutex;
     std::unordered_map<std::string, std::shared_ptr<void>> extension_data;
+
+    // Extensions' mutation listeners (le::ext::Registry::
+    // add_mutation_listener), called by dispatch_mutation_listeners after a
+    // write lock is released. One thread dispatches at a time (`mutex`, on
+    // `thread`); another thread's change meanwhile sets `pending`, which
+    // the dispatching thread loops on. `delivered` is the change-log
+    // sequence listeners have been told up to (under `mutex`);
+    // `own_changes` the [begin, end) sequences listeners made themselves,
+    // left out of the next event (under mutex_).
+    struct MutationDispatch
+    {
+        std::mutex mutex;
+        std::atomic<bool> pending{false};
+        std::atomic<std::thread::id> thread{};
+        uint64_t delivered = 0;
+        std::vector<std::pair<uint64_t, uint64_t>> own_changes;
+    } mutation_dispatch;
+
+    // Called under mutex_ as a write lock ends: the change-log sequences
+    // from `begin` on were made on this thread, so if a listener is being
+    // called on it they are that listener's own.
+    void note_write_finished(uint64_t begin)
+    {
+        const uint64_t end = root.change_log().end_sequence();
+        if (end != begin && mutation_dispatch.thread.load(std::memory_order_relaxed) == std::this_thread::get_id())
+            mutation_dispatch.own_changes.emplace_back(begin, end);
+    }
 
     // Whether le_render_pixel_buffer is currently doing real work on this
     // handle, for a caller (the GUI's "rendering..." indicator) that
@@ -1805,11 +1833,30 @@ struct LeHandle
 // same call-site shape as the std::unique_lock it replaces, so the bulk
 // conversion across api.cpp (and the codegen fork's own generated
 // create/update/delete bodies, schema.py) is a pure find-and-replace.
+// Tells extensions' mutation listeners what changed since they were last
+// called, if anything did. Call with no lock on `handle` held. Defined in
+// extension.cpp.
+void dispatch_mutation_listeners(LeHandle *handle);
+
 class HandleWriteLock
 {
 public:
-    explicit HandleWriteLock(LeHandle *handle) : handle_(handle), lock_(handle->mutex_) {}
-    ~HandleWriteLock() { handle_->notify_render_needed(); }
+    explicit HandleWriteLock(LeHandle *handle)
+        : handle_(handle), lock_(handle->mutex_), begin_(handle->root.change_log().end_sequence())
+    {
+    }
+
+    // Listeners hear about a typed command's changes once, when it ends
+    // (le_begin_command holds renders until then).
+    ~HandleWriteLock()
+    {
+        handle_->note_write_finished(begin_);
+        const bool deliver = !handle_->renders_held();
+        lock_.unlock();
+        handle_->notify_render_needed();
+        if (deliver)
+            dispatch_mutation_listeners(handle_);
+    }
 
     HandleWriteLock(const HandleWriteLock &) = delete;
     HandleWriteLock &operator=(const HandleWriteLock &) = delete;
@@ -1817,4 +1864,5 @@ public:
 private:
     LeHandle *handle_;
     std::unique_lock<std::shared_mutex> lock_;
+    uint64_t begin_;
 };
