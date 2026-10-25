@@ -5,7 +5,6 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
-#include <array>
 #include <memory>
 #include <cstdio>
 
@@ -761,10 +760,18 @@ namespace le
             return Wiring{.status = le::to_string(status)};
         };
 
-        // A special-net via with an orientation is a "+ VIA name orient"
-        // statement - the path form has no orientation there.
-        auto is_via_statement = [&](const ShapeVia &via)
-        { return is_special && via.orientation && *via.orientation != Orientation::N; };
+        // A special-net path via: "name [orient]". DEF allows the
+        // orientation (and a DO ... BY ... STEP array after it), but
+        // defwSpecialNetPathVia has no orientation form, so it's printed
+        // here, into the same FILE, between that call and
+        // defwSpecialNetPathViaData.
+        auto special_path_via = [&](const std::string &name, const std::optional<Orientation> &orientation) -> int
+        {
+            const int status = defwSpecialNetPathVia(name.c_str());
+            if (status == 0 && orientation)
+                std::fprintf(file, " %s", le::to_string(*orientation).c_str());
+            return status;
+        };
 
         std::vector<std::pair<Wiring, std::vector<const ShapeData *>>> statements;
         for (const ShapeData *shape : shapes)
@@ -854,8 +861,6 @@ namespace le
                 // defwLineItemCounter) is called directly after every via.
                 for (const ShapeVia &via : shape->vias)
                 {
-                    if (is_via_statement(via))
-                        continue;
                     if ((status = start(layer_name, *shape)) || (status = special_width_and_shape(via.width.value_or(0), *shape)))
                         return status;
 
@@ -866,7 +871,7 @@ namespace le
                         return status;
 
                     if (is_special)
-                        status = defwSpecialNetPathVia(via.via_name.c_str());
+                        status = special_path_via(via.via_name, via.orientation);
                     else
                         status = via.orientation
                                      ? defwNetPathViaWithOrientStr(via.via_name.c_str(), le::to_string(*via.orientation).c_str())
@@ -894,7 +899,7 @@ namespace le
                     double y = as_dbu(via_iterate.origin.y);
                     if ((status = defwSpecialNetPathPoint(1, &x, &y)))
                         return status;
-                    if ((status = defwSpecialNetPathVia(via_iterate.via_name.c_str())))
+                    if ((status = special_path_via(via_iterate.via_name, via_iterate.orientation)))
                         return status;
                     status = defwSpecialNetPathViaData(via_iterate.num_x, via_iterate.num_y,
                                                         static_cast<int>(as_dbu(via_iterate.space_x)), static_cast<int>(as_dbu(via_iterate.space_y)));
@@ -912,10 +917,11 @@ namespace le
         if (!is_special)
             return 0;
 
-        // SPECIALNETS "+ RECT", "+ POLYGON" and oriented "+ VIA"
-        // statements. defwSpecialNetRect/Polygon/Via print only their own
-        // keyword, with no call for a status, shield or SHAPE before it,
-        // so that prefix is printed here, into the same FILE.
+        // SPECIALNETS "+ RECT" and "+ POLYGON" statements (its "+ VIA"
+        // statements are written as path vias, above).
+        // defwSpecialNetRect/Polygon print only their own keyword, with no
+        // call for a status, shield or SHAPE before it, so that prefix is
+        // printed here, into the same FILE.
         for (const ShapeData *shape : shapes)
         {
             const LayerData *layer = root.get_layer(shape->layer);
@@ -949,22 +955,6 @@ namespace le
                 }
                 if ((status = prefix(i < shape->polygon_masks.size() ? shape->polygon_masks[i] : 0)) ||
                     (status = defwSpecialNetPolygon(layer_name.c_str(), static_cast<int>(xs.size()), xs.data(), ys.data())))
-                    return status;
-            }
-            for (const ShapeVia &via : shape->vias)
-            {
-                if (!is_via_statement(via))
-                    continue;
-                static constexpr std::array<Orientation, 8> kDefOrientations{
-                    Orientation::N, Orientation::W, Orientation::S, Orientation::E, Orientation::FN, Orientation::FW, Orientation::FS, Orientation::FE};
-                const auto orient = std::ranges::find(kDefOrientations, *via.orientation);
-                double x = as_dbu(via.origin.x);
-                double y = as_dbu(via.origin.y);
-                if ((status = prefix(via.mask.value_or(0))) ||
-                    (status = defwSpecialNetViaWithOrient(via.via_name.c_str(), static_cast<int>(orient - kDefOrientations.begin()))))
-                    return status;
-                std::fputc(' ', file); // defwSpecialNetViaWithOrient ends on the orientation, and "FS(" lexes as one token
-                if ((status = defwSpecialNetViaPoints(1, &x, &y)))
                     return status;
             }
         }
