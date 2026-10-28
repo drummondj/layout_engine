@@ -73,27 +73,32 @@
 // correctly waits for an in-progress render to finish rather than racing
 // it.
 //
-// A handful of functions look read-only but secretly rebuild a lazily-
-// cached value on the handle (ensure_view_layers_current()'s own
-// view_layers rebuild, used by le_layer_count/_at/le_purpose_count/_at;
-// the single-slot cached_object_properties used by
-// le_object_property_count/_at) - these use a double-checked pattern
-// (check under a shared lock first, only escalate to a brief unique_lock
-// to actually rebuild when the cache is genuinely stale, which only
-// happens right after a real edit, not during a steady render) rather
-// than a blanket unique_lock, so they stay on the fast, concurrent-safe
-// path in the common case - see each one's own comment in api.cpp.
-// generated/api/search.inc's own get_<type>/search_result_<type>_at pair
-// is a *third*, different shape of hazard - it unconditionally rewrites a
-// shared per-class search-result cache on every call, by design (a fresh
-// query, not a staleness check), so it can't be made shared-lock-safe the
-// same way; those functions still take a unique_lock deliberately.
+// ensure_view_layers_current() looks read-only but rebuilds view_layers
+// when it is stale (le_layer_count/_at, le_purpose_count/_at): it checks
+// under a shared lock first and escalates to a brief unique_lock only
+// right after a real edit. Other read-only functions that cache (property
+// tables, token paths) keep the cache per calling thread, so they never
+// write the handle. generated/api/search.inc's get_<type>/
+// search_result_<type>_at pair rewrites a per-class search-result cache on
+// every call, so those take a unique_lock.
+//
+// A returned `const char*` is copied under the lock into storage owned by
+// the returning function and the calling thread, so it stays valid after
+// the lock is released, until that function's next call on that thread.
 //
 // See every exported function's own std::shared_lock/std::unique_lock for
 // the actual enforcement; see le_destroy's doc comment in api.hpp for the
 // one function that can't be covered by the handle's own mutex.
 struct LeHandle
 {
+    // Unique per LeHandle in this process, so a thread-local cache keyed
+    // by it can't mistake a new handle at a freed one's address for it.
+    const uint64_t serial = []
+    {
+        static std::atomic<uint64_t> next{0};
+        return ++next;
+    }();
+
     le::Root root;
     le::ViewLayerSet view_layers;
 
@@ -358,45 +363,6 @@ struct LeHandle
     // popped only a few times a second at most).
     std::mutex pending_tcl_commands_mutex_;
     std::deque<std::string> pending_tcl_commands_;
-    // Backing storage for le_take_next_pending_tcl_command()'s own
-    // returned pointer - the popped std::string itself would otherwise
-    // be destroyed the moment it's removed from pending_tcl_commands_
-    // above, before the caller ever reads through the pointer.
-    std::string last_popped_tcl_command_;
-
-    // Single-slot cache backing le_object_property_count/le_object_
-    // property_at - rebuilt whenever a different LeObjectRef is
-    // requested. le::PropertyValue (generated/property.hpp) doubles as
-    // LeProperty's string-owning backing store directly - no separate
-    // wrapper type needed, its shape already matches LeProperty
-    // field-for-field.
-    LeObjectRef cached_object_property_ref{.kind = -1, .index = UINT32_MAX, .generation = 0};
-    std::vector<le::PropertyValue> cached_object_properties;
-
-    // Backs every le_X_property_path function (get_properties dot-path
-    // lookups). le::PropertyValue owns its own
-    // std::string storage, and the LeProperty handed back to the caller
-    // is just raw c_str() pointers into that storage (same convention as
-    // every to_c(PropertyValue) call in this file) - those pointers must
-    // point somewhere that outlives the function call, not a local
-    // std::optional<PropertyValue>/vector that gets destroyed the moment
-    // le_X_property_path returns. This single slot is that backing
-    // store, "valid until the next call" like every other single-slot
-    // cache above. (A short, small-string-optimized value can appear to
-    // survive in a freed local by luck; a longer heap-allocated one comes
-    // back corrupted.)
-    le::PropertyValue cached_property_path_value;
-
-    // Set by every le_X_property_path function right before it logs a
-    // parse/validation error via spdlog::error (a malformed path or an
-    // unrecognized field/hop), reset to false at the top of the next
-    // such call - an errno-style single-flag signal, not a message
-    // queue, so get_properties (le_tcl_procs.tcl) can still tell "this
-    // path was genuinely invalid" apart from "structurally valid, just
-    // resolves to nothing" (e.g. a list hop with zero elements) even
-    // though both cases return the same all-null LeProperty - see
-    // le_property_path_failed's own api.hpp comment.
-    bool last_property_path_failed = false;
 
     // === Per-handle view/interaction state ===
     //
@@ -1810,15 +1776,6 @@ struct LeHandle
         // generated search-result caches below.
         std::vector<le::ShapeId> shape_op_results;
 
-        // For le_<type>_token_name: the escaped Instance path from
-        // token_paths_root (current_schematic_id when built) to every
-        // Schematic below it, rebuilt when that or the database changes;
-        // and the last name returned.
-        std::unordered_map<le::SchematicId, std::string> token_paths;
-        le::SchematicId token_paths_root{};
-        uint64_t token_paths_change_log = UINT64_MAX;
-        uint64_t token_paths_mutation_version = UINT64_MAX;
-        std::string token_name;
 
         // Generated TCL property-reading cache - one cached_X_property_id/
         // cached_X_properties pair per TCL-readable class not already covered

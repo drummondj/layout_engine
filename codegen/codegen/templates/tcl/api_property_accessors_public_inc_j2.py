@@ -44,7 +44,7 @@ const char *le_{{klass.to_snake_case()}}_{{id_field.name}}_by_id(LeHandle *handl
     std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
     const le::{{klass.name}}Data *data = handle->root.get_{{klass.to_snake_case()}}(from_c(id));
-    return data ? data->{{id_field.name}}.c_str() : nullptr;
+    return data ? hold_string(__func__, data->{{id_field.name}}) : nullptr;
 }
 {% endif -%}
 {% endfor %}
@@ -55,58 +55,32 @@ int32_t le_{{klass.to_snake_case()}}_property_count(LeHandle *handle, Le{{klass.
 {
     if (!handle)
         return 0;
-    // Unique (writer) - unconditionally rewrites the cache below on
-    // every call, not just when `id` changes (unlike le_{{klass.to_snake_case()}}_property_at's
-    // own staleness check just below) - not on any per-frame GUI path
-    // today (le_object_property_count/_at, the handle-generic siblings
-    // of these two, are what the GUI actually calls - api.cpp), so left
-    // as a plain unique_lock rather than given the same double-checked
-    // treatment those two got. See le_handle.hpp's own mutex_ doc comment.
-    HandleWriteLock lock(handle);
-
-    const le::{{klass.name}}Id typed_id = from_c(id);
-    handle->cached_{{klass.to_snake_case()}}_properties = build_{{klass.to_snake_case()}}_properties(handle->root, typed_id);
-    handle->cached_{{klass.to_snake_case()}}_property_id = typed_id;
-    return static_cast<int32_t>(handle->cached_{{klass.to_snake_case()}}_properties.size());
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+    return static_cast<int32_t>(thread_properties(*handle, from_c(id), build_{{klass.to_snake_case()}}_properties).size());
 }
 
 LeProperty le_{{klass.to_snake_case()}}_property_at(LeHandle *handle, Le{{klass.name}}Id id, int32_t index)
 {
-    const LeProperty invalid{.name = nullptr, .type = LE_PROPERTY_TYPE_STRING, .string_value = nullptr, .int_value = 0, .double_value = 0.0};
-    if (!handle || index < 0)
-        return invalid;
-    // Unique (writer) - le_{{klass.to_snake_case()}}_property_count's own comment above (this one
-    // only sometimes writes, but not on any per-frame GUI path either).
-    HandleWriteLock lock(handle);
-
-    const le::{{klass.name}}Id typed_id = from_c(id);
-    if (handle->cached_{{klass.to_snake_case()}}_property_id != typed_id)
-    {
-        handle->cached_{{klass.to_snake_case()}}_properties = build_{{klass.to_snake_case()}}_properties(handle->root, typed_id);
-        handle->cached_{{klass.to_snake_case()}}_property_id = typed_id;
-    }
-
-    if (static_cast<size_t>(index) >= handle->cached_{{klass.to_snake_case()}}_properties.size())
-        return invalid;
-    return to_c(handle->cached_{{klass.to_snake_case()}}_properties[static_cast<size_t>(index)]);
+    if (!handle)
+        return invalid_property();
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+    return property_row(thread_properties(*handle, from_c(id), build_{{klass.to_snake_case()}}_properties), index);
 }
 
 LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klass.name}}Id id, const char *path)
 {
-    const LeProperty invalid{.name = nullptr, .type = LE_PROPERTY_TYPE_STRING, .string_value = nullptr, .int_value = 0, .double_value = 0.0};
+    const LeProperty invalid = invalid_property();
     if (!handle || !path)
         return invalid;
-    // Unique (writer) - always writes handle->last_property_path_failed/
-    // cached_property_path_value. See le_handle.hpp's own mutex_ doc
-    // comment.
-    HandleWriteLock lock(handle);
-    handle->last_property_path_failed = false;
+    std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+    ThreadResults &results = thread_results();
+    results.property_path_failed = false;
 
     auto parsed = le::parse_property_path(path);
     if (!parsed)
     {
         spdlog::error("{{klass.to_snake_case()}}_property_path: {}", parsed.error());
-        handle->last_property_path_failed = true;
+        results.property_path_failed = true;
         return invalid;
     }
 
@@ -119,26 +93,26 @@ LeProperty le_{{klass.to_snake_case()}}_property_path(LeHandle *handle, Le{{klas
     {
         if (auto found = find_property_by_name(build_{{klass.to_snake_case()}}_properties(handle->root, typed_id), (*parsed)[0]))
         {
-            handle->cached_property_path_value = std::move(*found);
-            return to_c(handle->cached_property_path_value);
+            results.property_path_value = std::move(*found);
+            return to_c(results.property_path_value);
         }
         spdlog::error("{{klass.to_snake_case()}}_property_path: unknown field '{}' on {{klass.name}}", (*parsed)[0]);
-        handle->last_property_path_failed = true;
+        results.property_path_failed = true;
         return invalid;
     }
 
     if (auto error = validate_filter_path("{{klass.name}}", *parsed))
     {
         spdlog::error("{{klass.to_snake_case()}}_property_path: {}", *error);
-        handle->last_property_path_failed = true;
+        results.property_path_failed = true;
         return invalid;
     }
 
     auto value = le::resolve_property_path(handle->root, typed_id, *data, *parsed);
     if (!value)
         return invalid;
-    handle->cached_property_path_value = display_path_value(handle->root, std::move(*value));
-    return to_c(handle->cached_property_path_value);
+    results.property_path_value = display_path_value(handle->root, std::move(*value));
+    return to_c(results.property_path_value);
 }
 {% endfor %}
 

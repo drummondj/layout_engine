@@ -1,14 +1,6 @@
 TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once inside struct LeHandle's body
 // (api/le_handle.hpp), right before its closing brace.
-//
-// Single-slot property-table caches, same pattern as the hand-written
-// cached_terminal_property_id/cached_terminal_properties pair (see that
-// pair's own comment in api.cpp) - one pair per generated class.
-{% for klass in classes %}
-le::{{klass.name}}Id cached_{{klass.to_snake_case()}}_property_id{};
-std::vector<le::PropertyValue> cached_{{klass.to_snake_case()}}_properties;
-{% endfor %}
 
 // Search-result caches, same "valid until the next call" convention as
 // the hand-written terminal_search_results/library_search_results/etc.

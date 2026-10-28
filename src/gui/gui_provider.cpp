@@ -100,7 +100,12 @@ namespace le::gui
                 continue;
             const bool visible = le_is_layer_name_visible(handle_, row.name);
             const bool selectable = le_is_layer_name_selectable(handle_, row.name) != 0;
-            state_.layer_manager.layers.push_back(LayerRow{row, visible, selectable});
+            state_.layer_manager.layers.push_back(LayerRow{.name = row.name,
+                                                         .color_r = row.color_r,
+                                                         .color_g = row.color_g,
+                                                         .color_b = row.color_b,
+                                                         .visible = visible,
+                                                         .selectable = selectable});
         }
 
         state_.layer_manager.purposes.clear();
@@ -311,16 +316,6 @@ namespace le::gui
             break;
         }
         return children;
-    }
-
-    bool GuiProvider::property_cache_current(LeObjectRef ref) const
-    {
-        return le_object_property_cache_current(handle_, ref) != 0;
-    }
-
-    bool GuiProvider::would_block_property_lookup(LeObjectRef ref) const
-    {
-        return state_.is_rendering && !property_cache_current(ref);
     }
 
     LeObjectRef GuiProvider::invalid_ref() const

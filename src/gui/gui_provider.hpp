@@ -36,7 +36,12 @@ namespace le::gui
         // per frame by refresh(), read by layer_manager.cpp.
         struct LayerRow
         {
-            LeLayerRow row;
+            // A copy: the console thread can rebuild the layer rows
+            // while this frame still holds them.
+            std::string name;
+            uint8_t color_r;
+            uint8_t color_g;
+            uint8_t color_b;
             bool visible;
             bool selectable;
         };
@@ -162,9 +167,7 @@ namespace le::gui
 
         // --- Parameterized/on-demand passthroughs - deliberately never
         // folded into State (see State's own doc comment above for why:
-        // no bounded set to precompute, and this is exactly where a real,
-        // reproduced GUI-thread freeze bug lived before - see
-        // would_block_property_lookup's own comment). ---
+        // no bounded set to precompute). ---
 
         LeObjectRef object_parent(LeObjectRef ref) const;
         // le_object_kind_name/le_object_kind_is_named: a kind's friendly-id
@@ -177,22 +180,9 @@ namespace le::gui
         // Every child of `ref`, one call covering every LeObjectKind,
         // with one exception (LE_OBJECT_KIND_DESIGN, still on the older
         // le_get_abstracts/le_search_result_abstract_at search surface
-        // pending a generated is_child accessor, gated on state().is_rendering
-        // directly rather than would_block_property_lookup() since it
-        // isn't going through the per-ref property cache at all).
+        // pending a generated is_child accessor, gated on
+        // state().is_rendering).
         std::vector<LeObjectRef> object_children(LeObjectRef ref) const;
-        // Whether calling object_property_count/_at(ref) right now risks
-        // blocking the whole GUI thread behind an in-progress render -
-        // true only when a render is actually in flight AND ref isn't
-        // already what the single-slot property cache holds (a stable,
-        // already-cached ref stays safe regardless of how long a
-        // viewport-only render takes). A real, reproduced freeze bug
-        // (property_viewer.cpp's breadcrumb trail and child-link rows
-        // each query a *different* ref through that one-slot cache every
-        // frame; a thrash-induced rebuild landing mid-render blocked this
-        // whole thread, not just one panel) - callers show a placeholder
-        // instead of calling object_property_count/_at when this is true.
-        bool would_block_property_lookup(LeObjectRef ref) const;
         LeObjectRef invalid_ref() const;
 
         int32_t library_count() const;
@@ -309,11 +299,6 @@ namespace le::gui
         void set_viewport_size(int32_t width_px, int32_t height_px);
 
     private:
-        // le_object_property_cache_current's own doc comment (api.hpp) -
-        // shared_lock-only, never blocks. Kept private: nothing outside
-        // would_block_property_lookup needs it directly.
-        bool property_cache_current(LeObjectRef ref) const;
-
         LeHandle *handle_;
         bool window_layout_reset_requested_ = false;
         State state_;

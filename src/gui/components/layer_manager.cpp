@@ -72,7 +72,7 @@ namespace le::gui
         // its row's ID scope. The picked color is applied when a drag or
         // the hex field is finished (applying every frame of a drag would
         // queue a Tcl command per frame); "Default" drops it again.
-        void draw_layer_color_picker(GuiProvider &provider, const LeLayerRow &row)
+        void draw_layer_color_picker(GuiProvider &provider, const GuiProvider::LayerRow &row)
         {
             if (!ImGui::BeginPopup("##color_picker"))
                 return;
@@ -83,7 +83,7 @@ namespace le::gui
                 edit[1] = static_cast<float>(row.color_g) / 255.0f;
                 edit[2] = static_cast<float>(row.color_b) / 255.0f;
             }
-            ImGui::TextUnformatted(row.name);
+            ImGui::TextUnformatted(row.name.c_str());
             ImGui::ColorPicker3("##picker", edit, ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_DisplayHex);
             if (ImGui::IsItemDeactivatedAfterEdit())
             {
@@ -285,7 +285,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value);
+                    script += "set_layer_visible {" + layer.name + "} " + tcl_bool(value);
                 }
                 for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
@@ -303,7 +303,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value);
+                    script += "set_layer_selectable {" + layer.name + "} " + tcl_bool(value);
                 }
                 for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
@@ -397,7 +397,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_layer_visible {") + layer.row.name + "} " + tcl_bool(value);
+                    script += "set_layer_visible {" + layer.name + "} " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -409,7 +409,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_layer_selectable {") + layer.row.name + "} " + tcl_bool(value);
+                    script += "set_layer_selectable {" + layer.name + "} " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -417,12 +417,12 @@ namespace le::gui
         for (const GuiProvider::LayerRow &layer : layers)
         {
             draw_toggle_row(
-                layer.row.name,
+                layer.name.c_str(),
                 [&]
                 {
                     const ImVec4 color(
-                        static_cast<float>(layer.row.color_r) / 255.0f, static_cast<float>(layer.row.color_g) / 255.0f,
-                        static_cast<float>(layer.row.color_b) / 255.0f, 1.0f);
+                        static_cast<float>(layer.color_r) / 255.0f, static_cast<float>(layer.color_g) / 255.0f,
+                        static_cast<float>(layer.color_b) / 255.0f, 1.0f);
                     // Clicking the swatch opens a color picker; the choice
                     // is saved
                     // with the settings file.
@@ -432,16 +432,16 @@ namespace le::gui
                             ImVec2(16.0f, 16.0f)))
                         ImGui::OpenPopup("##color_picker");
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Click to change %s's color", layer.row.name);
-                    draw_layer_color_picker(provider, layer.row);
+                        ImGui::SetTooltip("Click to change %s's color", layer.name.c_str());
+                    draw_layer_color_picker(provider, layer);
                     ImGui::SameLine();
-                    ImGui::TextUnformatted(layer.row.name);
+                    ImGui::TextUnformatted(layer.name.c_str());
                 },
                 layer.visible, layer.selectable,
                 [&](bool value)
-                { provider.set_layer_visible(layer.row.name, value); },
+                { provider.set_layer_visible(layer.name, value); },
                 [&](bool value)
-                { provider.set_layer_selectable(layer.row.name, value); });
+                { provider.set_layer_selectable(layer.name, value); });
         }
 
         ImGui::EndTable();
