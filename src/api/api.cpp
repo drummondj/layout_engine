@@ -4671,6 +4671,22 @@ extern "C"
         handle->set_viewport_size(width_px, height_px);
     }
 
+    int32_t le_viewport_width_px(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->viewport_width_px();
+    }
+
+    int32_t le_viewport_height_px(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->viewport_height_px();
+    }
+
     void le_fit_scene(LeHandle *handle, int32_t padding_px)
     {
         if (!handle)
@@ -6628,15 +6644,12 @@ extern "C"
     {
         if (!handle)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
-        // Shared (reader), not exclusive - confirmed by direct audit:
-        // view_render_options_for takes a `const LeHandle*` (compiler-
-        // enforced no mutation), and view_render_pipeline.run() takes a
-        // `const Root*` and only ever touches handle->view_render_pipeline
-        // itself, which no other exported function references - so a
-        // concurrent reader elsewhere on the handle can't race anything
-        // this call touches. This is exactly what le_gui.cpp's own
-        // per-frame panel reads need to stay live and unblocked while a
-        // render is in flight (le_handle.hpp's own mutex_ doc comment).
+        // The GUI render thread and the Tcl thread (dump_png) both render;
+        // render_mutex_ keeps their pipeline runs apart. mutex_ is only
+        // shared, so the GUI's panel reads stay live during a render: the
+        // render mutates nothing but view_render_pipeline (and the
+        // flightline cache, which has its own mutex).
+        std::lock_guard<std::mutex> render_lock(handle->render_mutex_);
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         // A viewport that hasn't been sized yet (le_set_viewport_size
@@ -6664,12 +6677,7 @@ extern "C"
 
         // view_render_options_for maps LeHandle's pan/scale/viewport size,
         // selection, hover, rulers and other overlays onto
-        // ViewRenderOptions (see its own comment). The returned
-        // WarmOutput::frame keeps its own RasterizedFrame
-        // alive via ComposeStage's own MemoizingStage cache (last_result_)
-        // for exactly as long as LePixelBuffer's own "valid until the
-        // next call" contract (api.hpp) already promises - no separate
-        // LeHandle-owned storage needed here.
+        // ViewRenderOptions (see its own comment).
         const le::ViewRenderOptions options = view_render_options_for(handle);
 
         // is_rendering_'s own doc comment
@@ -6703,6 +6711,13 @@ extern "C"
         const le::ViewRenderPipeline::WarmOutput output = handle->view_render_pipeline.run(&handle->root, options);
 
         FrameMarkEnd(kRenderFrameName);
+
+        // The caller reads `data` after both locks are released, while
+        // another thread's render may replace the pipeline's cached frame.
+        // Frames are immutable, so holding this thread's last one keeps
+        // `data` valid until this thread renders again (api.hpp).
+        thread_local le::ComposeStage::OutputHandle this_thread_frame;
+        this_thread_frame = output.frame;
 
         if (!output.frame || output.frame->empty)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};

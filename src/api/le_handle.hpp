@@ -57,10 +57,11 @@
 // A std::shared_mutex, not a plain std::mutex - le_render_pixel_buffer
 // itself and every genuinely read-only le_* function (one that reads
 // handle->root/view_layers/etc. and mutates nothing
-// reachable by another caller - le_render_pixel_buffer specifically only
-// touches its own private view_render_pipeline, which no other exported
-// function ever references) take a shared (reader) lock via
-// std::shared_lock, so plain UI queries (current mode, hierarchy depth,
+// reachable by another caller) take a shared (reader) lock via
+// std::shared_lock. le_render_pixel_buffer mutates only
+// view_render_pipeline, which it guards with render_mutex_, taken first:
+// the GUI render thread and the Tcl thread (dump_png) can both render.
+// So plain UI queries (current mode, hierarchy depth,
 // library/design listing, selection count, mouse position, tooltip) can
 // run concurrently with an in-progress render instead of blocking behind
 // it for however long it takes - this is what le_gui.cpp's own per-frame
@@ -136,6 +137,10 @@ struct LeHandle
     // left-anchored placement-name labels) is drawn via a monospace font
     // (rasterize_blend2d_stage.hpp).
     le::ViewRenderPipeline view_render_pipeline;
+    // Held for a whole le_render_pixel_buffer call, before mutex_: the
+    // pipeline's stages and flow graph can't run on two threads at once.
+    // Nothing that holds mutex_ renders, so the order can't invert.
+    std::mutex render_mutex_;
 
     // Undo/redo stack + command-recall log - every
     // generated le_create_X/le_update_X/le_delete_X function records
@@ -188,9 +193,8 @@ struct LeHandle
     // holds for its own entire duration - see mutex_'s own doc comment -
     // so a lock-taking getter would just block until the render it's
     // reporting on already finished, defeating the whole point). Safe
-    // without one: mutex_ already serializes every real le_* call
-    // including le_render_pixel_buffer itself, so at most one thread is
-    // ever writing this for a given handle at a time; a plain atomic is
+    // without one: only le_render_pixel_buffer writes it, under
+    // render_mutex_, so there is one writer at a time; a plain atomic is
     // exactly the right tool for "one writer under a different lock,
     // arbitrary lock-free readers".
     std::atomic<bool> is_rendering_{false};
