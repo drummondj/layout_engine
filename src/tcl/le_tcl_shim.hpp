@@ -141,10 +141,7 @@ int property_path_failed();
 /// end-to-end using an existing api.hpp call (le_set_viewport_size).
 void set_viewport_size_cmd(int width_px, int height_px);
 
-/// @brief Round-trips through le_render_pixel_buffer() to prove
-/// set_viewport_size_cmd() actually took effect, without wrapping the
-/// whole LePixelBuffer struct (its `data` pointer would need its own
-/// typemap - out of scope for this demonstration).
+/// @brief The viewport size set by set_viewport_size_cmd(), in pixels.
 int viewport_width();
 int viewport_height();
 
@@ -208,8 +205,7 @@ void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_u
 
 /// @brief Backing for the `dump_png <path>` Tcl command - renders the
 /// current view via le_render_pixel_buffer (the same output the app's own
-/// Texture uses, and the same call le_shell's own viewport_width()/
-/// viewport_height() above already make - no GUI needed) and encodes it
+/// Texture uses - no GUI needed) and encodes it
 /// as an RGBA8888 PNG at `path` via Blend2D's own built-in PNG codec
 /// (BLImage::write_to_file - scoped to this Tcl-facing shim rather than
 /// api.hpp, since only a script/debugging session needs a PNG of the

@@ -622,12 +622,12 @@ void set_viewport_size_cmd(int width_px, int height_px)
 
 int viewport_width()
 {
-    return le_render_pixel_buffer(session()).width;
+    return le_viewport_width_px(session());
 }
 
 int viewport_height()
 {
-    return le_render_pixel_buffer(session()).height;
+    return le_viewport_height_px(session());
 }
 
 long long design_abstract_id(int design_index)

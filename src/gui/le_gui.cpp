@@ -1319,12 +1319,11 @@ namespace le::gui
                 // Checked FIRST, before anything else below touches the
                 // handle this frame, and used *raw* - deliberately not
                 // debounced/delayed in any way - for every gating
-                // decision below: every other le_* function takes
-                // handle->mutex_, the very same mutex a slow render
-                // holds for its own *entire* duration (that same doc
-                // comment), so calling any of them while this reads
-                // true blocks this whole thread until the render
-                // finishes. Every panel below (draw_library_browser/
+                // decision below: a slow render holds handle->mutex_
+                // shared for its own *entire* duration (that same doc
+                // comment), so any le_* call that takes it exclusively
+                // while this reads true blocks this whole thread until
+                // the render finishes. Every panel below (draw_library_browser/
                 // _property_viewer/_layer_manager/_mode_selector/
                 // _mode_toolbar, forward_mouse_input,
                 // forward_keyboard_input, draw_status_bar,
@@ -1574,16 +1573,12 @@ namespace le::gui
                     constexpr double kResizeDebounceSeconds = 0.15;
                     // !is_rendering - le_set_viewport_size is
                     // handle->mutex_-locked (see this frame's own
-                    // is_rendering doc comment further up); guaranteed
-                    // false here on the very first-ever apply (the
-                    // render thread hasn't started yet, and nothing
-                    // else on this handle calls le_render_pixel_buffer),
-                    // so this only ever actually defers a *later*
-                    // resize that happens to land while an existing
-                    // render is still in flight - viewport_width/height
-                    // stay != last_viewport_width/height, so this whole
-                    // block is simply retried next frame until the
-                    // render finishes.
+                    // is_rendering doc comment further up), so a resize
+                    // that lands while a render is in flight (the render
+                    // thread's, or a Tcl dump_png's) is deferred:
+                    // viewport_width/height stay != last_viewport_width/
+                    // height, so this whole block is simply retried next
+                    // frame until the render finishes.
                     if (!is_rendering &&
                         (is_first_ever_apply || (glfwGetTime() - pending_viewport_change_time) >= kResizeDebounceSeconds))
                     {

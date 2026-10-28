@@ -40,11 +40,10 @@ extern "C"
     /// @brief Raw RGBA8888 pixel buffer, mirroring le::PixelBuffer
     /// (compose_stage.hpp) but using explicit fixed-width types (not
     /// `int`/`size_t`, whose width isn't guaranteed identical across
-    /// toolchains) for a stable ABI. `data` points into memory owned by
-    /// the LeHandle - valid
-    /// only until the next le_render_pixel_buffer() call on the same
-    /// handle (or le_destroy()), never owned by the caller and never to be
-    /// freed by it. Premultiplied alpha, row-major, top-to-bottom; row_bytes
+    /// toolchains) for a stable ABI. `data` is valid until the calling
+    /// thread's next le_render_pixel_buffer() call, whatever other threads
+    /// render meanwhile; never owned by the caller and never to be freed
+    /// by it. Premultiplied alpha, row-major, top-to-bottom; row_bytes
     /// may exceed width * 4 - always index by it, never assume a tight
     /// stride.
     typedef struct LePixelBuffer
@@ -1083,6 +1082,14 @@ extern "C"
     /// buffer le_render_pixel_buffer() produces. Mirrors
     /// LeHandle::set_viewport_size directly.
     void le_set_viewport_size(LeHandle *handle, int32_t width_px, int32_t height_px);
+
+    /// @brief The viewport width set by le_set_viewport_size(), in pixels.
+    /// 0 if handle is null.
+    int32_t le_viewport_width_px(LeHandle *handle);
+
+    /// @brief The viewport height set by le_set_viewport_size(), in pixels.
+    /// 0 if handle is null.
+    int32_t le_viewport_height_px(LeHandle *handle);
 
     /// @brief Fit the viewport's pan/scale to the currently selected
     /// Design's content bbox: uniform scale (no stretch) so the content

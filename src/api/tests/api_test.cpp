@@ -3833,6 +3833,73 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
     render_thread.join();
 }
 
+TEST_F(ApiFixture, ConcurrentRendersFromTwoThreadsDoNotCrash)
+{
+    // The GUI render thread and the Tcl thread (dump_png) both call
+    // le_render_pixel_buffer; each reads its whole frame after the call
+    // returns while the other keeps rendering.
+    ASSERT_EQ(read_concurrency_stress_lef(handle, 3000), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    le_set_viewport_size(handle, 200, 200);
+
+    constexpr int kIterations = 50;
+    auto render_and_copy = [&](int offset)
+    {
+        std::vector<uint8_t> copy;
+        for (int i = 0; i < kIterations; ++i)
+        {
+            // A mouse move makes Compose recompute, replacing the
+            // pipeline's cached frame.
+            le_set_mouse_position(handle, (i + offset) % 200, (i * 7 + offset) % 200);
+            const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+            ASSERT_NE(buffer.data, nullptr);
+            copy.assign(buffer.data, buffer.data + buffer.row_bytes * buffer.height);
+        }
+    };
+    std::thread other_thread(render_and_copy, 100);
+    render_and_copy(0);
+    other_thread.join();
+}
+
+TEST_F(ApiFixture, RenderedFrameStaysValidWhileAnotherThreadRenders)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    ASSERT_EQ(le_set_current_design_abstract(handle, 0), 0);
+    le_set_viewport_size(handle, 100, 100);
+    le_fit_scene(handle, 0);
+
+    const LePixelBuffer buffer = le_render_pixel_buffer(handle);
+    ASSERT_NE(buffer.data, nullptr);
+    const std::vector<uint8_t> before(buffer.data, buffer.data + buffer.row_bytes * buffer.height);
+
+    // Each of these renders replaces the pipeline's cached frame; this
+    // thread's frame must survive them.
+    std::thread other_thread([&]
+                             {
+        for (int i = 0; i < 5; ++i)
+        {
+            le_set_mouse_position(handle, 10 + i * 10, 10 + i * 10);
+            ASSERT_NE(le_render_pixel_buffer(handle).data, nullptr);
+        } });
+    other_thread.join();
+
+    const std::vector<uint8_t> after(buffer.data, buffer.data + buffer.row_bytes * buffer.height);
+    EXPECT_EQ(before, after);
+}
+
+TEST_F(ApiFixture, ViewportSizeGettersReturnTheSetSizeWithoutRendering)
+{
+    EXPECT_EQ(le_viewport_width_px(nullptr), 0);
+    EXPECT_EQ(le_viewport_height_px(nullptr), 0);
+    EXPECT_EQ(le_viewport_width_px(handle), 0);
+    EXPECT_EQ(le_viewport_height_px(handle), 0);
+
+    le_set_viewport_size(handle, 800, 600);
+    EXPECT_EQ(le_viewport_width_px(handle), 800);
+    EXPECT_EQ(le_viewport_height_px(handle), 600);
+    EXPECT_EQ(le_is_rendering(handle), 0);
+}
+
 TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
 {
     // The GUI's "rendering..." indicator needs to observe a render
