@@ -174,6 +174,7 @@ namespace
         std::optional<le::RoutingStatus> routing_status;
         std::optional<le::RouteShape> route_shape;
         std::optional<unsigned char> shield_index;
+        bool is_special = false;
 
         bool operator==(const RouteWiring &) const = default;
     };
@@ -207,6 +208,7 @@ namespace
         fallback.routing_status = wiring.routing_status;
         fallback.route_shape = wiring.route_shape;
         fallback.shield_index = wiring.shield_index;
+        fallback.is_special = wiring.is_special;
         return &layers.emplace_back(RoutedLayer{.name = layer_name, .wiring = wiring, .wire = le::WireBuilder(root, layer_id), .fallback = std::move(fallback)});
     }
 
@@ -536,6 +538,11 @@ namespace le
             log_error("DIEAREA statement seen before DESIGN - ignored.");
             return 0;
         }
+        if (reader->root_->get_layout_diearea(reader->layout_id_).valid())
+        {
+            log_error("DIEAREA already exists - ignored.");
+            return 0;
+        }
         reader->root_->create_shape(ShapeData{
             .owner = le::ShapeOwner::layout(reader->layout_id_),
             .purpose = ShapePurpose::BOUNDARY,
@@ -550,6 +557,11 @@ namespace le
         if (!reader->layout_id_.valid())
         {
             log_error("ROW {} statement seen before DESIGN - ignored.", row->name());
+            return 0;
+        }
+        if (reader->root_->get_row_by_name(reader->layout_id_, row->name()).valid())
+        {
+            log_error("ROW {} already exists - ignored.", row->name());
             return 0;
         }
 
@@ -634,6 +646,11 @@ namespace le
             log_error("COMPONENT {} statement seen before DESIGN - ignored.", component->id());
             return 0;
         }
+        if (reader->root_->get_placement_by_name(reader->layout_id_, component->id()).valid())
+        {
+            log_error("COMPONENT {} already exists - ignored.", component->id());
+            return 0;
+        }
 
         // defiComponent's own naming is confusing: id() is the instance
         // name, name() is the referenced macro name (set together by
@@ -704,6 +721,11 @@ namespace le
         if (!reader->layout_id_.valid())
         {
             log_error("PIN {} statement seen before DESIGN - ignored.", pin->pinName());
+            return 0;
+        }
+        if (reader->root_->get_physical_port_by_name(reader->layout_id_, pin->pinName()).valid())
+        {
+            log_error("PIN {} already exists - ignored.", pin->pinName());
             return 0;
         }
 
@@ -869,6 +891,11 @@ namespace le
             log_error("VIA {} statement seen before DESIGN - ignored.", via->name());
             return 0;
         }
+        if (reader->root_->get_layout_via_by_name(reader->layout_id_, via->name()).valid())
+        {
+            log_error("VIA {} already exists - ignored.", via->name());
+            return 0;
+        }
 
         const LayoutViaId layout_via_id = reader->root_->create_layout_via(LayoutViaData{
             .layout = reader->layout_id_,
@@ -971,6 +998,11 @@ namespace le
             log_error("REGION {} statement seen before DESIGN - ignored.", region->name());
             return 0;
         }
+        if (reader->root_->get_region_by_name(reader->layout_id_, region->name()).valid())
+        {
+            log_error("REGION {} already exists - ignored.", region->name());
+            return 0;
+        }
 
         RegionData data{
             .layout = reader->layout_id_,
@@ -995,15 +1027,34 @@ namespace le
             return 0;
         }
 
-        RouteData data{
-            .layout = reader->layout_id_,
-            .name = net->name(),
-            .is_special = is_special,
-        };
+        const char *section = is_special ? "SPECIALNET" : "NET";
+        if (!reader->nets_read_[is_special].insert(net->name()).second)
+        {
+            log_error("{} {} already exists - ignored.", section, net->name());
+            return 0;
+        }
+
+        // A net in both sections is one Route holding both sections' wiring.
+        Root &root = *reader->root_;
+        RouteId route_id = root.get_route_by_name(reader->layout_id_, net->name());
+        if (!route_id.valid())
+            route_id = root.create_route(RouteData{.layout = reader->layout_id_, .name = net->name()});
+        RouteData *route = root.get_route(route_id);
+        if (!route)
+        {
+            log_error("{} {} could not be created - ignored.", section, net->name());
+            return 0;
+        }
         if (net->hasUse())
-            data.use = net->use();
+        {
+            if (!route->use)
+                route->use = net->use();
+            else if (*route->use != net->use())
+                log_warning("{} {}: USE {} differs from the other section's USE {} - kept {}.", section, net->name(), net->use(), *route->use,
+                            *route->use);
+        }
         if (is_special && net->hasVoltage())
-            data.voltage = net->voltage();
+            route->voltage = net->voltage();
 
         // Every net its SHIELD wiring shields, so wiring can refer to one
         // by index.
@@ -1011,21 +1062,21 @@ namespace le
         {
             if (!shield_net || !*shield_net)
                 return std::nullopt;
-            const auto it = std::ranges::find(data.shield_nets, shield_net);
-            if (it != data.shield_nets.end())
-                return static_cast<unsigned char>(it - data.shield_nets.begin());
-            if (data.shield_nets.size() > std::numeric_limits<unsigned char>::max())
+            const auto it = std::ranges::find(route->shield_nets, shield_net);
+            if (it != route->shield_nets.end())
+                return static_cast<unsigned char>(it - route->shield_nets.begin());
+            if (route->shield_nets.size() > std::numeric_limits<unsigned char>::max())
             {
                 log_error("NET {} shields more than 256 nets - SHIELD {} kept without its net.", net->name(), shield_net);
                 return std::nullopt;
             }
-            data.shield_nets.push_back(shield_net);
-            return static_cast<unsigned char>(data.shield_nets.size() - 1);
+            route->shield_nets.push_back(shield_net);
+            return static_cast<unsigned char>(route->shield_nets.size() - 1);
         };
         // A wiring statement's status and shield (SHIELD's net).
         auto statement_wiring = [&](const char *status, int has_shield, const char *shield_net, const char *shape) -> RouteWiring
         {
-            RouteWiring wiring;
+            RouteWiring wiring{.is_special = is_special};
             if (status && *status)
             {
                 wiring.routing_status = le::routing_status_from_string(status);
@@ -1066,9 +1117,6 @@ namespace le
         // own placement was - each routed path's actual width already
         // comes through per-Path via append_routing_from_path below.
 
-        const RouteId route_id = reader->root_->create_route(std::move(data));
-
-        Root &root = *reader->root_;
         const double unit_scale = reader->unit_scale_;
         auto scaled = [&](int x, int y)
         { return Point{.x = scale_dbu(x, unit_scale), .y = scale_dbu(y, unit_scale)}; };
@@ -1138,6 +1186,7 @@ namespace le
                 wire.routing_status = layer.wiring.routing_status;
                 wire.route_shape = layer.wiring.route_shape;
                 wire.shield_index = layer.wiring.shield_index;
+                wire.is_special = layer.wiring.is_special;
                 root.create_wire(std::move(wire));
             }
             ShapeData &fallback = layer.fallback;
@@ -1275,6 +1324,8 @@ namespace le
         // before this fix - not making anything worse for that case).
         unit_scale_ = 1.0;
         wire_vias_.clear();
+        for (auto &nets : nets_read_)
+            nets.clear();
 
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(filename.c_str(), "r"), &fclose);
         if (!file)

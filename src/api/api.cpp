@@ -3487,7 +3487,7 @@ extern "C"
                 const le::RouteData before = *route;
                 if (!handle->root.update_route(route_id, le::LayoutId{}, std::nullopt,
                                                 std::optional<std::string>(new_name), std::nullopt, std::nullopt,
-                                                std::nullopt, std::nullopt))
+                                                std::nullopt))
                 {
                     spdlog::warn(
                         "update_net: linked Route could not be renamed to '{}' - a sibling Route with that name already exists",

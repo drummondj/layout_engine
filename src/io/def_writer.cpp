@@ -720,16 +720,17 @@ namespace le
         if (!route)
             return 0;
 
-        // A Wire is written as the general Shape it converts to.
+        // This section's wiring. A Wire is written as the general Shape it
+        // converts to.
         std::vector<ShapeData> wire_shapes;
         for (WireId wire_id : root.get_route_wires(route_id))
-            if (const WireData *wire = root.get_wire(wire_id))
+            if (const WireData *wire = root.get_wire(wire_id); wire && wire->is_special == is_special)
                 wire_shapes.push_back(wire_to_shape(root, *wire));
         std::vector<const ShapeData *> shapes;
         for (const ShapeData &shape : wire_shapes)
             shapes.push_back(&shape);
         for (ShapeId shape_id : root.get_route_shapes(route_id))
-            if (const ShapeData *shape = root.get_shape(shape_id))
+            if (const ShapeData *shape = root.get_shape(shape_id); shape && shape->is_special == is_special)
                 shapes.push_back(shape);
 
         // The status keyword a statement starts with, and the net a SHIELD
@@ -965,13 +966,27 @@ namespace le
     {
         const auto &route_ids = root.get_layout_routes(layout_id);
 
+        // A Route is in SPECIALNETS if it has special wiring or sets a field
+        // only SPECIALNETS has, and in NETS if it has regular wiring or
+        // nothing at all - possibly both.
         std::vector<RouteId> net_ids, special_net_ids;
         for (RouteId route_id : route_ids)
         {
             const RouteData *route = root.get_route(route_id);
             if (!route)
                 continue;
-            (route->is_special ? special_net_ids : net_ids).push_back(route_id);
+            bool special = route->width || route->voltage || !route->shield_nets.empty();
+            bool regular = false;
+            for (WireId wire_id : root.get_route_wires(route_id))
+                if (const WireData *wire = root.get_wire(wire_id))
+                    (wire->is_special ? special : regular) = true;
+            for (ShapeId shape_id : root.get_route_shapes(route_id))
+                if (const ShapeData *shape = root.get_shape(shape_id))
+                    (shape->is_special ? special : regular) = true;
+            if (special)
+                special_net_ids.push_back(route_id);
+            if (regular || !special)
+                net_ids.push_back(route_id);
         }
 
         if (!special_net_ids.empty())
@@ -994,15 +1009,17 @@ namespace le
                 if (route->width)
                 {
                     // defwSpecialNetWidth needs a layer name, but
-                    // Route.width is net-wide (see RouteData's own schema
-                    // comment on the deferred per-layer form) - written
-                    // against the net's first routed layer as the closest
+                    // Route.width is net-wide - written against the layer
+                    // of the net's first special wiring as the closest
                     // available approximation.
-                    const auto &wire_ids = root.get_route_wires(route_id);
-                    const auto &shape_ids = root.get_route_shapes(route_id);
-                    const WireData *first_wire = wire_ids.empty() ? nullptr : root.get_wire(wire_ids.front());
-                    const ShapeData *first_shape = shape_ids.empty() ? nullptr : root.get_shape(shape_ids.front());
-                    const LayerData *layer = root.get_layer(first_wire ? first_wire->layer : first_shape ? first_shape->layer : LayerId{});
+                    LayerId first_layer;
+                    for (WireId wire_id : root.get_route_wires(route_id))
+                        if (const WireData *wire = root.get_wire(wire_id); wire && wire->is_special && !first_layer.valid())
+                            first_layer = wire->layer;
+                    for (ShapeId shape_id : root.get_route_shapes(route_id))
+                        if (const ShapeData *shape = root.get_shape(shape_id); shape && shape->is_special && !first_layer.valid())
+                            first_layer = shape->layer;
+                    const LayerData *layer = root.get_layer(first_layer);
                     if (layer)
                     {
                         status = defwSpecialNetWidth(layer->name.c_str(), static_cast<int>(*route->width));

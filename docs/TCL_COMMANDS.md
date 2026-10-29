@@ -1877,16 +1877,15 @@ Creates a Region and returns its token. Region: A placement region (DEF REGIONS)
 
 ### create_route
 
-`create_route -layout <token> [-net <token>] -name <str> [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
+`create_route -layout <token> [-net <token>] -name <str> [-width <um>] [-voltage <double>] [-use <str>] [-help]`
 
-Creates a Route and returns its token. Route: The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
+Creates a Route and returns its token. Route: The routing geometry of a net: its regular wiring (DEF NETS) and its special wiring (DEF SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-layout` | `token` | yes | Parent Layout token |
 | `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
 | `-name` | `str` | yes | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
-| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
 | `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
@@ -1927,7 +1926,7 @@ Creates a Track and returns its token. Track: A routing track pattern (DEF TRACK
 
 ### create_wire
 
-`create_wire -route <token> -layer <token> [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
+`create_wire -route <token> -layer <token> [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-is_special <bool>] [-help]`
 
 Creates a Wire and returns its token. Wire: A route's wiring and vias on one layer with one status and shape, in a compact form: Manhattan segments and references to defined vias.
 
@@ -1938,6 +1937,7 @@ Creates a Wire and returns its token. Wire: A route's wiring and vias on one lay
 | `-routing_status` | `RoutingStatus` | no | Wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
 | `-route_shape` | `RouteShape` | no | What this wiring is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
 | `-shield_index` | `int` | no | For SHIELD wiring: the index into its route's shield_nets of the net it shields |
+| `-is_special` | `bool` | no | Whether this is special wiring (DEF SPECIALNETS) rather than regular wiring (DEF NETS) |
 
 ### current_layout
 
@@ -2175,7 +2175,7 @@ Returns the Region objects matching the given names and filters, as tokens. Regi
 
 `get_routes [<name-expr>...] [-of <token>...] [-filter <expr>] [-help]`
 
-Returns the Route objects matching the given names and filters, as tokens. Route: The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).
+Returns the Route objects matching the given names and filters, as tokens. Route: The routing geometry of a net: its regular wiring (DEF NETS) and its special wiring (DEF SPECIALNETS).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -2362,7 +2362,7 @@ Changes the given fields of a Region; omitted flags leave a field unchanged.
 
 ### update_route
 
-`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-is_special <bool>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
+`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
 
 Changes the given fields of a Route; omitted flags leave a field unchanged.
 
@@ -2371,7 +2371,6 @@ Changes the given fields of a Route; omitted flags leave a field unchanged.
 | `-layout` | `token` | no | Move it to this Layout (token) |
 | `-net` | `token` | no | The logical Net this routes, resolved by `link` against `name` |
 | `-name` | `str` | no | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
-| `-is_special` | `bool` | no | Whether this came from SPECIALNETS rather than NETS |
 | `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
 | `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
@@ -2412,7 +2411,7 @@ Changes the given fields of a Track; omitted flags leave a field unchanged.
 
 ### update_wire
 
-`update_wire <id> [-route <token>] [-layer <token>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
+`update_wire <id> [-route <token>] [-layer <token>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-is_special <bool>] [-help]`
 
 Changes the given fields of a Wire; omitted flags leave a field unchanged.
 
@@ -2423,6 +2422,7 @@ Changes the given fields of a Wire; omitted flags leave a field unchanged.
 | `-routing_status` | `RoutingStatus` | no | Wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
 | `-route_shape` | `RouteShape` | no | What this wiring is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
 | `-shield_index` | `int` | no | For SHIELD wiring: the index into its route's shield_nets of the net it shields |
+| `-is_special` | `bool` | no | Whether this is special wiring (DEF SPECIALNETS) rather than regular wiring (DEF NETS) |
 
 ### write_def
 
@@ -3541,7 +3541,7 @@ Creates a Library and returns its token. Library: A library containing designs
 
 ### create_shape
 
-`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
+`create_shape [-terminal_port <token>] [-obstruction <token>] [-physical_port_segment <token>] [-blockage <token>] [-route <token>] [-layout <token>] [-abstract <token>] [-in_abstract <token>] [-in_layout <token>] [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-is_special <bool>] [-help]`
 
 Creates a Shape and returns its token. Shape: A shape on a layer.
 
@@ -3567,6 +3567,7 @@ Creates a Shape and returns its token. Shape: A shape on a layer.
 | `-routing_status` | `RoutingStatus` | no | For a route's shape: its wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
 | `-route_shape` | `RouteShape` | no | For a route's shape: what it is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
 | `-shield_index` | `int` | no | For a route's SHIELD shape: the index into its route's shield_nets of the net it shields |
+| `-is_special` | `bool` | no | For a route's shape: whether it is special wiring (DEF SPECIALNETS) rather than regular wiring (DEF NETS) |
 
 ### db_info
 
@@ -3930,7 +3931,7 @@ Changes the given fields of a Library; omitted flags leave a field unchanged.
 
 ### update_shape
 
-`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-help]`
+`update_shape <id> [-layer <token>] [-purpose <ShapePurpose>] [-paths <Path...>] [-polygons <Polygon...>] [-rects <Rect...>] [-spacing <um>] [-design_rule_width <um>] [-except_pg_net <bool>] [-routing_status <RoutingStatus>] [-route_shape <RouteShape>] [-shield_index <int>] [-is_special <bool>] [-help]`
 
 Changes the given fields of a Shape; omitted flags leave a field unchanged.
 
@@ -3947,6 +3948,7 @@ Changes the given fields of a Shape; omitted flags leave a field unchanged.
 | `-routing_status` | `RoutingStatus` | no | For a route's shape: its wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset |
 | `-route_shape` | `RouteShape` | no | For a route's shape: what it is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN) |
 | `-shield_index` | `int` | no | For a route's SHIELD shape: the index into its route's shield_nets of the net it shields |
+| `-is_special` | `bool` | no | For a route's shape: whether it is special wiring (DEF SPECIALNETS) rather than regular wiring (DEF NETS) |
 
 ### write_db
 

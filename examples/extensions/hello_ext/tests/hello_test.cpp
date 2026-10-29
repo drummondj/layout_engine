@@ -259,7 +259,7 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
     const LeLayoutId pins = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "pins"), "top"));
     const double rect[] = {1.0, 1.0, 2.0, 2.0};
     le_create_shape(session.handle, le_shape_owner_hello_pin(le_create_hello_pin(session.handle, pins)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1,
-                    rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
+                    rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
     std::filesystem::create_directories(kGoldenDir / kSchemaVersion);
     ASSERT_EQ(le_write_db(session.handle, (kGoldenDir / kSchemaVersion / "notes.led").c_str(), 1), 0);
 }
@@ -344,7 +344,7 @@ TEST(HelloExt, MarkersDrawAndSelectInTheLayoutView)
     const LeHelloMarkerId marker = le_create_hello_marker(h, layout, "clock_root");
     const double rect[] = {0.0, 0.0, 2.0, 1.0};
     const LeShapeId shape = le_create_shape(h, le_shape_owner_hello_marker(marker), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0,
-                                            0, 0.0, 0, nullptr, nullptr, 0, 0);
+                                            0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
     ASSERT_NE(shape.index, UINT32_MAX);
     ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
     le_set_viewport_size(h, 200, 100);
@@ -368,7 +368,7 @@ TEST(HelloExt, MarkersDrawAndSelectInTheLayoutView)
 
     // Moving the marker's shape out of the way redraws its chunk.
     const double moved[] = {10.0, 10.0, 11.0, 11.0};
-    ASSERT_EQ(le_update_shape(h, shape, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
+    ASSERT_EQ(le_update_shape(h, shape, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0, 0, 0), 0);
     EXPECT_FALSE(lit(60, 30)) << "away from the cursor box the click left at (100, 50)";
 }
 
@@ -387,13 +387,13 @@ TEST(HelloExt, TiledPinsDrawSelectAndMoveBetweenTiles)
     const LeLayoutId layout = le_create_layout(h, design);
     // A 100 x 100 um die area, which the view fits.
     const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
-    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index,
+    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0).index,
               UINT32_MAX);
 
     const auto add_pin = [&](double x, double y, double size) {
         const LeHelloPinId pin = le_create_hello_pin(h, layout);
         const double rect[] = {x, y, x + size, y + size};
-        return le_create_shape(h, le_shape_owner_hello_pin(pin), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
+        return le_create_shape(h, le_shape_owner_hello_pin(pin), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
     };
     // 6000 small pins in the left half (three tiles' worth), and one big
     // one alone at (73..77, 73..77) um.
@@ -423,7 +423,7 @@ TEST(HelloExt, TiledPinsDrawSelectAndMoveBetweenTiles)
 
     // Into another tile: drawn there, gone from where it was.
     const double moved[] = {73.0, 23.0, 77.0, 27.0};
-    ASSERT_EQ(le_update_shape(h, lone, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
+    ASSERT_EQ(le_update_shape(h, lone, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0, 0, 0), 0);
     EXPECT_TRUE(lit(300, 300));
     EXPECT_FALSE(lit(300, 100));
 }
@@ -453,11 +453,11 @@ TEST(HelloExt, PinsOnALayerDrawAndSelectInThatLayersRow)
     ASSERT_EQ(le_set_current_technology(h, technology_id), 0);
     // A 100 x 100 um die area, which the view fits.
     const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
-    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index,
+    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0).index,
               UINT32_MAX);
     const auto add_pin = [&](LeLayerId layer, double x, double y) {
         const double rect[] = {x, y, x + 10, y + 10};
-        return le_create_shape(h, le_shape_owner_hello_pin(le_create_hello_pin(h, layout)), layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
+        return le_create_shape(h, le_shape_owner_hello_pin(le_create_hello_pin(h, layout)), layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
     };
     const LeShapeId on_m1 = add_pin(m1, 20, 70);                       // pixels (80..120, 80..120)
     const LeShapeId no_layer = add_pin(LeLayerId{UINT32_MAX, 0}, 70, 70); // pixels (280..320, 80..120)
@@ -525,13 +525,13 @@ TEST(HelloExt, MarkersAreLabelledWithTheirNames)
     const LeLayoutId layout = le_create_layout(h, design);
     // A 100 x 100 um die area, which the view fits.
     const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
-    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0).index,
+    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0).index,
               UINT32_MAX);
     // Two identical 40 x 10 um markers, one named, one not.
     const auto add_marker = [&](const char *name, double y) {
         const double rect[] = {5.0, y, 45.0, y + 10.0};
         return le_create_shape(h, le_shape_owner_hello_marker(le_create_hello_marker(h, layout, name)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect,
-                               4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
+                               4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
     };
     ASSERT_NE(add_marker("WWWWWWWW", 60.0).index, UINT32_MAX);
     ASSERT_NE(add_marker("", 20.0).index, UINT32_MAX);

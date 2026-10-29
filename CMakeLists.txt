@@ -671,7 +671,7 @@ target_compile_definitions(pipelines PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
 add_library(io STATIC
     src/io/lef_reader.cpp src/io/lef_writer.cpp src/io/def_reader.cpp src/io/def_writer.cpp
     src/io/sv_reader.cpp
-    src/io/native_format.cpp
+    src/io/native_format.cpp src/io/migration_steps.cpp
 )
 add_dependencies(io lef_lib def_lib)
 target_include_directories(io

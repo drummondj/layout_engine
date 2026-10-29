@@ -24,10 +24,10 @@ namespace
             const LeLayoutId layout = le_create_layout(handle, top_design);
 
             // A 2x2 um route shape at the origin, and TESTCELL placed at (10,10) um.
-            const LeRouteId route = le_create_route(handle, layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0, 0.0, 0, 0.0, nullptr);
+            const LeRouteId route = le_create_route(handle, layout, LeNetId{.index = UINT32_MAX, .generation = 0}, "NET1", 0, 0.0, 0, 0.0, nullptr);
             m1 = le_layer_by_name(handle, "M1");
             const double rect_um[4] = {0.0, 0.0, 2.0, 2.0};
-            shape = le_create_shape(handle, le_shape_owner_route(route), m1, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0);
+            shape = le_create_shape(handle, le_shape_owner_route(route), m1, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect_um, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
             ASSERT_NE(shape.index, UINT32_MAX);
             placement = le_create_placement(handle, layout, testcell.id, LeInstanceId{.index = UINT32_MAX, .generation = 0}, "U1", 0, "PLACED", 1, 10.0, 10.0, "N", 0, 0.0, nullptr);
             ASSERT_NE(placement.index, UINT32_MAX);
@@ -74,7 +74,7 @@ TEST_F(SelectionFixture, AnObjectEditedSinceTheRenderIsFoundAtItsNewPlace)
 {
     render();
     const double moved_um[4] = {14.0, 2.0, 16.0, 4.0};
-    ASSERT_EQ(le_update_shape(handle, shape, 0, m1, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved_um, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0), 0);
+    ASSERT_EQ(le_update_shape(handle, shape, 0, m1, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved_um, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0, 0, 0), 0);
     const std::uint64_t before = handle->render_tree_selections;
 
     // No render in between: the tree still has the shape at the origin.

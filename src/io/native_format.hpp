@@ -100,8 +100,9 @@ namespace le::persistence
     /// older file by name, every op of every migration past the file's
     /// schema version is applied to the file's embedded schema: renamed
     /// classes, fields and enum values take their current names, so their
-    /// data is kept rather than dropped. An op that needs more than a
-    /// rename (migrations::OpKind::Unsupported) refuses the file.
+    /// data is kept rather than dropped. A data step
+    /// (migrations::OpKind::RunCode) then runs on the decoded objects; one
+    /// this build doesn't implement refuses the file.
     LoadReport load_native(Root &root, const std::string &path, std::span<const migrations::Op> chain);
 
     struct FileInfo

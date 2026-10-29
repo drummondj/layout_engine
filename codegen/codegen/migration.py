@@ -90,7 +90,7 @@ RUNTIME_NONE = "none"  # nothing to do: name matching covers it (adds, removes, 
 RUNTIME_RENAME_CLASS = "rename_class"
 RUNTIME_RENAME_FIELD = "rename_field"
 RUNTIME_RENAME_ENUM_VALUE = "rename_enum_value"
-RUNTIME_UNSUPPORTED = "unsupported"  # needs the generic data runtime (not built yet)
+RUNTIME_RUN_CODE = "run_code"  # a hand-written data step the loader runs
 
 
 class Op:
@@ -285,11 +285,13 @@ class AlterEnumValue(Op):
 class RunCode(Op):
     """
     A hand-written data transformation with no effect on the schema's
-    shape. The data runtime it needs isn't built yet, so an older file
-    whose upgrade passes through one is refused.
+    shape. `name` names a step in src/io/migration_steps.hpp, which the
+    loader runs on an older file's decoded objects; a core step with no
+    implementation fails the build. Extensions can't implement steps, so
+    a file whose upgrade passes through an extension's RunCode is refused.
     """
 
-    runtime = RUNTIME_UNSUPPORTED
+    runtime = RUNTIME_RUN_CODE
 
     def __init__(self, name: str, description: str):
         self.name = name

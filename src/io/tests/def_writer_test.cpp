@@ -544,8 +544,8 @@ namespace le
         const LibraryId library_id = root.create_library(LibraryData{.name = "test_lib"});
         const DesignId design_id = root.create_design(DesignData{.library = library_id, .name = "widthtest"});
         const LayoutId layout_id = root.create_layout(LayoutData{.design = design_id});
-        const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "VDD", .is_special = true, .width = 200});
-        root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route_id), .layer = layer_id, .paths = {Path{.width = 200, .polygon = Polygon{.points = {Point{.x = 0, .y = 0}, Point{.x = 100, .y = 0}}}}}});
+        const RouteId route_id = root.create_route(RouteData{.layout = layout_id, .name = "VDD", .width = 200});
+        root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route_id), .layer = layer_id, .paths = {Path{.width = 200, .polygon = Polygon{.points = {Point{.x = 0, .y = 0}, Point{.x = 100, .y = 0}}}}}, .is_special = true});
 
         const std::string written_path = test::scratch_path("le_def_writer_special_net_width.def");
         DEFWriter writer;
@@ -682,7 +682,7 @@ namespace le
         std::string describe_wiring(const Root &root, const RouteData &route, const ShapeData &shape)
         {
             const std::string shield = shape.shield_index && *shape.shield_index < route.shield_nets.size() ? route.shield_nets[*shape.shield_index] : "-";
-            return fmt::format("{}/{}/{}", to_string(shape.routing_status.value_or(RoutingStatus::ROUTED)),
+            return fmt::format("{}/{}/{}/{}", shape.is_special ? "special" : "regular", to_string(shape.routing_status.value_or(RoutingStatus::ROUTED)),
                                shape.route_shape ? to_string(*shape.route_shape) : "-", shield);
         }
 
@@ -785,5 +785,78 @@ namespace le
         const auto before = describe_route_pieces(original, original_layout);
         EXPECT_EQ(before.at("VDD").size(), 9u);
         EXPECT_EQ(describe_route_pieces(written, written_layout), before);
+    }
+
+    // Technology for the both-sections fixture, as DEFReader's tests set it up.
+    LayoutId read_net_in_both_sections(Root &root, const std::string &path)
+    {
+        const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 100});
+        root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING", .width = 100});
+        EXPECT_EQ(DEFReader().read_def(path, root, "test_lib"), 0);
+        return root.get_design_layout(find_design_by_name(root, "net_in_both_sections_test"));
+    }
+
+    std::string read_text(const std::string &path)
+    {
+        std::ifstream in(path);
+        return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    }
+
+    // The text of `file`'s section from "<keyword> " to "END <keyword>", or empty.
+    std::string section(const std::string &file, const std::string &keyword)
+    {
+        for (size_t at = file.find(keyword + " "); at != std::string::npos; at = file.find(keyword + " ", at + 1))
+            if (at == 0 || file[at - 1] == '\n')
+                return file.substr(at, file.find("END " + keyword, at) - at);
+        return {};
+    }
+
+    TEST(DEFWriterRouteSections, ANetInBothSectionsWritesEachSectionsWiringToItsOwnSection)
+    {
+        Root original;
+        const LayoutId original_layout = read_net_in_both_sections(original, std::string(IO_TEST_FIXTURES_DIR) + "/net_in_both_sections.def");
+        ASSERT_TRUE(original_layout.valid());
+        const std::string written_path = test::scratch_path("le_def_writer_net_in_both_sections.def");
+        ASSERT_EQ(DEFWriter().write_def(written_path, original, original_layout), 0);
+
+        const std::string text = read_text(written_path);
+        const std::string special = section(text, "SPECIALNETS"), regular = section(text, "NETS");
+        EXPECT_NE(special.find("- VDD"), std::string::npos) << text;
+        EXPECT_NE(regular.find("- VDD"), std::string::npos) << text;
+        EXPECT_NE(special.find("STRIPE"), std::string::npos) << special;
+        EXPECT_NE(special.find("RECT"), std::string::npos) << special;
+        EXPECT_EQ(special.find("( 0 500 )"), std::string::npos) << special;
+        EXPECT_NE(regular.find("( 0 500 )"), std::string::npos) << regular;
+        EXPECT_EQ(regular.find("STRIPE"), std::string::npos) << regular;
+        EXPECT_EQ(regular.find("SHIELD"), std::string::npos) << regular;
+
+        Root written;
+        const LayoutId written_layout = read_net_in_both_sections(written, written_path);
+        ASSERT_TRUE(written_layout.valid());
+        const auto before = describe_route_pieces(original, original_layout);
+        EXPECT_EQ(before.at("VDD").size(), 5u);
+        EXPECT_EQ(describe_route_pieces(written, written_layout), before);
+        EXPECT_EQ(written.get_route(written.get_route_by_name(written_layout, "VDD"))->shield_nets, (CompactVector<std::string>{"SIG"}));
+    }
+
+    TEST(DEFWriterRouteSections, ARouteWithNoWiringGoesInNetsUnlessItSetsASpecialNetsField)
+    {
+        Root root;
+        const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
+        const LibraryId library_id = root.create_library(LibraryData{.name = "test_lib"});
+        const LayoutId layout_id = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = library_id, .name = "sections"})});
+        root.create_route(RouteData{.layout = layout_id, .name = "BARE"});
+        root.create_route(RouteData{.layout = layout_id, .name = "POWERED", .voltage = 1.2});
+
+        const std::string written_path = test::scratch_path("le_def_writer_route_sections.def");
+        ASSERT_EQ(DEFWriter().write_def(written_path, root, layout_id), 0);
+        const std::string text = read_text(written_path);
+        const std::string special = section(text, "SPECIALNETS"), regular = section(text, "NETS");
+        EXPECT_NE(regular.find("- BARE"), std::string::npos) << text;
+        EXPECT_EQ(special.find("- BARE"), std::string::npos) << text;
+        EXPECT_NE(special.find("- POWERED"), std::string::npos) << text;
+        EXPECT_EQ(regular.find("- POWERED"), std::string::npos) << text;
     }
 }

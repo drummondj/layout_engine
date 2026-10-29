@@ -70,7 +70,7 @@ class TestOps(unittest.TestCase):
                 ("rename_field", "Net", "name", "label"),
                 ("rename_enum_value", "Dir", "A", "AA"),
                 ("rename_enum_value", "Dir", "B", "AA"),
-                ("unsupported", "", "fixup", "recompute w"),
+                ("run_code", "", "fixup", "recompute w"),
             ],
         )
 

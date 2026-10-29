@@ -61,8 +61,8 @@ namespace
             placement_filler = root.create_placement(PlacementData{
                 .layout = top_layout, .name = "filler0", .reference_design = leaf_design,
                 .placement_status = PlacementStatus::PLACED});
-            route_n1 = root.create_route(RouteData{.layout = top_layout, .name = "a/n1", .is_special = false});
-            route_unmatched = root.create_route(RouteData{.layout = top_layout, .name = "unmatched_net", .is_special = false});
+            route_n1 = root.create_route(RouteData{.layout = top_layout, .name = "a/n1"});
+            route_unmatched = root.create_route(RouteData{.layout = top_layout, .name = "unmatched_net"});
             port_clk = root.create_physical_port(
                 PhysicalPortData{.layout = top_layout, .name = "clk", .net_name = "topnet"});
             port_vdd = root.create_physical_port(

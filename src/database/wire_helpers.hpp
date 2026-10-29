@@ -112,18 +112,20 @@ namespace le
         return out;
     }
 
-    /// @brief Copies what a route's wiring is - routing status, SHAPE and
-    /// shielded net - between a Wire and a Shape, in either direction.
+    /// @brief Copies what a route's wiring is - routing status, SHAPE,
+    /// shielded net and special or regular - between a Wire and a Shape, in
+    /// either direction.
     template <typename From, typename To>
     void copy_route_wiring(const From &from, To &to)
     {
         to.routing_status = from.routing_status;
         to.route_shape = from.route_shape;
         to.shield_index = from.shield_index;
+        to.is_special = from.is_special;
     }
 
     /// @brief `wire` as a general route Shape on its layer - its paths, in
-    /// order, its vias and its routing status/SHAPE - for code that reads
+    /// order, its vias and its wiring - for code that reads
     /// any Shape's geometry (hit-tests, shape ops, bounding boxes, DEF
     /// output). Path i of the Shape is path i of the Wire, via i is via i.
     inline ShapeData wire_to_shape(const Root &root, const WireData &wire)

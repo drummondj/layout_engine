@@ -4,7 +4,9 @@
 #include "../def_reader.hpp"
 #include "../def_writer.hpp"
 #include "../../database/wire_helpers.hpp"
+#include "../../test_support/scratch_dir.hpp"
 #include <filesystem>
+#include <fstream>
 
 namespace le
 {
@@ -625,17 +627,18 @@ namespace le
     {
         const DesignId design_id = find_design_by_name(root, "design");
         const LayoutId layout_id = root.get_design_layout(design_id);
-        const std::vector<RouteId> route_ids = root.get_layout_routes(layout_id);
 
+        // The route named `name`, if all its wiring is special or all regular.
         auto find_id_by_name_and_kind = [&](const std::string &name, bool is_special) -> RouteId
         {
-            for (const RouteId id : route_ids)
-            {
-                const RouteData *route = root.get_route(id);
-                if (route && route->name == name && route->is_special == is_special)
-                    return id;
-            }
-            return RouteId{};
+            const RouteId id = root.get_route_by_name(layout_id, name);
+            for (const WireId wire : root.get_route_wires(id))
+                if (root.get_wire(wire)->is_special != is_special)
+                    return RouteId{};
+            for (const ShapeId shape : root.get_route_shapes(id))
+                if (root.get_shape(shape)->is_special != is_special)
+                    return RouteId{};
+            return id;
         };
         auto shapes_of = [&](RouteId id) -> std::vector<ShapeData>
         {
@@ -647,9 +650,6 @@ namespace le
         // 100.
         const RouteId dummy_id = find_id_by_name_and_kind("DUMMY", true);
         ASSERT_TRUE(dummy_id.valid());
-        const RouteData *dummy = root.get_route(dummy_id);
-        ASSERT_NE(dummy, nullptr);
-        EXPECT_TRUE(dummy->is_special);
         const std::vector<ShapeData> dummy_shapes = shapes_of(dummy_id);
         ASSERT_EQ(dummy_shapes.size(), 1u);
         EXPECT_EQ(root.get_layer(dummy_shapes[0].layer)->name, "M1");
@@ -671,7 +671,6 @@ namespace le
         // stay paths of one fallback Shape on M1.
         const RouteId n6_id = find_id_by_name_and_kind("N6", false);
         ASSERT_TRUE(n6_id.valid());
-        EXPECT_FALSE(root.get_route(n6_id)->is_special);
         ASSERT_EQ(root.get_route_wires(n6_id).size(), 1u);
         const WireData *n6_wire = root.get_wire(root.get_route_wires(n6_id)[0]);
         ASSERT_NE(n6_wire, nullptr);
@@ -1272,5 +1271,147 @@ namespace le
         ASSERT_NE(design, nullptr);
         ASSERT_EQ(design->vias.size(), 1u);
         EXPECT_TRUE(design->vias[0].layout_via.valid());
+    }
+
+    // Technology and cells shared by the fixtures below.
+    void add_route_test_technology(Root &root)
+    {
+        const TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING", .width = 100});
+        root.create_layer(LayerData{.technology = technology_id, .name = "M2", .type = "ROUTING", .width = 100});
+        root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "test_lib"}), .name = "CELL"});
+    }
+
+    // How much of `route`'s wiring is special and regular, Wires and Shapes
+    // apart.
+    struct WiringCounts
+    {
+        int special_wires = 0, regular_wires = 0, special_shapes = 0, regular_shapes = 0;
+        bool operator==(const WiringCounts &) const = default;
+    };
+    WiringCounts wiring_counts(const Root &root, RouteId route)
+    {
+        WiringCounts counts;
+        for (const WireId id : root.get_route_wires(route))
+            ++(root.get_wire(id)->is_special ? counts.special_wires : counts.regular_wires);
+        for (const ShapeId id : root.get_route_shapes(route))
+            ++(root.get_shape(id)->is_special ? counts.special_shapes : counts.regular_shapes);
+        return counts;
+    }
+    void PrintTo(const WiringCounts &c, std::ostream *os)
+    {
+        *os << "special wires " << c.special_wires << ", regular wires " << c.regular_wires << ", special shapes " << c.special_shapes
+            << ", regular shapes " << c.regular_shapes;
+    }
+
+    // Every Wire, Shape, PhysicalPortSegment and ViaLayer has a live owner.
+    void expect_no_orphans(const Root &root)
+    {
+        for (const WireId id : root.get_wire_ids())
+            EXPECT_NE(root.get_route(root.get_wire(id)->route), nullptr) << "wire " << id.index;
+        for (const ShapeId id : root.get_shape_ids())
+            EXPECT_TRUE(root.get_shape(id)->owner.valid()) << "shape " << id.index;
+        for (const PhysicalPortSegmentId id : root.get_physical_port_segment_ids())
+            EXPECT_NE(root.get_physical_port(root.get_physical_port_segment(id)->physical_port), nullptr) << "segment " << id.index;
+        for (const ViaLayerId id : root.get_via_layer_ids())
+        {
+            const ViaLayerData *layer = root.get_via_layer(id);
+            EXPECT_TRUE(root.get_layout_via(layer->layout_via) || root.get_via(layer->via) || root.get_non_default_rule_via(layer->non_default_rule_via))
+                << "via layer " << id.index;
+        }
+    }
+
+    bool has_message(const DEFReader &reader, const std::string &text)
+    {
+        return std::ranges::any_of(reader.messages(), [&](const std::string &message) { return message.find(text) != std::string::npos; });
+    }
+
+    TEST(DEFReaderNets, ANetInBothSectionsIsOneRouteWithBothSectionsWiring)
+    {
+        Root root;
+        add_route_test_technology(root);
+        DEFReader reader;
+        ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/net_in_both_sections.def", root, "test_lib"), 0);
+        EXPECT_TRUE(reader.messages().empty()) << reader.messages().front();
+        const LayoutId layout = root.get_design_layout(find_design_by_name(root, "net_in_both_sections_test"));
+        ASSERT_EQ(root.get_layout_routes(layout).size(), 1u);
+        const RouteId vdd = root.get_route_by_name(layout, "VDD");
+        const RouteData *route = root.get_route(vdd);
+        ASSERT_NE(route, nullptr);
+        EXPECT_EQ(route->use, std::optional<std::string>("POWER"));
+        EXPECT_EQ(route->shield_nets, (CompactVector<std::string>{"SIG"}));
+
+        // SPECIALNETS: a STRIPE wire on M1, a SHIELD wire on M2, a RECT;
+        // NETS: a wire on M1 and a diagonal path only a Shape can hold.
+        EXPECT_EQ(wiring_counts(root, vdd), (WiringCounts{.special_wires = 2, .regular_wires = 1, .special_shapes = 1, .regular_shapes = 1}));
+        for (const WireId id : root.get_route_wires(vdd))
+        {
+            const WireData *wire = root.get_wire(id);
+            EXPECT_EQ(wire->is_special, wire->segments[0].y != 500) << "the NETS wire is at y 500";
+            if (wire->routing_status == RoutingStatus::SHIELD)
+                EXPECT_EQ(wire->shield_index, std::optional<unsigned char>(0));
+        }
+        for (const ShapeId id : root.get_route_shapes(vdd))
+        {
+            const ShapeData *shape = root.get_shape(id);
+            EXPECT_EQ(shape->is_special, !shape->rects.empty());
+        }
+        expect_no_orphans(root);
+    }
+
+    TEST(DEFReaderDuplicates, EachDuplicateIsReportedAndSkippedWithItsContents)
+    {
+        Root root;
+        add_route_test_technology(root);
+        DEFReader reader;
+        ASSERT_EQ(reader.read_def(std::string(IO_TEST_FIXTURES_DIR) + "/duplicates.def", root, "test_lib"), 0);
+        const LayoutId layout = root.get_design_layout(find_design_by_name(root, "duplicates_test"));
+        ASSERT_TRUE(layout.valid());
+
+        for (const char *message : {"DIEAREA already exists - ignored", "ROW ROW_0 already exists - ignored", "VIA DESIGN_VIA already exists - ignored",
+                                    "REGION R1 already exists - ignored", "COMPONENT U1 already exists - ignored",
+                                    "PIN P1 already exists - ignored", "PIN P2 already exists - ignored",
+                                    "SPECIALNET VDD already exists - ignored", "NET SIG already exists - ignored"})
+            EXPECT_TRUE(has_message(reader, message)) << message;
+
+        // The first of each is kept, whole.
+        const ShapeData *diearea = root.get_shape(root.get_layout_diearea(layout));
+        ASSERT_NE(diearea, nullptr);
+        EXPECT_EQ(std::ranges::max(diearea->polygons[0].points, {}, &Point::x).x, 10000);
+        ASSERT_EQ(root.get_layout_rows(layout).size(), 1u);
+        EXPECT_EQ(root.get_row(root.get_layout_rows(layout)[0])->num_x, 10);
+        ASSERT_EQ(root.get_layout_vias(layout).size(), 1u);
+        const std::vector<ViaLayerId> &via_layers = root.get_layout_via_layers(root.get_layout_vias(layout)[0]);
+        ASSERT_EQ(via_layers.size(), 1u);
+        EXPECT_EQ(root.get_via_layer(via_layers[0])->layer_name, "M1");
+        ASSERT_EQ(root.get_layout_regions(layout).size(), 1u);
+        EXPECT_EQ(root.get_region(root.get_layout_regions(layout)[0])->rects[0].ur.x, 100);
+        ASSERT_EQ(root.get_layout_placements(layout).size(), 1u);
+        EXPECT_EQ(root.get_placement(root.get_layout_placements(layout)[0])->location->x, 0);
+        ASSERT_EQ(root.get_layout_physical_ports(layout).size(), 2u);
+        for (const PhysicalPortId port : root.get_layout_physical_ports(layout))
+            EXPECT_EQ(root.get_physical_port_segments(port).size(), 1u) << root.get_physical_port(port)->name;
+        const PhysicalPortData *p1 = root.get_physical_port(root.get_physical_port_by_name(layout, "P1"));
+        ASSERT_NE(p1, nullptr);
+        EXPECT_EQ(p1->location->x, 100);
+        ASSERT_EQ(root.get_layout_routes(layout).size(), 2u);
+        EXPECT_EQ(wiring_counts(root, root.get_route_by_name(layout, "VDD")), (WiringCounts{.special_wires = 1}));
+        EXPECT_EQ(wiring_counts(root, root.get_route_by_name(layout, "SIG")), (WiringCounts{.regular_wires = 1}));
+        expect_no_orphans(root);
+    }
+
+    TEST(DEFReaderNets, AUseTheTwoSectionsDisagreeOnKeepsTheFirstWithAWarning)
+    {
+        const std::string path = test::scratch_path("le_def_reader_use_mismatch.def");
+        std::ofstream(path) << "VERSION 5.8 ;\nDESIGN use_mismatch ;\nUNITS DISTANCE MICRONS 1000 ;\n"
+                               "SPECIALNETS 1 ;\n- VDD + USE POWER ;\nEND SPECIALNETS\n"
+                               "NETS 1 ;\n- VDD + USE GROUND ;\nEND NETS\nEND DESIGN\n";
+        Root root;
+        add_route_test_technology(root);
+        DEFReader reader;
+        ASSERT_EQ(reader.read_def(path, root, "test_lib"), 0);
+        EXPECT_TRUE(has_message(reader, "NET VDD: USE GROUND differs from the other section's USE POWER - kept POWER"));
+        const LayoutId layout = root.get_design_layout(find_design_by_name(root, "use_mismatch"));
+        EXPECT_EQ(root.get_route(root.get_route_by_name(layout, "VDD"))->use, std::optional<std::string>("POWER"));
     }
 }

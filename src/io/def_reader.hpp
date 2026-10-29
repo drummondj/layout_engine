@@ -7,6 +7,7 @@
 #include "../database/wire_helpers.hpp"
 #include "spdlog/spdlog.h"
 #include <unordered_map>
+#include <unordered_set>
 
 namespace le
 {
@@ -88,6 +89,9 @@ namespace le
         double unit_scale_ = 1.0;
         // Routed vias by name, resolved once per read (VIAS precedes NETS).
         std::unordered_map<std::string, WireViaTarget> wire_vias_;
+        // The nets read from NETS [0] and SPECIALNETS [1]: a net may be in
+        // both sections, but only once in each.
+        std::unordered_set<std::string> nets_read_[2];
         std::vector<std::string> messages_;
     };
 }

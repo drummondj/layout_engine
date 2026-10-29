@@ -622,7 +622,7 @@ TEST_F(IncrementalFixture, EditingAndDeletingARouteRebuildsOnlyTheRoutesChunk)
     const ShapeId shape = root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .layer = m1, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
     const HierarchyResolverOutput before = runner.run(view_layers_handle, 0, options_for(HierarchyId{top_layout}, 2));
 
-    ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{80, 5}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+    ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{80, 5}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     const HierarchyResolverOutput edited = rerun_and_compare();
     EXPECT_TRUE(runner.stage().last_compute_was_incremental());
     EXPECT_EQ(rebuilt_chunks(before, edited, HierarchyId{top_layout}), 1u); // its route tile
@@ -687,7 +687,7 @@ TEST_F(IncrementalFixture, EditingACellsTerminalRebuildsOnlyThatCell)
     ShapeId terminal_shape;
     root.for_each_shape_id([&](ShapeId id)
                            { if (root.get_shape(id)->terminal_port().valid()) terminal_shape = id; });
-    ASSERT_TRUE(root.update_shape(terminal_shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{1, 1}, .ur = Point{3, 3}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+    ASSERT_TRUE(root.update_shape(terminal_shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{1, 1}, .ur = Point{3, 3}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     const HierarchyResolverOutput &after = rerun_and_compare();
 
     EXPECT_TRUE(runner.stage().last_compute_was_incremental());
@@ -702,7 +702,7 @@ TEST_F(IncrementalFixture, ChangingACellsBoundaryRebuildsThePlacementsOfIt)
     ShapeId boundary;
     root.for_each_shape_id([&](ShapeId id)
                            { if (root.get_shape(id)->abstract() == leaf_abstract) boundary = id; });
-    ASSERT_TRUE(root.update_shape(boundary, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{20, 30}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+    ASSERT_TRUE(root.update_shape(boundary, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{20, 30}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     rerun_and_compare();
     EXPECT_TRUE(runner.stage().last_compute_was_incremental());
 }
@@ -793,7 +793,7 @@ TEST_F(IncrementalFixture, EditsInABigLayoutRebuildOnlyTheirTiles)
 
     // One route shape: its tile only.
     ASSERT_TRUE(root.update_shape(route_shapes[2525], std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                                  std::vector<Rect>{Rect{.ll = Point{1250, 2500}, .ur = Point{1290, 2505}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+                                  std::vector<Rect>{Rect{.ll = Point{1250, 2500}, .ur = Point{1290, 2505}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     const HierarchyResolverOutput route_edited = rerun_and_compare();
     EXPECT_TRUE(runner.stage().last_compute_was_incremental());
     EXPECT_EQ(rebuilt_chunks(before, route_edited, HierarchyId{top_layout}), 1u);
