@@ -31,6 +31,24 @@ namespace
     };
 }
 
+// A frame keeps its layer rows while the console thread rebuilds the
+// handle's (a colour reset, another read_lef).
+TEST_F(GuiProviderFixture, LayerRowsKeepTheirNamesAcrossALayerRowRebuild)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    const auto &layers = provider.state().layer_manager.layers;
+    ASSERT_EQ(layers.size(), 1u);
+
+    ASSERT_EQ(le_set_layer_color(handle, "M1", 1, 2, 3), 0);
+    le_reset_layer_color(handle, "M1");
+    ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many"), 0);
+    ASSERT_GT(le_layer_count(handle), 0);
+
+    EXPECT_EQ(layers[0].name, "M1");
+}
+
 // The Layers panel lists technology layers only. Pseudo-rows with
 // no physical Layer (ROW, BOUNDARY, PLACEMENT,
 // GCELLGRID, PLACEMENT_BLOCKAGE, REGION, DEBUG, FLIGHTLINE, ...) have only a
@@ -44,7 +62,7 @@ TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPur
     provider.refresh();
     const auto &layers = provider.state().layer_manager.layers;
     ASSERT_EQ(layers.size(), 1u); // testcell.lef declares one Technology layer
-    EXPECT_STREQ(layers[0].row.name, "M1");
+    EXPECT_EQ(layers[0].name, "M1");
 
     // The pseudo-rows' own purposes are still listed.
     const auto &purposes = provider.state().layer_manager.purposes;
@@ -165,7 +183,7 @@ TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
         if (row.name && row.has_physical_layer)
         {
             ASSERT_LT(static_cast<size_t>(physical_rows), layers.size());
-            EXPECT_STREQ(layers[physical_rows].row.name, row.name);
+            EXPECT_EQ(layers[physical_rows].name, row.name);
             ++physical_rows;
         }
     }

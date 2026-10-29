@@ -17,6 +17,12 @@
 // thread (le_render_pixel_buffer()) while the GUI thread forwards input
 // (le_set_mouse_position(), le_mouse_down()/up(), le_zoom(), ...) and the
 // Tcl console thread runs commands - all on the same handle.
+//
+// Returned strings: a `const char*` result or struct field is owned by the
+// function that returned it and the calling thread, never by the caller.
+// It stays valid until that function's next call on the same thread,
+// whatever other threads do to the handle meanwhile. Functions documented
+// as returning static storage are valid for the life of the process.
 
 #ifdef __cplusplus
 extern "C"
@@ -58,9 +64,8 @@ extern "C"
     typedef struct LeLibraryInfo
     {
         LeLibraryId id;
-        /// Owned by the handle's Root - valid until the handle is
-        /// destroyed, never owned by the caller. Null if this row is
-        /// invalid (out-of-range index or null handle).
+        /// Valid until this thread's next le_library_at() call. Null if
+        /// this row is invalid (out-of-range index or null handle).
         const char *name;
     } LeLibraryInfo;
 
@@ -81,9 +86,8 @@ extern "C"
         /// independent views, same as Root::get_design_abstract/
         /// get_design_layout's own "may return an invalid id" contract).
         LeLayoutId layout_id;
-        /// Owned by the handle's Root - valid until the handle is
-        /// destroyed, never owned by the caller. Null if this row is
-        /// invalid (out-of-range index or null handle).
+        /// Valid until this thread's next le_library_design_at() call.
+        /// Null if this row is invalid (out-of-range index or null handle).
         const char *name;
     } LeDesignInfo;
 
@@ -99,9 +103,8 @@ extern "C"
     /// "columns" axis).
     typedef struct LeLayerRow
     {
-        /// Owned by the handle's Root - valid until the handle is
-        /// destroyed, never owned by the caller. Null if this row is
-        /// invalid (out-of-range index or null handle).
+        /// Valid until this thread's next le_layer_at() call. Null if
+        /// this row is invalid (out-of-range index or null handle).
         const char *name;
         /// This row's own outline color, for a swatch next to its name -
         /// not the fill color or FillPattern, which draw_group already
@@ -398,14 +401,11 @@ extern "C"
     int32_t le_design_count(LeHandle *handle);
 
     /// @brief Name of the Design at `index` (0..le_design_count()-1).
-    /// Returns null if handle is null or index is out of range. The
-    /// returned pointer is owned by the handle's Root - valid until the
-    /// handle is destroyed (no Design-removal API exists yet), never
-    /// owned by the caller.
+    /// Returns null if handle is null or index is out of range.
     const char *le_design_name(LeHandle *handle, int32_t index);
 
-    /// @brief Whether the most recent le_X_property_path call on this
-    /// handle (any class - one shared flag, not per-class) logged a
+    /// @brief Whether this thread's most recent le_X_property_path call
+    /// on any handle (any class - one shared flag, not per-class) logged a
     /// parse/validation error via spdlog::error, as opposed to
     /// resolving cleanly (possibly to nothing, e.g. a structurally valid
     /// path whose last hop is an empty list - that case logs nothing and
@@ -722,9 +722,7 @@ extern "C"
     int32_t le_command_history_count(LeHandle *handle);
 
     /// @brief The command text at `index` (0..le_command_history_count()-1).
-    /// Owned by the handle - valid until the handle is destroyed (entries
-    /// are never removed/reordered). Returns null if handle is null or
-    /// index is out of range.
+    /// Returns null if handle is null or index is out of range.
     const char *le_command_history_at(LeHandle *handle, int32_t index);
 
     /// @brief Clears the current selection (same underlying behavior as
@@ -1011,7 +1009,7 @@ extern "C"
     int32_t le_object_filter_value_count(LeHandle *handle, int32_t filter);
 
     /// @brief The `index`th value of `filter`, upper-case, or null if out of
-    /// range. Owned by `handle`; valid until the next database change.
+    /// range.
     const char *le_object_filter_value_at(LeHandle *handle, int32_t filter, int32_t index);
 
     /// @brief Nonzero if objects with `value` are drawn and hit-tested
@@ -1650,13 +1648,12 @@ extern "C"
 
     /// @brief One name/value row of an object's property table - a caller
     /// reads `type` to know which of string_value/int_value/double_value
-    /// to use; the other two are unspecified. `name`/`string_value` point
-    /// into memory owned by the LeHandle - valid only until the next
-    /// le_object_property_at()/le_object_property_count() call *for the
-    /// same LeObjectRef* (a different ref may invalidate them sooner) -
-    /// same "valid until the next call" convention as LePixelBuffer,
-    /// never owned by the caller and never to be freed by it. `name` is
-    /// null (and every other field 0/unspecified) if this row is invalid
+    /// to use; the other two are unspecified. `name`/`string_value` belong
+    /// to the calling thread's property table for that class (one more
+    /// serves every le_object_property_* call): valid until this thread
+    /// asks that table for another object or the database changes. For
+    /// le_X_property_path, valid until its next call on this thread. `name` is null (and
+    /// every other field 0/unspecified) if this row is invalid
     /// (out-of-range index or null handle).
     typedef struct LeProperty
     {
@@ -1721,23 +1718,6 @@ extern "C"
     /// Returns an all-null/zero row (LeProperty::name == nullptr) if
     /// handle is null, ref doesn't resolve, or index is out of range.
     LeProperty le_object_property_at(LeHandle *handle, LeObjectRef ref, int32_t index);
-
-    /// @brief Whether le_object_property_count/_at would hit their own
-    /// fast, shared-lock-only path for `ref` right now (le_handle.hpp's
-    /// own cached_object_property_ref already matches it), rather than
-    /// needing to escalate to a write lock to rebuild - always
-    /// shared_lock-only itself, so safe to call unconditionally even
-    /// while a render is in progress (never blocks behind one - same
-    /// reasoning as le_render_pixel_buffer itself, le_handle.hpp's own
-    /// mutex_ doc comment). Meant for a caller (property_viewer.cpp) that
-    /// wants to know, before actually calling le_object_property_count/_at,
-    /// whether doing so right now risks blocking behind an in-progress
-    /// render - so it only needs to degrade (skip for a frame) in the one
-    /// case that actually needs it (the cache genuinely going stale, e.g.
-    /// a fresh selection), not every frame a render merely happens to be
-    /// in flight regardless of whether `ref` is already cached. Returns 0
-    /// if handle is null.
-    int32_t le_object_property_cache_current(LeHandle *handle, LeObjectRef ref);
 
     /// @brief `ref`'s immediate parent in the database hierarchy (Shape's
     /// own terminal_port/obstruction field, TerminalPort's terminal,
@@ -1907,14 +1887,9 @@ extern "C"
     void le_enqueue_tcl_command(LeHandle *handle, const char *command);
 
     /// @brief Pops and returns the oldest command queued via
-    /// le_enqueue_tcl_command(), or null if none is pending. The
-    /// returned pointer refers to storage owned by the handle - valid
-    /// only until the *next* le_take_next_pending_tcl_command() call on
-    /// the same handle (same "valid until the next call" convention as
-    /// LeProperty's string fields) - copy it out (e.g.
-    /// into a Tcl_Eval call) before then. Thread-safe: meant to be
-    /// polled from whichever thread owns evaluating these (le_shell.cpp's
-    /// own console thread).
+    /// le_enqueue_tcl_command(), or null if none is pending. Thread-safe:
+    /// meant to be polled from whichever thread owns evaluating these
+    /// (le_shell.cpp's own console thread).
     const char *le_take_next_pending_tcl_command(LeHandle *handle);
 
     // --- CRUD + filter-search - layered on top of Root's primitives
@@ -1961,11 +1936,7 @@ extern "C"
 
     /// @brief The Terminal at `id`'s own name - a direct field accessor
     /// (unlike le_terminal_property_at's stringly-typed property table),
-    /// for a caller that just wants the name itself. Returned pointer is
-    /// owned by the handle's Root - valid until the next call that
-    /// mutates this handle's Terminal pool (same convention as
-    /// le_design_name) - copy out immediately, don't hold across another
-    /// call. Returns nullptr if handle is null or id doesn't name a
+    /// for a caller that just wants the name itself. Returns nullptr if handle is null or id doesn't name a
     /// Terminal on this handle.
     const char *le_terminal_name(LeHandle *handle, LeTerminalId id);
 
@@ -1975,8 +1946,7 @@ extern "C"
     /// (index == UINT32_MAX) if handle/name is null or nothing matches.
     LeDesignId le_design_by_name(LeHandle *handle, const char *name);
 
-    /// @brief The name of the Design at `id`. Owned by the handle's Root -
-    /// valid until the handle is destroyed. Returns nullptr if handle is
+    /// @brief The name of the Design at `id`. Returns nullptr if handle is
     /// null or id doesn't name a Design on this handle.
     const char *le_design_name_by_id(LeHandle *handle, LeDesignId id);
 
@@ -2034,8 +2004,7 @@ extern "C"
     /// its name when the current Schematic owns it, else the "/"-joined
     /// Instance path to it from the current Schematic (shortest, each name
     /// backslash-escaping "/" and "\"), e.g. "u_mid/u_leaf"; its plain name
-    /// when the current Schematic doesn't reach it. Valid until the next
-    /// call on `handle`; null for an invalid id.
+    /// when the current Schematic doesn't reach it. Null for an invalid id.
     const char *le_port_token_name(LeHandle *handle, LePortId id);
     const char *le_net_token_name(LeHandle *handle, LeNetId id);
     const char *le_instance_token_name(LeHandle *handle, LeInstanceId id);
@@ -2417,10 +2386,7 @@ extern "C"
     /// range.
     LeShapeId le_obstruction_shape_at(LeHandle *handle, LeObstructionId id, int32_t index);
 
-    /// @brief The layer name of the Shape at `id`. Owned by the handle's
-    /// Root - valid until the handle is destroyed, this shape is
-    /// deleted, or le_update_shape changes it, never owned by
-    /// the caller. Returns null if handle is null or id doesn't name a
+    /// @brief The layer name of the Shape at `id`. Returns null if handle is null or id doesn't name a
     /// Shape on this handle.
     const char *le_shape_layer_name(LeHandle *handle, LeShapeId id);
 

@@ -31,9 +31,8 @@ Le{{klass.name}}Id le_{{klass.to_snake_case()}}_by_{{id_field.name}}(LeHandle *h
 /// hand-written precedent) so it can never collide with an unrelated,
 /// differently-shaped accessor of the bare name for some other class
 /// (e.g. le_design_name(LeHandle*, int32_t index), a flat-index
-/// enumeration accessor predating this generator). Owned by the handle's
-/// Root - valid until the handle is destroyed. Returns nullptr if handle
-/// is null or id doesn't name a {{klass.name}} on this handle.
+/// enumeration accessor predating this generator). Returns nullptr if
+/// handle is null or id doesn't name a {{klass.name}} on this handle.
 const char *le_{{klass.to_snake_case()}}_{{id_field.name}}_by_id(LeHandle *handle, Le{{klass.name}}Id id);
 {% endif -%}
 {% endfor %}

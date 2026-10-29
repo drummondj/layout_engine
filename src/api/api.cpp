@@ -47,6 +47,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -1701,6 +1702,124 @@ namespace
         };
     }
 
+    LeProperty invalid_property()
+    {
+        return LeProperty{.name = nullptr, .type = LE_PROPERTY_TYPE_STRING, .string_value = nullptr, .int_value = 0, .double_value = 0.0};
+    }
+
+    // The handle and database state a per-thread cache was built from.
+    struct CacheStamp
+    {
+        uint64_t handle_serial = 0; // LeHandle::serial starts at 1
+        uint64_t mutation_version = 0;
+        uint64_t change_log_end = 0;
+
+        bool operator==(const CacheStamp &) const = default;
+    };
+
+    CacheStamp cache_stamp(const LeHandle &handle)
+    {
+        return CacheStamp{.handle_serial = handle.serial,
+                          .mutation_version = handle.root.mutation_version(),
+                          .change_log_end = handle.root.change_log().end_sequence()};
+    }
+
+    // Which object a per-thread property table was built for (`kind`
+    // only for le_object_property_*, whose table serves every class).
+    struct PropertyTableKey
+    {
+        int32_t kind = -1;
+        uint32_t index = UINT32_MAX;
+        uint32_t generation = 0;
+
+        bool operator==(const PropertyTableKey &) const = default;
+    };
+
+    struct PropertyTable
+    {
+        CacheStamp stamp;
+        PropertyTableKey key;
+        std::vector<le::PropertyValue> properties;
+    };
+
+    // What the C API hands back by pointer on this thread, so a result
+    // stays valid after the handle lock is released.
+    struct ThreadResults
+    {
+        // One string per returning function, keyed by its name.
+        std::unordered_map<std::string_view, std::string> strings;
+
+        // le_*_property_count/_at's tables, one per builder: per class,
+        // plus le_object_property_*'s.
+        std::unordered_map<const void *, PropertyTable> property_tables;
+
+        // le_<type>_token_name's Instance paths from `token_paths_from`.
+        CacheStamp token_paths_stamp;
+        le::SchematicId token_paths_from{};
+        std::unordered_map<le::SchematicId, std::string> token_paths;
+
+        // le_<type>_property_path's result, and whether the last such
+        // call failed (le_property_path_failed).
+        le::PropertyValue property_path_value;
+        bool property_path_failed = false;
+    };
+
+    // Allocated per thread on first use: le_tcl.so is dlopen'ed with
+    // static TLS, which has room for a pointer but not for these.
+    ThreadResults &thread_results()
+    {
+        thread_local std::unique_ptr<ThreadResults> results;
+        if (!results)
+            results = std::make_unique<ThreadResults>();
+        return *results;
+    }
+
+    // Copies `value` into `function`'s string for this thread: valid until
+    // that function's next call on this thread.
+    const char *hold_string(std::string_view function, std::string_view value)
+    {
+        std::string &slot = thread_results().strings[function];
+        slot.assign(value);
+        return slot.c_str();
+    }
+
+    template <typename Tag>
+    PropertyTableKey property_table_key(le::Id<Tag> id)
+    {
+        return PropertyTableKey{.kind = -1, .index = id.index, .generation = id.generation};
+    }
+
+    PropertyTableKey property_table_key(LeObjectRef ref)
+    {
+        return PropertyTableKey{.kind = ref.kind, .index = ref.index, .generation = ref.generation};
+    }
+
+    // This thread's `build` table for `key`, rebuilt when it was last
+    // built for another object or the database has changed since. Built
+    // under a shared lock; its rows' strings stay valid until it rebuilds.
+    template <typename Key>
+    const std::vector<le::PropertyValue> &thread_properties(const LeHandle &handle, Key key,
+                                                            std::vector<le::PropertyValue> (*build)(const le::Root &, Key))
+    {
+        PropertyTable &table = thread_results().property_tables[reinterpret_cast<const void *>(build)];
+        const CacheStamp stamp = cache_stamp(handle);
+        const PropertyTableKey table_key = property_table_key(key);
+        if (table.stamp != stamp || table.key != table_key)
+        {
+            table.properties = build(handle.root, key);
+            table.stamp = stamp;
+            table.key = table_key;
+        }
+        return table.properties;
+    }
+
+    LeProperty property_row(const std::vector<le::PropertyValue> &properties, int32_t index)
+    {
+        if (index < 0 || static_cast<size_t>(index) >= properties.size())
+            return invalid_property();
+        return to_c(properties[static_cast<size_t>(index)]);
+    }
+
     // `-filter` validation (every le_get_* function
     // below) - a hand-maintained allowlist of each class's filterable leaf
     // fields and hops, cross-checked directly against each class's own
@@ -2778,29 +2897,26 @@ namespace
                     handle->set_view_flip(static_cast<le::ViewFlip>(i));
     }
 
-    // A Schematic object's token name (le_<type>_token_name): its own name
-    // when the current Schematic owns it, else its escaped Instance path
-    // from there, else (the current Schematic doesn't reach `owner`) its
-    // plain name.
-    const char *schematic_object_token_name(LeHandle *handle, le::SchematicId owner, const std::string &name)
+    // A Schematic object's token name (le_<type>_token_name), held as
+    // `function`'s string: its own name when the current Schematic owns
+    // it, else its escaped Instance path from there, else (the current
+    // Schematic doesn't reach `owner`) its plain name.
+    const char *schematic_object_token_name(const LeHandle *handle, le::SchematicId owner, const std::string &name, std::string_view function)
     {
         if (owner == handle->current_schematic_id)
-            return name.c_str();
-        const le::Root &root = handle->root;
-        if (handle->token_paths_root != handle->current_schematic_id ||
-            handle->token_paths_change_log != root.change_log().end_sequence() ||
-            handle->token_paths_mutation_version != root.mutation_version())
+            return hold_string(function, name);
+        ThreadResults &results = thread_results();
+        const CacheStamp stamp = cache_stamp(*handle);
+        if (results.token_paths_stamp != stamp || results.token_paths_from != handle->current_schematic_id)
         {
-            handle->token_paths = le::hierarchy::schematic_paths(root, handle->current_schematic_id);
-            handle->token_paths_root = handle->current_schematic_id;
-            handle->token_paths_change_log = root.change_log().end_sequence();
-            handle->token_paths_mutation_version = root.mutation_version();
+            results.token_paths = le::hierarchy::schematic_paths(handle->root, handle->current_schematic_id);
+            results.token_paths_stamp = stamp;
+            results.token_paths_from = handle->current_schematic_id;
         }
-        const auto it = handle->token_paths.find(owner);
-        if (it == handle->token_paths.end())
-            return name.c_str();
-        handle->token_name = it->second + le::hierarchy::escape_segment(name);
-        return handle->token_name.c_str();
+        const auto it = results.token_paths.find(owner);
+        if (it == results.token_paths.end())
+            return hold_string(function, name);
+        return hold_string(function, it->second + le::hierarchy::escape_segment(name));
     }
 
     // The object a token name names: an exact name in the current
@@ -3670,9 +3786,7 @@ extern "C"
         if (!handle)
             return "";
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        thread_local std::string path;
-        path = handle->db_path;
-        return path.c_str();
+        return hold_string(__func__, handle->db_path);
     }
 
     int32_t le_database_is_empty(LeHandle *handle)
@@ -3744,7 +3858,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->root.get_design_size());
     }
 
@@ -3752,22 +3866,21 @@ extern "C"
     {
         if (!handle || index < 0)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const auto design_ids = handle->root.get_design_ids();
         if (static_cast<size_t>(index) >= design_ids.size())
             return nullptr;
 
         const le::DesignData *design = handle->root.get_design(design_ids[static_cast<size_t>(index)]);
-        return design ? design->name.c_str() : nullptr;
+        return design ? hold_string(__func__, design->name) : nullptr;
     }
 
     int32_t le_property_path_failed(LeHandle *handle)
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
-        return handle->last_property_path_failed ? 1 : 0;
+        return thread_results().property_path_failed ? 1 : 0;
     }
 
     int le_set_current_design_abstract(LeHandle *handle, int32_t index)
@@ -3826,7 +3939,7 @@ extern "C"
 
         const le::LibraryId id = library_ids[static_cast<size_t>(index)];
         const le::LibraryData *library = handle->root.get_library(id);
-        return LeLibraryInfo{.id = to_c(id), .name = library ? library->name.c_str() : nullptr};
+        return LeLibraryInfo{.id = to_c(id), .name = library ? hold_string(__func__, library->name) : nullptr};
     }
 
     int32_t le_library_design_count(LeHandle *handle, int32_t library_index)
@@ -3865,7 +3978,7 @@ extern "C"
             .id = to_c(design_id),
             .abstract_id = to_c(handle->root.get_design_abstract(design_id)),
             .layout_id = to_c(handle->root.get_design_layout(design_id)),
-            .name = design ? design->name.c_str() : nullptr,
+            .name = design ? hold_string(__func__, design->name) : nullptr,
         };
     }
 
@@ -3878,7 +3991,7 @@ extern "C"
         const LeTechnologyId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const auto technology_ids = handle->root.get_technology_ids();
         if (technology_ids.empty())
@@ -3995,7 +4108,7 @@ extern "C"
             const le::ViewLayerRow &row = rows[static_cast<size_t>(row_index)];
             const le::ViewLayerData *first_column = row.columns.empty() ? nullptr : view_layers.get(row.columns.front().id);
             return LeLayerRow{
-                .name = row.name.c_str(),
+                .name = hold_string("le_layer_at", row.name),
                 .color_r = first_column ? first_column->style.outline_color.r : uint8_t{0},
                 .color_g = first_column ? first_column->style.outline_color.g : uint8_t{0},
                 .color_b = first_column ? first_column->style.outline_color.b : uint8_t{0},
@@ -4102,7 +4215,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->rulers().size());
     }
 
@@ -4110,7 +4223,7 @@ extern "C"
     {
         if (!handle || ruler_index < 0)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         const auto &rulers = handle->rulers();
         if (static_cast<size_t>(ruler_index) >= rulers.size())
             return 0;
@@ -4122,7 +4235,7 @@ extern "C"
         constexpr LeRulerPoint kInvalid{.x_um = 0.0, .y_um = 0.0};
         if (!handle || ruler_index < 0 || point_index < 0)
             return kInvalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         const auto &rulers = handle->rulers();
         if (static_cast<size_t>(ruler_index) >= rulers.size())
             return kInvalid;
@@ -4196,24 +4309,36 @@ extern "C"
 
     int32_t le_can_undo(LeHandle *handle)
     {
-        return handle && handle->command_history.can_undo() ? 1 : 0;
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->command_history.can_undo() ? 1 : 0;
     }
 
     int32_t le_can_redo(LeHandle *handle)
     {
-        return handle && handle->command_history.can_redo() ? 1 : 0;
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return handle->command_history.can_redo() ? 1 : 0;
     }
 
     int32_t le_command_history_count(LeHandle *handle)
     {
-        return handle ? static_cast<int32_t>(handle->command_history.recall_count()) : 0;
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(handle->command_history.recall_count());
     }
 
     const char *le_command_history_at(LeHandle *handle, int32_t index)
     {
-        if (!handle || index < 0 || static_cast<size_t>(index) >= handle->command_history.recall_count())
+        if (!handle || index < 0)
             return nullptr;
-        return handle->command_history.recall_at(static_cast<size_t>(index)).c_str();
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        if (static_cast<size_t>(index) >= handle->command_history.recall_count())
+            return nullptr;
+        return hold_string(__func__, handle->command_history.recall_at(static_cast<size_t>(index)));
     }
 
     void le_deselect_all(LeHandle *handle)
@@ -4595,7 +4720,7 @@ extern "C"
         const std::vector<std::string> *values = object_filter_values(handle, filter);
         if (!values || static_cast<size_t>(index) >= values->size())
             return nullptr;
-        return (*values)[static_cast<size_t>(index)].c_str();
+        return hold_string(__func__, (*values)[static_cast<size_t>(index)]);
     }
 
     int32_t le_is_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value)
@@ -4708,7 +4833,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->minor_grid_spacing();
     }
 
@@ -4724,7 +4849,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->major_grid_spacing();
     }
 
@@ -5505,73 +5630,16 @@ extern "C"
     {
         if (!handle)
             return 0;
-
-        // Double-checked, same shape as view_layers_already_current's
-        // own callers - "already cached for this exact ref" under a
-        // shared_lock first (the common case, since every real caller
-        // calls le_object_property_count(ref) once and then loops
-        // le_object_property_at(ref, i) immediately after for the same
-        // ref - api_test.cpp/property_viewer.cpp confirmed, no caller
-        // anywhere calls _count twice in a row for the same ref
-        // expecting a forced re-read), only escalating to a unique_lock
-        // to actually rebuild when ref is genuinely different from
-        // what's cached. Previously rebuilt unconditionally on every
-        // call regardless of ref, unlike le_object_property_at's own
-        // same_object_ref check just below - aligned with that existing
-        // behavior here (a strictly narrower cache-hit condition than
-        // "always rebuild", so this can only return calls that were
-        // already stale-free) rather than left needing an unconditional
-        // unique_lock the same "looks read-only, secretly always
-        // writes" way it did before.
-        {
-            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-            if (same_object_ref(handle->cached_object_property_ref, ref))
-                return static_cast<int32_t>(handle->cached_object_properties.size());
-        }
-        HandleWriteLock write_lock(handle);
-        handle->cached_object_properties = build_object_properties(handle->root, ref);
-        handle->cached_object_property_ref = ref;
-        return static_cast<int32_t>(handle->cached_object_properties.size());
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(thread_properties(*handle, ref, build_object_properties).size());
     }
 
     LeProperty le_object_property_at(LeHandle *handle, LeObjectRef ref, int32_t index)
     {
-        const LeProperty invalid{.name = nullptr, .type = LE_PROPERTY_TYPE_STRING, .string_value = nullptr, .int_value = 0, .double_value = 0.0};
-        if (!handle || index < 0)
-            return invalid;
-
-        // Double-checked - le_object_property_count's own comment above.
-        {
-            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-            if (same_object_ref(handle->cached_object_property_ref, ref))
-            {
-                if (static_cast<size_t>(index) >= handle->cached_object_properties.size())
-                    return invalid;
-                return to_c(handle->cached_object_properties[static_cast<size_t>(index)]);
-            }
-        }
-        HandleWriteLock write_lock(handle);
-        if (!same_object_ref(handle->cached_object_property_ref, ref))
-        {
-            handle->cached_object_properties = build_object_properties(handle->root, ref);
-            handle->cached_object_property_ref = ref;
-        }
-
-        if (static_cast<size_t>(index) >= handle->cached_object_properties.size())
-            return invalid;
-
-        return to_c(handle->cached_object_properties[static_cast<size_t>(index)]);
-    }
-
-    int32_t le_object_property_cache_current(LeHandle *handle, LeObjectRef ref)
-    {
         if (!handle)
-            return 0;
-        // Always shared_lock, never escalates - le_object_property_count's
-        // own doc comment (api.hpp) explains why this is safe to call
-        // unconditionally, including while a render is in progress.
+            return invalid_property();
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return same_object_ref(handle->cached_object_property_ref, ref) ? 1 : 0;
+        return property_row(thread_properties(*handle, ref, build_object_properties), index);
     }
 
     LeObjectRef le_object_parent(LeHandle *handle, LeObjectRef ref)
@@ -5788,7 +5856,7 @@ extern "C"
             return nullptr;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         const le::DesignData *data = handle->root.get_design(from_c(id));
-        return data ? data->name.c_str() : nullptr;
+        return data ? hold_string(__func__, data->name) : nullptr;
     }
 
     LeLibraryId le_design_library_by_id(LeHandle *handle, LeDesignId id)
@@ -5806,7 +5874,7 @@ extern "C"
         const LeTerminalId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         // handle->current_abstract_id (le_set_current_abstract/
         // le_current_abstract's own generated field), not
@@ -5833,10 +5901,10 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::TerminalData *terminal = handle->root.get_terminal(from_c(id));
-        return terminal ? terminal->name.c_str() : nullptr;
+        return terminal ? hold_string(__func__, terminal->name) : nullptr;
     }
 
     LeRowId le_row_by_name(LeHandle *handle, const char *name)
@@ -5844,7 +5912,7 @@ extern "C"
         const LeRowId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::RowId id = handle->root.get_row_by_name(handle->current_layout_id, name);
         return id.valid() ? to_c(id) : invalid;
@@ -5854,10 +5922,10 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::RowData *row = handle->root.get_row(from_c(id));
-        return row ? row->name.c_str() : nullptr;
+        return row ? hold_string(__func__, row->name) : nullptr;
     }
 
     LePlacementId le_placement_by_name(LeHandle *handle, const char *name)
@@ -5865,7 +5933,7 @@ extern "C"
         const LePlacementId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PlacementId id = handle->root.get_placement_by_name(handle->current_layout_id, name);
         return id.valid() ? to_c(id) : invalid;
@@ -5875,10 +5943,10 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PlacementData *placement = handle->root.get_placement(from_c(id));
-        return placement ? placement->name.c_str() : nullptr;
+        return placement ? hold_string(__func__, placement->name) : nullptr;
     }
 
     LePhysicalPortId le_physical_port_by_name(LeHandle *handle, const char *name)
@@ -5886,7 +5954,7 @@ extern "C"
         const LePhysicalPortId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PhysicalPortId id = handle->root.get_physical_port_by_name(handle->current_layout_id, name);
         return id.valid() ? to_c(id) : invalid;
@@ -5896,10 +5964,10 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PhysicalPortData *physical_port = handle->root.get_physical_port(from_c(id));
-        return physical_port ? physical_port->name.c_str() : nullptr;
+        return physical_port ? hold_string(__func__, physical_port->name) : nullptr;
     }
 
     LeRouteId le_route_by_name(LeHandle *handle, const char *name)
@@ -5907,7 +5975,7 @@ extern "C"
         const LeRouteId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::RouteId id = handle->root.get_route_by_name(handle->current_layout_id, name);
         return id.valid() ? to_c(id) : invalid;
@@ -5917,10 +5985,10 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::RouteData *route = handle->root.get_route(from_c(id));
-        return route ? route->name.c_str() : nullptr;
+        return route ? hold_string(__func__, route->name) : nullptr;
     }
 
     LeRegionId le_region_by_name(LeHandle *handle, const char *name)
@@ -5928,7 +5996,7 @@ extern "C"
         const LeRegionId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::RegionId id = handle->root.get_region_by_name(handle->current_layout_id, name);
         return id.valid() ? to_c(id) : invalid;
@@ -5938,10 +6006,10 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::RegionData *region = handle->root.get_region(from_c(id));
-        return region ? region->name.c_str() : nullptr;
+        return region ? hold_string(__func__, region->name) : nullptr;
     }
 
     LeLayoutViaId le_layout_via_by_name(LeHandle *handle, const char *name)
@@ -5949,7 +6017,7 @@ extern "C"
         const LeLayoutViaId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::LayoutViaId id = handle->root.get_layout_via_by_name(handle->current_layout_id, name);
         return id.valid() ? to_c(id) : invalid;
@@ -5959,10 +6027,10 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::LayoutViaData *layout_via = handle->root.get_layout_via(from_c(id));
-        return layout_via ? layout_via->name.c_str() : nullptr;
+        return layout_via ? hold_string(__func__, layout_via->name) : nullptr;
     }
 
     LePortId le_port_by_name(LeHandle *handle, const char *name)
@@ -5970,7 +6038,7 @@ extern "C"
         const LePortId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PortId id = schematic_object_by_token_name<le::PortId>(
             handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
@@ -5982,20 +6050,20 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PortData *port = handle->root.get_port(from_c(id));
-        return port ? port->name.c_str() : nullptr;
+        return port ? hold_string(__func__, port->name) : nullptr;
     }
 
     const char *le_port_token_name(LeHandle *handle, LePortId id)
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PortData *port = handle->root.get_port(from_c(id));
-        return port ? schematic_object_token_name(handle, port->schematic, port->name) : nullptr;
+        return port ? schematic_object_token_name(handle, port->schematic, port->name, __func__) : nullptr;
     }
 
     LeNetId le_net_by_name(LeHandle *handle, const char *name)
@@ -6003,7 +6071,7 @@ extern "C"
         const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::NetId id = schematic_object_by_token_name<le::NetId>(
             handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
@@ -6015,20 +6083,20 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::NetData *net = handle->root.get_net(from_c(id));
-        return net ? net->name.c_str() : nullptr;
+        return net ? hold_string(__func__, net->name) : nullptr;
     }
 
     const char *le_net_token_name(LeHandle *handle, LeNetId id)
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::NetData *net = handle->root.get_net(from_c(id));
-        return net ? schematic_object_token_name(handle, net->schematic, net->name) : nullptr;
+        return net ? schematic_object_token_name(handle, net->schematic, net->name, __func__) : nullptr;
     }
 
     LeInstanceId le_instance_by_name(LeHandle *handle, const char *name)
@@ -6036,7 +6104,7 @@ extern "C"
         const LeInstanceId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::InstanceId id = schematic_object_by_token_name<le::InstanceId>(
             handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
@@ -6048,20 +6116,20 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::InstanceData *instance = handle->root.get_instance(from_c(id));
-        return instance ? instance->name.c_str() : nullptr;
+        return instance ? hold_string(__func__, instance->name) : nullptr;
     }
 
     const char *le_instance_token_name(LeHandle *handle, LeInstanceId id)
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::InstanceData *instance = handle->root.get_instance(from_c(id));
-        return instance ? schematic_object_token_name(handle, instance->schematic, instance->name) : nullptr;
+        return instance ? schematic_object_token_name(handle, instance->schematic, instance->name, __func__) : nullptr;
     }
 
     LePortBusId le_port_bus_by_name(LeHandle *handle, const char *name)
@@ -6069,7 +6137,7 @@ extern "C"
         const LePortBusId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PortBusId id = schematic_object_by_token_name<le::PortBusId>(
             handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
@@ -6081,20 +6149,20 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PortBusData *bus = handle->root.get_port_bus(from_c(id));
-        return bus ? bus->name.c_str() : nullptr;
+        return bus ? hold_string(__func__, bus->name) : nullptr;
     }
 
     const char *le_port_bus_token_name(LeHandle *handle, LePortBusId id)
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::PortBusData *bus = handle->root.get_port_bus(from_c(id));
-        return bus ? schematic_object_token_name(handle, bus->schematic, bus->name) : nullptr;
+        return bus ? schematic_object_token_name(handle, bus->schematic, bus->name, __func__) : nullptr;
     }
 
     LeNetBusId le_net_bus_by_name(LeHandle *handle, const char *name)
@@ -6102,7 +6170,7 @@ extern "C"
         const LeNetBusId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || !name)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::NetBusId id = schematic_object_by_token_name<le::NetBusId>(
             handle, name, [](const le::Root &root, le::SchematicId schematic, const std::string &n)
@@ -6114,20 +6182,20 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::NetBusData *bus = handle->root.get_net_bus(from_c(id));
-        return bus ? bus->name.c_str() : nullptr;
+        return bus ? hold_string(__func__, bus->name) : nullptr;
     }
 
     const char *le_net_bus_token_name(LeHandle *handle, LeNetBusId id)
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::NetBusData *bus = handle->root.get_net_bus(from_c(id));
-        return bus ? schematic_object_token_name(handle, bus->schematic, bus->name) : nullptr;
+        return bus ? schematic_object_token_name(handle, bus->schematic, bus->name, __func__) : nullptr;
     }
 
     // le_get_instances/nets/ports_by_path: the TCL-facing hierarchical
@@ -6305,7 +6373,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->root.get_terminal_port_shapes(from_c(id)).size());
     }
 
@@ -6314,7 +6382,7 @@ extern "C"
         const LeShapeId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || index < 0)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const std::vector<le::ShapeId> &shapes = handle->root.get_terminal_port_shapes(from_c(id));
         if (static_cast<size_t>(index) >= shapes.size())
@@ -6326,7 +6394,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return static_cast<int32_t>(handle->root.get_obstruction_shapes(from_c(id)).size());
     }
 
@@ -6335,7 +6403,7 @@ extern "C"
         const LeShapeId invalid{.index = UINT32_MAX, .generation = 0};
         if (!handle || index < 0)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const std::vector<le::ShapeId> &shapes = handle->root.get_obstruction_shapes(from_c(id));
         if (static_cast<size_t>(index) >= shapes.size())
@@ -6347,20 +6415,20 @@ extern "C"
     {
         if (!handle)
             return nullptr;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape)
             return nullptr;
         const le::LayerData *layer = handle->root.get_layer(shape->layer);
-        return layer ? layer->name.c_str() : nullptr;
+        return layer ? hold_string(__func__, layer->name) : nullptr;
     }
 
     int32_t le_shape_rect_count(LeHandle *handle, LeShapeId id)
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         return shape ? static_cast<int32_t>(shape->rects.size()) : 0;
@@ -6371,7 +6439,7 @@ extern "C"
         const LeRectUm invalid{.ll_x_um = 0, .ll_y_um = 0, .ur_x_um = 0, .ur_y_um = 0};
         if (!handle || index < 0)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(index) >= shape->rects.size())
@@ -6402,7 +6470,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         return shape ? static_cast<int32_t>(shape->polygons.size()) : 0;
@@ -6412,7 +6480,7 @@ extern "C"
     {
         if (!handle || polygon_index < 0)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(polygon_index) >= shape->polygons.size())
@@ -6425,7 +6493,7 @@ extern "C"
         const LePointUm invalid{.x_um = 0, .y_um = 0};
         if (!handle || polygon_index < 0 || point_index < 0)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(polygon_index) >= shape->polygons.size())
@@ -6454,7 +6522,7 @@ extern "C"
     {
         if (!handle)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         return shape ? static_cast<int32_t>(shape->paths.size()) : 0;
@@ -6464,7 +6532,7 @@ extern "C"
     {
         if (!handle || path_index < 0)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
@@ -6480,7 +6548,7 @@ extern "C"
     {
         if (!handle || path_index < 0)
             return 0;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
@@ -6493,7 +6561,7 @@ extern "C"
         const LePointUm invalid{.x_um = 0, .y_um = 0};
         if (!handle || path_index < 0 || point_index < 0)
             return invalid;
-        HandleWriteLock lock(handle);
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
 
         const le::ShapeData *shape = handle->root.get_shape(from_c(id));
         if (!shape || static_cast<size_t>(path_index) >= shape->paths.size())
@@ -6807,8 +6875,8 @@ extern "C"
         std::lock_guard<std::mutex> lock(handle->pending_tcl_commands_mutex_);
         if (handle->pending_tcl_commands_.empty())
             return nullptr;
-        handle->last_popped_tcl_command_ = std::move(handle->pending_tcl_commands_.front());
+        const char *command = hold_string(__func__, handle->pending_tcl_commands_.front());
         handle->pending_tcl_commands_.pop_front();
-        return handle->last_popped_tcl_command_.c_str();
+        return command;
     }
 }

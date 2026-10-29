@@ -173,20 +173,6 @@ namespace le::gui
         // fully expanded (a single chain, never branching, so nothing to
         // collapse), root at the top. Clicking a row only changes which
         // node ObjectDetail shows properties for, never the chain itself.
-        //
-        // token_for (and the name_of it calls) goes through
-        // GuiProvider::object_property_count/_at's own single-slot cache
-        // (see GuiProvider::would_block_property_lookup's own doc
-        // comment) - a real hazard here specifically, since this loop
-        // calls it once per *different* ref in the chain every single
-        // frame, thrashing that one-slot cache on every call rather than
-        // hitting its shared_lock fast path the way a stable, repeated
-        // same-ref query does elsewhere. provider.would_block_property_lookup
-        // above narrows the skip to only the ref(s) that would actually
-        // risk this, not every ref whenever a render merely happens to be
-        // running - mirrors GuiProvider::object_children's own
-        // LE_OBJECT_KIND_DESIGN case for the same underlying reason, just
-        // checked per-ref here since this loop's own refs vary by depth.
         void draw_hierarchy_tree(const GuiProvider &provider, const std::vector<LeObjectRef> &hierarchy, LeObjectRef &current_ref)
         {
             const float row_height = ImGui::GetTextLineHeightWithSpacing();
@@ -200,7 +186,7 @@ namespace le::gui
                 {
                     label += "> ";
                 }
-                label += provider.would_block_property_lookup(ref) ? "..." : token_for(provider, ref);
+                label += token_for(provider, ref);
                 ImGui::PushID(static_cast<int>(depth));
                 if (ImGui::Selectable(label.c_str(), refs_equal(ref, current_ref)))
                 {
@@ -238,53 +224,37 @@ namespace le::gui
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableHeadersRow();
 
-            // GuiProvider::object_property_count/_at's own single-slot
-            // cache (draw_hierarchy_tree's own comment above, on the same
-            // hazard) only escalates to a real write lock when current_ref
-            // differs from whatever it last cached - the common case
-            // (browsing the same object's properties frame after frame,
-            // including across a viewport-only render with no selection
-            // change) stays on the shared_lock fast path and is safe
-            // unconditionally, so provider.would_block_property_lookup
-            // only skips when current_ref itself just changed *and* a
-            // render happens to be in flight right then - not every frame
-            // a render merely happens to be running. The table still
-            // draws (headers, children links below), just with no
-            // property rows for that one frame-or-so.
-            if (!provider.would_block_property_lookup(current_ref))
+            const int32_t property_count = provider.object_property_count(current_ref);
+            for (int32_t i = 0; i < property_count; ++i)
             {
-                const int32_t property_count = provider.object_property_count(current_ref);
-                for (int32_t i = 0; i < property_count; ++i)
+                const LeProperty property = provider.object_property_at(current_ref, i);
+                if (property.name == nullptr)
                 {
-                    const LeProperty property = provider.object_property_at(current_ref, i);
-                    if (property.name == nullptr)
-                    {
-                        continue;
-                    }
-                    const std::string value = format_value(property);
-                    if (!show_hidden && value.empty())
-                    {
-                        continue;
-                    }
-                    if (!normalized_filter.empty())
-                    {
-                        std::string name_lower = property.name;
-                        std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(),
-                                        [](unsigned char c)
-                                        { return static_cast<char>(std::tolower(c)); });
-                        if (name_lower.find(normalized_filter) == std::string::npos)
-                        {
-                            continue;
-                        }
-                    }
-                    ImGui::TableNextRow();
-                    ImGui::PushID(i);
-                    ImGui::TableSetColumnIndex(0);
-                    draw_selectable_text("##prop_name", property.name);
-                    ImGui::TableSetColumnIndex(1);
-                    draw_selectable_text("##prop_value", value);
-                    ImGui::PopID();
+                    continue;
                 }
+                const std::string value = format_value(property);
+                if (!show_hidden && value.empty())
+                {
+                    continue;
+                }
+                if (!normalized_filter.empty())
+                {
+                    std::string name_lower = property.name;
+                    std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(),
+                                    [](unsigned char c)
+                                    { return static_cast<char>(std::tolower(c)); });
+                    if (name_lower.find(normalized_filter) == std::string::npos)
+                    {
+                        continue;
+                    }
+                }
+                ImGui::TableNextRow();
+                ImGui::PushID(i);
+                ImGui::TableSetColumnIndex(0);
+                draw_selectable_text("##prop_name", property.name);
+                ImGui::TableSetColumnIndex(1);
+                draw_selectable_text("##prop_value", value);
+                ImGui::PopID();
             }
 
             // object_children can mix kinds in one list (an Abstract's
@@ -297,13 +267,6 @@ namespace le::gui
                 children_by_kind[child.kind].push_back(child);
             }
             constexpr size_t kMaxChildLinks = 10;
-            // Each token_for(provider, child) call below queries a
-            // *different* ref through the same single-slot property cache
-            // draw_hierarchy_tree's own comment above describes - the same
-            // thrash-then-possibly-block hazard, multiplied by however many
-            // child links are shown this frame - provider.would_block_property_lookup
-            // (checked per-child below, since each has its own ref) only
-            // skips the ones that would actually risk it.
             for (const auto &[kind, group] : children_by_kind)
             {
                 ImGui::TableNextRow();
@@ -323,7 +286,7 @@ namespace le::gui
                     }
                     ImGui::PushID(static_cast<int>(child.index));
                     ImGui::PushID(kind);
-                    const std::string label = provider.would_block_property_lookup(child) ? "..." : token_for(provider, child);
+                    const std::string label = token_for(provider, child);
                     if (ImGui::SmallButton(label.c_str()))
                     {
                         jump_to(provider, child, hierarchy, current_ref);
