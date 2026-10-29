@@ -93,6 +93,18 @@ namespace le::persistence
                      EXPECT_EQ(i1->location->x, 2000);
                      EXPECT_EQ(i1->location->y, 2000);
                      EXPECT_EQ(i1->weight, 100.0);
+                     // SPECIALNETS DUMMY's wiring is special, NETS N6's
+                     // regular (a 0.53.0 file held this on the Route).
+                     const LayoutId layout = root.get_design_layout(design);
+                     for (const auto &[net, special] : {std::pair{"DUMMY", true}, std::pair{"N6", false}})
+                     {
+                         const RouteId route = root.get_route_by_name(layout, net);
+                         ASSERT_FALSE(root.get_route_wires(route).empty()) << net;
+                         for (const WireId wire : root.get_route_wires(route))
+                             EXPECT_EQ(root.get_wire(wire)->is_special, special) << net;
+                         for (const ShapeId shape : root.get_route_shapes(route))
+                             EXPECT_EQ(root.get_shape(shape)->is_special, special) << net;
+                     }
                  }},
                 {"testcell",
                  [](Root &root) {
@@ -247,5 +259,20 @@ namespace le::persistence
             }
         }
         EXPECT_GE(files, 4);
+    }
+}
+
+namespace le::persistence
+{
+    // A data step's own columns aren't reported as dropped or defaulted.
+    TEST(GoldenFiles, MovingIsSpecialToWiringWarnsOnlyThatItRan)
+    {
+        Root root;
+        const LoadReport report = load_native(root, (kGoldenDir / "0.53.0" / "lef_def.c1.led").string());
+        ASSERT_TRUE(report.ok()) << report.error;
+        EXPECT_TRUE(std::ranges::contains(report.warnings, std::string("applied migration to 0.54.0: Route.is_special moves to its Wires and route Shapes")));
+        for (const std::string &warning : report.warnings)
+            if (!warning.starts_with("applied"))
+                EXPECT_EQ(warning.find("is_special"), std::string::npos) << warning;
     }
 }

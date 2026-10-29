@@ -304,7 +304,7 @@ def generate(
                 schema_migration.RUNTIME_RENAME_CLASS: "RenameClass",
                 schema_migration.RUNTIME_RENAME_FIELD: "RenameField",
                 schema_migration.RUNTIME_RENAME_ENUM_VALUE: "RenameEnumValue",
-                schema_migration.RUNTIME_UNSUPPORTED: "Unsupported",
+                schema_migration.RUNTIME_RUN_CODE: "RunCode",
             }[kind],
             "klass": cpp(klass),
             "old": cpp(old),
@@ -322,7 +322,9 @@ def generate(
             "to_version": cpp(migration.to_version),
             "description": cpp(migration.description),
             "extension": cpp(extension),
-            "unsupported": "true" if any(entry[0] == schema_migration.RUNTIME_UNSUPPORTED for op in migration.ops for entry in op.runtime_entries()) else "false",
+            "unsupported": "true"
+            if extension and any(entry[0] == schema_migration.RUNTIME_RUN_CODE for op in migration.ops for entry in op.runtime_entries())
+            else "false",
         }
         for migration, extension in schema_migration.merged_plan(core.core_migrations, schema.version, extension_chains)
     ]

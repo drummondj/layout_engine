@@ -633,13 +633,20 @@ namespace le::persistence
         Root loaded;
     };
 
+    // The schema's own migrations past the file's version are applied (and
+    // reported), but nothing else is worth a warning.
+    bool only_migrations_applied(const LoadReport &report)
+    {
+        return std::ranges::all_of(report.warnings, [](const std::string &warning) { return warning.starts_with("applied migration to "); });
+    }
+
     TEST_F(NativeFormatOlderSchema, UnchangedShapeLoadsWithoutWarnings)
     {
         const LoadReport report = load();
         ASSERT_TRUE(report.ok()) << report.error;
         EXPECT_FALSE(report.schema_matches);
         EXPECT_EQ(report.file_schema_version, "0.0.1");
-        EXPECT_TRUE(report.warnings.empty());
+        EXPECT_TRUE(only_migrations_applied(report)) << report.warnings.front();
         EXPECT_EQ(loaded.get_layer_ids().size(), 3u);
     }
 
@@ -673,7 +680,7 @@ namespace le::persistence
 
         const LoadReport report = load();
         ASSERT_TRUE(report.ok()) << report.error;
-        EXPECT_TRUE(report.warnings.empty());
+        EXPECT_TRUE(only_migrations_applied(report)) << report.warnings.front();
         EXPECT_EQ(loaded.get_layer(loaded.get_layer_by_name("M2"))->pitch, 380);
     }
 
@@ -879,9 +886,9 @@ namespace le::persistence
         EXPECT_EQ(loaded.get_layer(loaded.get_layer_by_name("M1"))->direction, RoutingDirection::H);
     }
 
-    TEST_F(NativeFormatOlderSchema, MigrationNeedingTheDataRuntimeRefusesTheFile)
+    TEST_F(NativeFormatOlderSchema, MigrationWithADataStepThisBuildLacksRefusesTheFile)
     {
-        const std::array chain{Op{"0.30.0", OpKind::Unsupported, "", "split_layers", "Layer split in two", "Layer split in two"}};
+        const std::array chain{Op{"0.30.0", OpKind::RunCode, "", "split_layers", "Layer split in two", "Layer split in two"}};
         file.write(path);
         const LoadReport report = load_native(loaded, path.string(), chain);
         EXPECT_FALSE(report.ok());
@@ -937,7 +944,7 @@ namespace le::persistence
     TEST_F(NativeFormatExtensionChain, AFileWithoutTheExtensionSkipsItsMigrations)
     {
         const std::string ext = extension(); // Op holds string_views
-        const std::array chain{Op{"9.0.0", OpKind::Unsupported, "", "x", "y", "would refuse the file", ext, "0.5.0"}};
+        const std::array chain{Op{"9.0.0", OpKind::RunCode, "", "x", "y", "would refuse the file", ext, "0.5.0"}};
         const LoadReport report = load_with(chain);
         ASSERT_TRUE(report.ok()) << report.error;
     }
@@ -1040,7 +1047,7 @@ namespace le::persistence
         SmallDesign original;
         const auto current = dir.file("current.led");
         ASSERT_TRUE(save_native(original.root, current.string()).ok());
-        const std::array chain{Op{"999.0.0", OpKind::Unsupported, "", "x", "y", "never applies"}};
+        const std::array chain{Op{"999.0.0", OpKind::RunCode, "", "x", "y", "never applies"}};
         EXPECT_TRUE(load_native(loaded, current.string(), chain).ok());
     }
 

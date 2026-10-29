@@ -699,7 +699,7 @@ TEST(DatabaseChangeLog, CreateUpdateDeleteRecordTheObjectAndItsOwner)
 
     const RouteId route = root.create_route(RouteData{.layout = layout});
     const ShapeId shape = root.create_shape(ShapeData{.owner = le::ShapeOwner::route(route), .rects = {Rect{.ll = Point{0, 0}, .ur = Point{1, 1}}}});
-    ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{2, 2}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+    ASSERT_TRUE(root.update_shape(shape, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::vector<Rect>{Rect{.ll = Point{0, 0}, .ur = Point{2, 2}}}, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
     ASSERT_TRUE(root.delete_shape(shape));
 
     ASSERT_TRUE(root.change_log().covers(since));
@@ -732,7 +732,7 @@ TEST(DatabaseChangeLog, AReparentingUpdateRecordsTheOldAndTheNewOwner)
     const RouteId route = root.create_route(RouteData{.layout = layout_a});
     const uint64_t since = root.change_log().end_sequence();
 
-    ASSERT_TRUE(root.update_route(route, layout_b, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+    ASSERT_TRUE(root.update_route(route, layout_b, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
 
     const std::vector<ChangeLogEntry> entries = entries_since(root, since);
     ASSERT_EQ(entries.size(), 2u);

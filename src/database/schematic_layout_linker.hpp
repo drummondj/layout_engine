@@ -163,7 +163,7 @@ namespace le
                 if (matches.size() == 1)
                 {
                     root.update_route(route_id, layout_id, std::optional<NetId>(matches[0]), std::nullopt,
-                                       std::nullopt, std::nullopt, std::nullopt, std::nullopt);
+                                       std::nullopt, std::nullopt, std::nullopt);
                     ++result.routes_linked;
                 }
                 else

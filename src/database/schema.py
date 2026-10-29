@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.53.0",
+    version="0.54.0",
     classes=[
         Klass(
             name="Technology",
@@ -1710,6 +1710,12 @@ schema = Schema(
                     is_optional=True,
                 ),
                 Field(
+                    name="is_special",
+                    description="For a route's shape: whether it is special wiring (DEF SPECIALNETS) rather than regular wiring (DEF NETS)",
+                    type="bool",
+                    example=False,
+                ),
+                Field(
                     name="vias",
                     description="VIA placements within this LAYER occurrence",
                     type="ShapeVia",
@@ -2932,13 +2938,12 @@ schema = Schema(
             # physical routing geometry with no meaning.
             name="Route",
             tcl_category="Layout",
-            description="The routing geometry of a regular or special net (DEF NETS/SPECIALNETS).",
+            description="The routing geometry of a net: its regular wiring (DEF NETS) and its special wiring (DEF SPECIALNETS).",
             compact_lists=True,
             fields=[
                 Field(name="layout", description="Parent layout", type="Layout", parent="routes"),
                 Field(name="name", description="The name of the net this routes, as read - unique within its layout. See net for the resolved link", type="str", example="clk", index=True, unique_per_parent=True),
                 Field(name="net", description="The logical Net this routes, resolved by `link` against `name`", type="Net", is_optional=True),
-                Field(name="is_special", description="Whether this came from SPECIALNETS rather than NETS", type="bool", example=False),
                 Field(name="width", description="Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only", type="dbu", is_optional=True),
                 Field(name="voltage", description="Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only", type="double", is_optional=True),
                 Field(name="use", description="SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE)", type="str", example="POWER", is_optional=True),
@@ -2958,6 +2963,7 @@ schema = Schema(
                 Field(name="routing_status", description="Wiring status (DEF NETS/SPECIALNETS ROUTED/FIXED/COVER/NOSHIELD/SHIELD) - ROUTED when unset", type="RoutingStatus", is_optional=True),
                 Field(name="route_shape", description="What this wiring is part of (DEF SPECIALNETS SHAPE, e.g. RING, STRIPE or FOLLOWPIN)", type="RouteShape", is_optional=True),
                 Field(name="shield_index", description="For SHIELD wiring: the index into its route's shield_nets of the net it shields", type="unsigned char", is_optional=True),
+                Field(name="is_special", description="Whether this is special wiring (DEF SPECIALNETS) rather than regular wiring (DEF NETS)", type="bool", example=False),
                 Field(name="segments", description="Wire segments, in path order: a segment that continues the one before it shares that segment's end point", type="WireSegment", is_list=True, create_excluded=True),
                 Field(name="vias", description="Vias placed on this layer's paths", type="WireVia", is_list=True, create_excluded=True),
                 Field(name="widths", description="Widths other than the layer's default width, in database units - a segment or via with width index i > 0 has widths[i - 1]", type="dbu", is_list=True, create_excluded=True),

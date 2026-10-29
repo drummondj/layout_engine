@@ -126,7 +126,7 @@ namespace le
                 {
                     const RouteData before = *root.get_route(route_it->second);
                     root.update_route(route_it->second, LayoutId{}, std::nullopt, std::optional<std::string>(net_path),
-                                       std::nullopt, std::nullopt, std::nullopt, std::nullopt);
+                                       std::nullopt, std::nullopt, std::nullopt);
                     on_route_renamed(route_it->second, before, *root.get_route(route_it->second));
                     ++result.routes_renamed;
                 }

@@ -123,7 +123,8 @@ fails on a temp path that isn't unique to its process.
   - `native_format.*`: the native `.led` database file (`write_db`/
     `read_db`), columnar and zstd-compressed, driven by codegen's
     `native_tables.hpp`; loads older schema versions by name plus the
-    migration chain. An optional `SESS` chunk keeps the session (open
+    migration chain (renames, and `RunCode` data steps hand-written in
+    `migration_steps.hpp`). An optional `SESS` chunk keeps the session (open
     view, viewport, current objects, layer/purpose/filter visibility;
     `write_db -no_session` skips it). `db_info` describes a file without
     loading it, including the migrations it needs (`kMigrations`);

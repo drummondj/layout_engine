@@ -2,12 +2,14 @@
 
 #include "byte_io.hpp"
 #include "codec.hpp"
+#include "migration_steps.hpp"
 #include "generated/database/schema_version.hpp"
 
 #include <json.hpp>
 #include <oneapi/tbb/parallel_for.h>
 #include <zstd.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -24,6 +26,12 @@
 
 namespace le::persistence
 {
+    static_assert(std::ranges::all_of(migrations::kOps,
+                                      [](const migrations::Op &op) {
+                                          return op.kind != migrations::OpKind::RunCode || !op.extension.empty() || migration_steps::find(op.old_name);
+                                      }),
+                  "a core migration's RunCode names a step migration_steps.hpp doesn't have");
+
     namespace
     {
         constexpr std::array<uint8_t, 8> kMagic = {'L', 'E', 'D', 'B', '\r', '\n', 0x1a, '\n'};
@@ -661,10 +669,11 @@ namespace le::persistence
 
         /// @brief Bring an older file's schema names up to date: apply every
         /// op of every migration past the file's version, in merged-plan
-        /// order. A core op is past the file's core version; an extension's
+        /// order, collecting the data steps to run once it is decoded. A core op is past the file's core version; an extension's
         /// op is past the file's version of that extension, and skipped if
         /// the file holds none of its objects.
-        void apply_migrations(Opened &file, EnumRenames &enum_renames, std::span<const migrations::Op> chain, std::vector<std::string> &applied)
+        void apply_migrations(Opened &file, EnumRenames &enum_renames, std::span<const migrations::Op> chain, std::vector<std::string> &applied,
+                              std::vector<const migration_steps::Step *> &steps)
         {
             const std::string &core_version = file.schema.version;
             std::string last_migration;
@@ -746,7 +755,12 @@ namespace le::persistence
                     renames.try_emplace(old_name, new_name);
                     break;
                 }
-                case migrations::OpKind::Unsupported:
+                case migrations::OpKind::RunCode:
+                    if (const migration_steps::Step *step = extension.empty() ? migration_steps::find(old_name) : nullptr)
+                    {
+                        steps.push_back(step);
+                        break;
+                    }
                     throw FormatError("written with schema version " + core_version + "; reading it needs the " +
                                       (extension.empty() ? std::string() : extension + " ") + "migration to " + to_version + " (" +
                                       std::string(op.description) + "), which this build can't apply to stored data yet");
@@ -891,8 +905,25 @@ namespace le::persistence
             check_extensions(file.schema);
 
             EnumRenames enum_renames;
+            std::vector<const migration_steps::Step *> steps;
             if (!report.schema_matches)
-                apply_migrations(file, enum_renames, chain, report.warnings);
+                apply_migrations(file, enum_renames, chain, report.warnings, steps);
+            // "Class.field" names a data step reads (dropped) or fills (left
+            // at its default): not worth a warning.
+            auto handled_by_step = [&](const std::string &name, bool reads) {
+                return std::ranges::any_of(steps, [&](const migration_steps::Step *step) {
+                    return std::ranges::contains(reads ? step->reads : step->writes, std::string_view(name));
+                });
+            };
+            // Stored columns the current schema has no member for, by
+            // "Class.field", for data steps to read.
+            struct DroppedColumn
+            {
+                const FileClass *klass;
+                const FileColumn *column;
+                const FileField *field;
+            };
+            std::map<std::string, DroppedColumn, std::less<>> dropped;
 
             ByteReader strings_reader(file.strings_payload.data, file.strings_payload.size, "STRS chunk");
             const std::vector<uint8_t> strings_raw = read_block(strings_reader);
@@ -996,14 +1027,22 @@ namespace le::persistence
                         },
                         nt::Fields<Data>::members);
                     if (!matched)
-                        report.warnings.push_back("field " + klass->name + "." + column_name + " no longer exists; dropped");
+                    {
+                        const std::string name = klass->name + "." + column_name;
+                        dropped.emplace(name, DroppedColumn{klass, &column, field});
+                        if (!handled_by_step(name, true))
+                            report.warnings.push_back("field " + name + " no longer exists; dropped");
+                    }
                 }
                 if (!report.schema_matches)
                 {
                     int member_index = 0;
                     std::apply(
                         [&](const auto &...member) {
-                            ((filled[member_index++] ? void() : report.warnings.push_back("field " + klass->name + "." + std::string(member.name) + " is not in the file; left at its default")), ...);
+                            ((filled[member_index++] || handled_by_step(klass->name + "." + std::string(member.name), false)
+                                  ? void()
+                                  : report.warnings.push_back("field " + klass->name + "." + std::string(member.name) + " is not in the file; left at its default")),
+                             ...);
                         },
                         nt::Fields<Data>::members);
                 }
@@ -1014,6 +1053,42 @@ namespace le::persistence
             std::stable_sort(jobs.begin(), jobs.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
             tbb::parallel_for(size_t{0}, jobs.size(), [&](size_t j) { jobs[j].second(); }, tbb::simple_partitioner{});
             timer.lap("decode");
+
+            if (!steps.empty())
+            {
+                migration_steps::StepData data{
+                    .root = loaded,
+                    .dropped_bools = [&](std::string_view klass, std::string_view field) {
+                        std::vector<uint8_t> values;
+                        const auto it = dropped.find(std::string(klass) + "." + std::string(field));
+                        if (it == dropped.end())
+                            return values;
+                        const auto &[file_class, column, file_field] = it->second;
+                        const std::string what = it->first;
+                        if (const std::string problem = incompatibility<bool>(file_field->type, file_field->type.presence, file_field->type.list); !problem.empty())
+                            throw FormatError(what + " " + problem + " - its migration reads it as a bool");
+                        values.resize(file_class->rows);
+                        for (const Segment &segment : column->segments)
+                        {
+                            ByteReader block_reader(segment.block.data, segment.block.size, what);
+                            const std::vector<uint8_t> raw = read_block(block_reader);
+                            ByteReader r(raw.data(), raw.size(), what);
+                            for (uint64_t row = segment.first_row; row < segment.first_row + segment.rows; ++row)
+                            {
+                                bool value = false;
+                                decode_value(r, file_field->type, file_field->type.presence, file_field->type.list, value, ctx);
+                                values[row] = value;
+                            }
+                            if (!r.at_end())
+                                r.fail("trailing bytes in column segment");
+                        }
+                        return values;
+                    },
+                };
+                for (const migration_steps::Step *step : steps)
+                    step->run(data);
+                timer.lap("migrate");
+            }
 
             // Every class fills only its own index maps, so they rebuild in
             // parallel (loaded's index is still empty - nothing was created

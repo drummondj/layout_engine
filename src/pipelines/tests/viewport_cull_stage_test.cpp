@@ -327,7 +327,7 @@ TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksItsWiresToo)
 
 TEST_F(ViewportCullStageFixture, AHiddenRoutingStatusOrShapeMasksExactlyThoseWiresAndShapes)
 {
-    const RouteId vdd = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .is_special = true});
+    const RouteId vdd = root.create_route(RouteData{.layout = top_layout, .name = "VDD"});
     auto add_wire = [&](int64_t y, std::optional<RoutingStatus> status, std::optional<RouteShape> shape)
     {
         WireBuilder builder(root, m1);
