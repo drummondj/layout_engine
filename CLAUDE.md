@@ -134,7 +134,11 @@ fails on a temp path that isn't unique to its process.
   `Transaction`, `ICommand`. Every generated create/update/delete and
   shape op records itself into the recording transaction (in `le::edit`,
   below); `le_repl_eval`, GUI edits (Move, Resize, Delete) and
-  `ExtensionContext::write(label)` bracket one.
+  `ExtensionContext::write(label)` bracket one. Ids are stable across
+  undo/redo: a recorded delete retires the object (`Root::retire`, its
+  slot kept off the free list) and undo/redo `restore` it at the same id
+  and child-list position; a transaction leaving the history releases
+  its slots.
 - `src/api/` — `api.hpp`/`api.cpp`, the plain-C API every front end calls.
   Its edits are a shim (C arguments, microns to dbu, locking, logging)
   over `le::edit` (`edit_ops.hpp`/`edit_ops.cpp`): the generated

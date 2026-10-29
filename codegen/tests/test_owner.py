@@ -60,7 +60,7 @@ class TestOwner(unittest.TestCase):
         self.assertIn("static constexpr ItemOwner holder(HolderId id) noexcept", item)
         # Index upkeep goes through the owner, and moving owners is one call.
         self.assertIn("bool set_item_owner(ItemId id, ItemOwner value)", root)
-        self.assertIn("index_.holder_items[d.holder()].push_back(id);", root)
+        self.assertIn("insert_child_(index_.holder_items[d.holder()], id,", root)
         self.assertIn('Member<ItemData, ItemOwner>{"owner", &ItemData::owner}', tables)
         self.assertIn("struct OwnerInfo<ItemOwner>", tables)
 

@@ -261,7 +261,8 @@ bool add_marker(le::ext::ExtensionContext &ctx, const std::string &name)
 `write(label)` opened, or the typed Tcl command's. Edits made straight
 through `view.root()` (`root().create_library(...)`) are not recorded and
 can't be undone; use them for bulk work, such as importing data, where undo
-isn't wanted.
+isn't wanted. An object keeps its id through undo and redo, so ids your
+extension holds stay valid.
 
 **Ids.** The C API's ids (`LeLayoutId`) and the database's (`le::LayoutId`)
 hold the same `{index, generation}`. For C API calls, convert with

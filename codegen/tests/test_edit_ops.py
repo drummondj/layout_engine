@@ -51,7 +51,7 @@ class TestEditOps(unittest.TestCase):
         for klass in self.readable:
             snake = klass.to_snake_case()
             self.assertIn(f"std::expected<{klass.name}Id, std::string> create_{snake}(LeHandle &handle, {klass.name}Data data)", ops)
-        self.assertGreaterEqual(ops.count("record_create<"), len(self.readable))
+        self.assertGreaterEqual(ops.count("txn->record_create(created);"), len(self.readable))
 
     def test_write_view_has_each_op(self):
         decls = self.read("extension_edit_decls.inc")
@@ -72,21 +72,16 @@ class TestEditOps(unittest.TestCase):
             self.assertNotIn(-1, positions, needles)
             self.assertEqual(positions, sorted(positions), needles)
 
+        # Collected before anything is deleted, then deleted deepest first;
+        # undo replays in reverse, restoring parents before children.
         in_order(
-            "handle.root.delete_instance(child_id);",
-            "handle.root.delete_module(child_id);",
-            "handle.root.delete_design(design_id);",
+            "casc0_modules_ids",
+            "casc1_instances_ids.push_back(child_id);",
+            "for (const le::InstanceId child_id : casc1_instances_ids)",
+            "for (const le::ModuleId child_id : casc0_modules_ids)",
+            "le::editing::delete_object(handle.root, txn, design_id);",
         )
-        # Undo replays in reverse, so recording in the same order recreates parents first.
-        in_order(
-            "record_delete<le::InstanceId, le::InstanceData>",
-            "record_delete<le::ModuleId, le::ModuleData>",
-            "record_delete<le::DesignId, le::DesignData>",
-        )
-        # A recreated parent gets a new id; its children follow it through its id cell.
-        self.assertIn("fixed.module = parent_cell->id;", body)
-        self.assertIn("fixed.design = design_cell->id;", body)
-
+        self.assertNotIn("delete_instance(", body)
 
 if __name__ == "__main__":
     unittest.main()

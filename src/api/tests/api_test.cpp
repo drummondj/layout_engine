@@ -4935,18 +4935,10 @@ TEST_F(ApiFixture, UndoRedoRoundTripsAGeneratedUpdateCallThroughBeginEndCommand)
 
     EXPECT_EQ(le_can_undo(handle), 0);
 
-    // named_layer's own le_create_layer must run *before* le_begin_command
-    // - a Layer created while a command is recording would itself become
-    // an undo/redo step in the same transaction, and Pool::create() always
-    // allocates a fresh generation on redo (never reproduces the original
-    // id - see IdCellPtr's own comment), so the update_shape step's own
-    // "after" snapshot (a plain copy of the LayerId, not a repointing
-    // IdCellPtr reference - that indirection is only built for a create/
-    // delete step's own id) would go stale the moment the transaction's
-    // own Layer-create step is undone and redone alongside it.
-    const LeLayerId m6 = named_layer(handle, "M6");
-
+    // The new layer is created in the same transaction: redo brings it
+    // back at its id, so the update's recorded layer still names it.
     le_begin_command(handle, "update_shape test");
+    const LeLayerId m6 = named_layer(handle, "M6");
     EXPECT_EQ(le_update_shape(handle, shape_id, 1, m6, nullptr, 0, nullptr, 0, 0, nullptr, 0, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0, 0, 0), 0);
     le_end_command(handle, 1);
 

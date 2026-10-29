@@ -140,11 +140,6 @@ def _leaf_value_expr(leaf: "Field", param: str) -> str:
     return param
 
 
-def child_klass_owner_type(klass_name: str) -> str:
-    """The <Klass>Owner type name for a class with owner=True parent fields."""
-    return f"{klass_name}Owner"
-
-
 def to_snake_case(name: str) -> str:
     """
     Convert a camelCase or PascalCase string to snake_case.
@@ -577,6 +572,14 @@ class Klass:
         would miss them.
         """
         return [f for f in self.fields if f.is_child]
+
+    def list_parent_fields(self) -> List["Field"]:
+        """
+        The parent fields whose parent keeps an ordered child list - one
+        position each in Root::retire()'s result, so restore() puts the
+        object back where it was.
+        """
+        return [f for f in self.get_ordered_fields() if f.parent and f._parent_field.is_list]
 
     def get_parent_fields(self) -> List["Field"]:
         """
@@ -1074,11 +1077,9 @@ class Klass:
             add(f'    return std::unexpected(fmt::format("a {self.name} with this {gf.name} (\'{{}}\') already exists", data.{gf.name}));')
 
         add()
-        # The data is only copied when the open transaction keeps it.
-        add("const bool recording = handle.command_history.is_recording();")
         if unique_fields:
             add(f"const auto {unique_fields[0].name}_for_error = data.{unique_fields[0].name};")
-        add(f"const le::{self.name}Id created = recording ? root.create_{snake}(data) : root.create_{snake}(std::move(data));")
+        add(f"const le::{self.name}Id created = root.create_{snake}(std::move(data));")
         if unique_fields:
             field = unique_fields[0]
             add("if (!created.valid())")
@@ -1087,11 +1088,8 @@ class Klass:
                 f"{field.name} ('{{}}') already exists\", {field.name}_for_error));"
             )
         add("root.bump_mutation_version();")
-        add("if (recording)")
-        add(f"    handle.command_history.current()->record_create<le::{self.name}Id, le::{self.name}Data>(")
-        add("        created, std::move(data),")
-        add(f"        [](le::Root &r, const le::{self.name}Data &d) {{ return r.create_{snake}(d); }},")
-        add(f"        [](le::Root &r, le::{self.name}Id i) {{ return r.delete_{snake}(i); }});")
+        add("if (le::editing::Transaction *txn = handle.command_history.current())")
+        add("    txn->record_create(created);")
         add("return created;")
         return "\n".join(lines)
 
@@ -1998,59 +1996,20 @@ class Klass:
         """
         The statement-list body of le::edit::delete_<type>(LeHandle &handle,
         <Klass>Id id) (edit_ops_defs.inc); the caller holds the handle's
-        exclusive lock. Built the same "Python string" way
-        create_op_body()/update_op_body() are. Unlike those two, most of
-        the work here is cascading: every tcl_child_list_fields() entry is
-        an owned pool-backed child collection that would otherwise become
-        permanently unreachable garbage if left behind after this object is
-        deleted (a TerminalPort, for instance, is only ever enumerated
-        through its parent Terminal's own port list - there is no top-level
-        "every TerminalPort" API), so deleting a <Klass> recursively
-        deletes every descendant reachable through tcl_child_list_fields(),
-        however many levels deep this class's own schema subtree actually
-        goes (e.g. Technology's own non_default_rules -> vias -> layers
-        chain is 3 levels deep). It expands the *actual* schema graph, so
-        no level can be missed.
+        exclusive lock. Deleting a <Klass> also deletes every descendant
+        reachable through tcl_child_list_fields() (an owned child such as
+        a TerminalPort is only reachable through its parent, so leaving it
+        behind would orphan it), however deep the schema subtree goes.
 
-        The recursion happens at *Python codegen time*
-        (see the nested plan_edge() closure below), not runtime C++ - each
-        schema-graph depth level becomes one more flat, unrolled loop in
-        the emitted body (this codebase's own "flat generated code"
-        aesthetic - see CLAUDE.md's TCL codegen section - not a
-        generic recursive C++ helper). A level's own children are always
-        collected into one flat vector *across every parent object at that
-        level* (not one nested vector per parent), so a 3-level cascade
-        emits exactly 3 collection loops total, not a combinatorial nesting
-        of loops per branch; each collected child's own immediate parent
-        travels alongside it in a parallel IdCellPtr vector (built only
-        when a transaction is actually recording - see below), so a later
-        record_delete's own undo-recreate lambda can still fix up exactly
-        the right parent-pointing field on that child, without needing to
-        re-derive which parent it came from.
-
-        Every cascaded descendant (deepest first) plus
-        this object itself (last) is recorded via Transaction::record_delete,
-        the same primitive create_api_body()/update_api_body() already use
-        for their own single-object mutation. *Order* matters here
-        specifically, unlike those two - see Transaction::undo_all's
-        reverse-order replay (transaction.hpp): recording deepest-first/
-        self-last means undo replays in the opposite order (self-first,
-        deepest-last), so by the time any cascaded child's own undo-
-        recreate lambda runs, it can read its immediate parent's
-        *already-recreated* live id back out of the very same IdCellPtr
-        Transaction::id_cell_for(id) memoizes by id value - captured once
-        per parent object while it was still being collected as a "child"
-        one level up, well before it (or any of its own ancestors) is
-        actually deleted. This works to however many levels deep a given
-        class's own schema subtree actually goes, computed once per class
-        from tcl_child_list_fields().
-
-        A class with no tcl_child_list_fields() at all (most of the ~35 -
-        e.g. Shape, most technology-reference leaf classes) gets the
-        trivial non-cascading shape instead: snapshot, erase, record_delete
-        the one object, nothing else - a genuinely new delete surface for
-        every one of those classes (previously none of them had any delete
-        command at all, generated or hand-written).
+        The recursion is unrolled at codegen time: each level of the
+        subtree becomes one flat loop collecting that level's children
+        across every parent at the level above. Every id is collected
+        before anything is deleted, since deleting a child edits its
+        parent's list. Deletion runs deepest level first, this object
+        last, each through le::editing::delete_object, which records it
+        when a transaction is open; undo replays in reverse, so each
+        parent is restored before its children, and each child goes back
+        at its own id and list position.
         """
         indent = "        "
         lines: List[str] = []
@@ -2062,169 +2021,50 @@ class Klass:
         root_fields = self.tcl_child_list_fields()
 
         add(f"const le::{self.name}Id {snake}_id = id;")
-        add(f"const le::{self.name}Data *existing_{snake} = handle.root.get_{snake}({snake}_id);")
-        add(f"if (!existing_{snake})")
+        add(f"if (!handle.root.get_{snake}({snake}_id))")
         add('    return std::unexpected("unknown id");')
-        add(f"const le::{self.name}Data {snake}_snapshot = *existing_{snake};")
+        add("le::editing::Transaction *txn = handle.command_history.current();")
 
-        if not root_fields:
-            # Trivial, non-cascading leaf delete - no owned children to walk.
-            add()
-            add(f"const bool deleted = handle.root.delete_{snake}({snake}_id);")
-            add("handle.root.bump_mutation_version();")
-            add()
-            add("// A leaf delete (no tcl_child_list_fields()),")
-            add("// so no id-cell indirection is needed the way a cascading delete")
-            add("// needs it below - this object's own parent field(s), if any, aren't")
-            add("// touched by this call, so the snapshot above stays valid regardless")
-            add("// of undo/redo.")
-            add("if (le::editing::Transaction *txn = handle.command_history.current())")
-            add("{")
-            add(f"    txn->record_delete<le::{self.name}Id, le::{self.name}Data>(")
-            add(f"        {snake}_id, {snake}_snapshot,")
-            add(f"        [](le::Root &r, const le::{self.name}Data &d) {{ return r.create_{snake}(d); }},")
-            add(f"        [](le::Root &r, le::{self.name}Id i) {{ return r.delete_{snake}(i); }});")
-            add("}")
-            add("if (!deleted)")
-            add('    return std::unexpected("delete failed");')
-            add("return {};")
-            return "\n".join(lines)
-
-        # --- Cascading delete plan - see this method's own docstring for
-        # the overall shape. `edges` ends up ordered deepest-first/self-
-        # last (plan_edge() recurses into a child's own grandchildren
-        # *before* appending that child's own edge), which is exactly the
-        # order the deletion and recording passes below both need to walk
-        # it in.
-        edges: List[dict] = []
+        # `levels` ends up deepest-first: plan_edge() recurses into a
+        # child's own children before appending that child's level.
+        levels: List[dict] = []
         counter = [0]
 
-        def plan_edge(owner_klass: "Klass", fld: "Field", owner_ids_expr: str, owner_is_scalar: bool, owner_cell_expr: str) -> None:
+        def plan_edge(owner_klass: "Klass", fld: "Field", owner_ids_expr: str, owner_is_scalar: bool) -> None:
             child_klass = fld._child_klass
-            child_field = fld._child_field
-            if child_klass is None or child_field is None:
-                raise ValueError(
-                    f"delete_api_body: {owner_klass.name}.{fld.name} (type={fld.type!r}) has no "
-                    f"resolved back-reference field - Klass.link() couldn't find a has_parent() "
-                    f"field of type {owner_klass.name!r} on {fld.type!r} to fix up on undo-recreate."
-                )
+            if child_klass is None:
+                raise ValueError(f"delete_op_body: {owner_klass.name}.{fld.name} (type={fld.type!r}) has no resolved child class")
             idx = counter[0]
             counter[0] += 1
             owner_snake = owner_klass.to_snake_case()
-            child_snake = child_klass.to_snake_case()
             ids_var = f"casc{idx}_{fld.name}_ids"
-            snap_var = f"casc{idx}_{fld.name}_snapshots"
-            parent_cell_var = f"casc{idx}_{fld.name}_parent_cells"
-            grandchild_fields = child_klass.tcl_child_list_fields()
-            cells_var = f"casc{idx}_{fld.name}_cells" if grandchild_fields else None
 
             add()
             if owner_is_scalar:
                 add(f"const std::vector<le::{fld.type}Id> {ids_var} = handle.root.get_{owner_snake}_{fld.name}({owner_ids_expr});")
-                add(f"std::vector<le::{fld.type}Data> {snap_var};")
-                add(f"{snap_var}.reserve({ids_var}.size());")
-                add(f"for (const le::{fld.type}Id child_id : {ids_var})")
-                add(f"    {snap_var}.push_back(*handle.root.get_{child_snake}(child_id));")
             else:
                 add(f"std::vector<le::{fld.type}Id> {ids_var};")
-                add(f"std::vector<le::{fld.type}Data> {snap_var};")
-                add(f"std::vector<le::editing::IdCellPtr<le::{owner_klass.name}Id>> {parent_cell_var};")
-                add(f"for (size_t i = 0; i < {owner_ids_expr}.size(); ++i)")
-                add("{")
-                add(f"    const le::{owner_klass.name}Id owner_id = {owner_ids_expr}[i];")
+                add(f"for (const le::{owner_klass.name}Id owner_id : {owner_ids_expr})")
                 add(f"    for (const le::{fld.type}Id child_id : handle.root.get_{owner_snake}_{fld.name}(owner_id))")
-                add("    {")
                 add(f"        {ids_var}.push_back(child_id);")
-                add(f"        {snap_var}.push_back(*handle.root.get_{child_snake}(child_id));")
-                add("        if (txn)")
-                add(f"            {parent_cell_var}.push_back({owner_cell_expr}[i]);")
-                add("    }")
-                add("}")
 
-            if cells_var:
-                add(f"std::vector<le::editing::IdCellPtr<le::{fld.type}Id>> {cells_var};")
-                add("if (txn)")
-                add("{")
-                add(f"    {cells_var}.reserve({ids_var}.size());")
-                add(f"    for (const le::{fld.type}Id child_id : {ids_var})")
-                add(f"        {cells_var}.push_back(txn->id_cell_for(child_id));")
-                add("}")
+            for grandchild_field in child_klass.tcl_child_list_fields():
+                plan_edge(child_klass, grandchild_field, ids_var, False)
 
-            for grandchild_field in grandchild_fields:
-                plan_edge(child_klass, grandchild_field, ids_var, False, cells_var)
-
-            edges.append(
-                {
-                    "field": fld,
-                    "child_klass": child_klass,
-                    "child_field_name": child_field.name,
-                    "child_field_is_owner": child_field.owner,
-                    "ids_var": ids_var,
-                    "snap_var": snap_var,
-                    "owner_is_scalar": owner_is_scalar,
-                    "owner_cell_expr": owner_cell_expr,
-                    "parent_cell_var": parent_cell_var,
-                }
-            )
-
-        add()
-        add("le::editing::Transaction *txn = handle.command_history.current();")
-        add(f"le::editing::IdCellPtr<le::{self.name}Id> {snake}_cell = txn ? txn->id_cell_for({snake}_id) : nullptr;")
+            levels.append({"type": fld.type, "ids_var": ids_var})
 
         for fld in root_fields:
-            plan_edge(self, fld, f"{snake}_id", True, f"{snake}_cell")
+            plan_edge(self, fld, f"{snake}_id", True)
 
         add()
-        add("// Cascade delete, deepest descendants first (see this method's own")
-        add("// docstring) - a direct pool erase (root.delete_x), not the public")
-        add("// cascading le_delete_x API, to avoid a recursive mutex lock.")
-        for e in edges:
-            child_snake = e["child_klass"].to_snake_case()
-            add(f"for (const le::{e['field'].type}Id child_id : {e['ids_var']})")
-            add(f"    handle.root.delete_{child_snake}(child_id);")
-        add(f"const bool deleted = handle.root.delete_{snake}({snake}_id);")
+        for level in levels:
+            add(f"for (const le::{level['type']}Id child_id : {level['ids_var']})")
+            add("    le::editing::delete_object(handle.root, txn, child_id);")
+        add(f"const bool deleted = le::editing::delete_object(handle.root, txn, {snake}_id);")
         add("handle.root.bump_mutation_version();")
-
-        add()
-        add("// Same deepest-first/self-last recording order")
-        add("// as the deletion pass above (see this method's own docstring for why).")
-        add("if (txn)")
-        add("{")
-        for e in edges:
-            child_type = e["field"].type
-            child_snake = e["child_klass"].to_snake_case()
-            fixup_field = e["child_field_name"]
-            ids_var = e["ids_var"]
-            snap_var = e["snap_var"]
-            add(f"    for (size_t i = 0; i < {ids_var}.size(); ++i)")
-            add("    {")
-            if e["owner_is_scalar"]:
-                parent_cell_expr = e["owner_cell_expr"]
-            else:
-                add(f"        const auto parent_cell = {e['parent_cell_var']}[i];")
-                parent_cell_expr = "parent_cell"
-            add(f"        txn->record_delete<le::{child_type}Id, le::{child_type}Data>(")
-            add(f"            {ids_var}[i], {snap_var}[i],")
-            add(f"            [{parent_cell_expr}](le::Root &r, const le::{child_type}Data &d)")
-            add("            {")
-            add(f"                le::{child_type}Data fixed = d;")
-            if e["child_field_is_owner"]:
-                add(f"                fixed.owner = le::{child_klass_owner_type(child_type)}::{fixup_field}({parent_cell_expr}->id);")
-            else:
-                add(f"                fixed.{fixup_field} = {parent_cell_expr}->id;")
-            add(f"                return r.create_{child_snake}(fixed);")
-            add("            },")
-            add(f"            [](le::Root &r, le::{child_type}Id i) {{ return r.delete_{child_snake}(i); }});")
-            add("    }")
-        add(f"    txn->record_delete<le::{self.name}Id, le::{self.name}Data>(")
-        add(f"        {snake}_id, {snake}_snapshot,")
-        add(f"        [](le::Root &r, const le::{self.name}Data &d) {{ return r.create_{snake}(d); }},")
-        add(f"        [](le::Root &r, le::{self.name}Id i) {{ return r.delete_{snake}(i); }});")
-        add("}")
         add("if (!deleted)")
         add('    return std::unexpected("delete failed");')
         add("return {};")
-
         return "\n".join(lines)
 
     def get_include_define(self) -> str:

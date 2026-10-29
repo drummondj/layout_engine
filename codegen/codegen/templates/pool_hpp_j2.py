@@ -14,6 +14,7 @@ namespace {{schema.namespace}}
             T value{};
             uint32_t generation = 0;
             bool alive = false;
+            bool retired = false; // dead, but held for restore() - off the free list
         };
 
         template <class... Args>
@@ -38,12 +39,54 @@ namespace {{schema.namespace}}
 
         bool erase(IdT id) {
             if (auto* s = try_slot(id)) {
+                s->value = T{};
                 s->alive = false;
                 ++s->generation;
                 free_.push_back(id.index);
                 return true;
             }
             return false;
+        }
+
+        /// @brief Kill `id` but keep its slot - same generation, off the
+        /// free list - so restore() can bring it back at the same id.
+        /// Returns the object's value, or nullopt if `id` isn't live.
+        std::optional<T> retire(IdT id) {
+            auto* s = try_slot(id);
+            if (!s) return std::nullopt;
+            std::optional<T> value(std::move(s->value));
+            s->value = T{};
+            s->alive = false;
+            s->retired = true;
+            ++retired_count_;
+            return value;
+        }
+
+        /// @brief Bring a retire()d `id` back to life holding `value`.
+        /// False if `id` isn't retired.
+        bool restore(IdT id, T&& value) {
+            if (!is_retired(id)) return false;
+            Slot& s = slots_[id.index];
+            s.value = std::move(value);
+            s.alive = true;
+            s.retired = false;
+            --retired_count_;
+            return true;
+        }
+
+        /// @brief Give a retire()d `id`'s slot back for reuse, under a new
+        /// generation. A no-op if `id` isn't retired.
+        void release(IdT id) {
+            if (!is_retired(id)) return;
+            Slot& s = slots_[id.index];
+            s.retired = false;
+            ++s.generation;
+            --retired_count_;
+            free_.push_back(id.index);
+        }
+
+        bool is_retired(IdT id) const {
+            return id.index < slots_.size() && slots_[id.index].retired && slots_[id.index].generation == id.generation;
         }
 
         T* get(IdT id) {
@@ -97,6 +140,7 @@ namespace {{schema.namespace}}
         void clear() {
             slots_.clear();
             free_.clear();
+            retired_count_ = 0;
         }
 
         /// @brief Replace the whole pool with `values`, alive at indices
@@ -106,6 +150,7 @@ namespace {{schema.namespace}}
         void load_dense(std::vector<T> values) {
             slots_.clear();
             free_.clear();
+            retired_count_ = 0;
             slots_.resize(values.size());
             for (size_t i = 0; i < values.size(); ++i) {
                 slots_[i].value = std::move(values[i]);
@@ -118,6 +163,7 @@ namespace {{schema.namespace}}
         void load_dense(size_t n) {
             slots_.clear();
             free_.clear();
+            retired_count_ = 0;
             slots_.resize(n);
             for (Slot &slot : slots_)
                 slot.alive = true;
@@ -125,7 +171,7 @@ namespace {{schema.namespace}}
 
         /// @brief Number of live objects (size() counts every slot).
         size_t alive_count() const noexcept {
-            return slots_.size() - free_.size();
+            return slots_.size() - free_.size() - retired_count_;
         }
 
     private:
@@ -145,6 +191,7 @@ namespace {{schema.namespace}}
 
         std::vector<Slot> slots_;
         std::vector<uint32_t> free_;
+        size_t retired_count_ = 0;
     };
 }
 """

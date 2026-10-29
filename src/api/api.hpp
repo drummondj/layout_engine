@@ -698,13 +698,15 @@ extern "C"
     void le_end_command(LeHandle *handle, int32_t succeeded);
 
     /// @brief Undoes the most recently recorded transaction, if any
-    /// (Ctrl-Z). Returns nonzero if something was undone. A no-op
-    /// (returns 0) if handle is null or the undo stack is empty.
+    /// (Ctrl-Z). Returns 1 if it was undone, -1 if it was undone but some
+    /// of its steps couldn't be applied (logged), and 0 if handle is null
+    /// or the undo stack is empty.
     int32_t le_undo(LeHandle *handle);
 
     /// @brief Redoes the most recently undone transaction, if any
-    /// (Ctrl-Shift-Z). Returns nonzero if something was redone. A no-op
-    /// (returns 0) if handle is null or the redo stack is empty.
+    /// (Ctrl-Shift-Z). Returns 1 if it was redone, -1 if it was redone but
+    /// some of its steps couldn't be applied (logged), and 0 if handle is
+    /// null or the redo stack is empty.
     int32_t le_redo(LeHandle *handle);
 
     /// @brief True (nonzero) if le_undo() would currently do something.

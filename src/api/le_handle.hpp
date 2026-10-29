@@ -154,7 +154,7 @@ struct LeHandle
     // (le_mouse_up's Edit-mode branch) and le_repl_eval (the Tcl-side
     // wrapper every typed console command goes through) are the two
     // callers that bracket one with begin()/end().
-    le::editing::CommandHistory command_history;
+    le::editing::CommandHistory command_history{root};
     std::shared_mutex mutex_;
     // Extensions' per-handle state (le::ext::ExtensionContext::data<T>()),
     // keyed by extension name and type. State lives here, not in globals,
