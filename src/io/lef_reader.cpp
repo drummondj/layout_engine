@@ -149,12 +149,7 @@ namespace le
         technology_ = root.get_technology(technology_id);
         library_name_ = library_name;
 
-        // Open file - RAII (fclose via unique_ptr's deleter) rather than a
-        // manual fclose() at each return path below, so the handle is
-        // still closed if an exception propagates out of lefrRead (which
-        // invokes our own callbacks - e.g. a std::vector::reserve deep in
-        // shapes_from_parser could throw on a malformed file) rather than
-        // returning through here normally.
+        // Closed by unique_ptr's deleter on every return path.
         std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(filename.c_str(), "r"), &fclose);
         if (!file)
         {
@@ -169,7 +164,18 @@ namespace le
         }
 
         // Read file
-        int result = lefrRead(file.get(), filename.c_str(), (void *)this);
+        // A callback that throws would unwind through the vendored parser
+        // and out of the C API; it ends the read as a parse failure.
+        int result = 0;
+        try
+        {
+            result = lefrRead(file.get(), filename.c_str(), (void *)this);
+        }
+        catch (const std::exception &error)
+        {
+            log_error("Reading LEF file {} failed: {}", filename, error.what());
+            result = -1;
+        }
         messages_ = std::move(g_pending_lef_messages);
         if (result != 0)
         {
@@ -1966,16 +1972,26 @@ namespace le
         if (!std::isfinite(x_count) || !std::isfinite(y_count) || x_count < 0.0 || y_count < 0.0)
             return 0;
 
-        // Generous but bounded - a real LEF ITERATE statement repeats a
-        // handful of times (single/double digits), never anywhere close
-        // to this. Checked against each factor individually, before
-        // multiplying, so the product itself can't overflow double's
-        // range either.
-        constexpr double kMaxReasonableCount = 1'000'000.0;
-        if (x_count > kMaxReasonableCount || y_count > kMaxReasonableCount)
+        // Each factor is bounded before multiplying, so the product can't
+        // overflow either.
+        constexpr double kMax = static_cast<double>(Geometry::kMaxIterateCount);
+        if (x_count > kMax || y_count > kMax || x_count * y_count > kMax)
             return 0;
 
         return static_cast<size_t>(x_count) * static_cast<size_t>(y_count);
+    }
+
+    namespace
+    {
+        /// @brief safe_iteration_count, warning when a nonzero count is refused.
+        bool iterate_count_accepted(const char *kind, double x_count, double y_count)
+        {
+            if (LEFReader::safe_iteration_count(x_count, y_count) > 0)
+                return true;
+            if (!(x_count == 0.0 || y_count == 0.0))
+                log_warning("{} ITERATE DO {} BY {} is not a count from 1 to {} elements - ignored.", kind, x_count, y_count, Geometry::kMaxIterateCount);
+            return false;
+        }
     }
 
     // The `!shape.has_value()` guards below (RECT/RECT-ITERATE/PATH/
@@ -2051,7 +2067,7 @@ namespace le
                 // doubles, despite the misleading name they're iteration
                 // counts, not start coordinates) need bounds-checking before
                 // ever being cast to int.
-                if (safe_iteration_count(lef_rect_iter->xStart, lef_rect_iter->yStart) == 0)
+                if (!iterate_count_accepted("RECT", lef_rect_iter->xStart, lef_rect_iter->yStart))
                     break;
 
                 RectIterate rect_iter{
@@ -2090,7 +2106,7 @@ namespace le
                     break;
                 }
                 auto lef_path_iter = geometries->getPathIter(j);
-                if (safe_iteration_count(lef_path_iter->xStart, lef_path_iter->yStart) == 0)
+                if (!iterate_count_accepted("PATH", lef_path_iter->xStart, lef_path_iter->yStart))
                     break;
 
                 auto polygon = polygon_from_parser(reader, lef_path_iter->numPoints, lef_path_iter->x, lef_path_iter->y);
@@ -2129,7 +2145,7 @@ namespace le
                     break;
                 }
                 auto lef_polygon_iter = geometries->getPolygonIter(j);
-                if (safe_iteration_count(lef_polygon_iter->xStart, lef_polygon_iter->yStart) == 0)
+                if (!iterate_count_accepted("POLYGON", lef_polygon_iter->xStart, lef_polygon_iter->yStart))
                     break;
 
                 auto polygon = polygon_from_parser(reader, lef_polygon_iter->numPoints, lef_polygon_iter->x, lef_polygon_iter->y);
@@ -2210,7 +2226,7 @@ namespace le
                     break;
                 }
                 lefiGeomViaIter *lef_via_iter = geometries->getViaIter(j);
-                if (safe_iteration_count(lef_via_iter->xStart, lef_via_iter->yStart) == 0)
+                if (!iterate_count_accepted("VIA", lef_via_iter->xStart, lef_via_iter->yStart))
                     break;
 
                 ShapeViaIterate via_iter{

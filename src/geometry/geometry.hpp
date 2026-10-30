@@ -1224,14 +1224,24 @@ namespace le
             return result;
         }
 
+        /// @brief The most elements one ITERATE or via array may expand to
+        /// (num_x * num_y). A real one repeats a handful of times.
+        static constexpr int64_t kMaxIterateCount = 1'000'000;
+
+        /// @brief True if a num_x by num_y ITERATE or via array is positive
+        /// and expands to at most kMaxIterateCount elements.
+        static constexpr bool iterate_count_ok(int num_x, int num_y)
+        {
+            return num_x > 0 && num_y > 0 && static_cast<int64_t>(num_x) * num_y <= kMaxIterateCount;
+        }
+
         /// @brief Expands RECT/PATH/POLYGON ITERATE (raw LEF storage) into
         /// concrete rects/paths/polygons on a copy of `shape`. An iterate
-        /// with a non-positive or implausibly large count is skipped.
+        /// failing iterate_count_ok is skipped.
         static ShapeData expand_iterates(ShapeData shape)
         {
-            constexpr int kMaxReasonableCount = 1'000'000;
             auto valid = [](const auto &it)
-            { return it.num_x > 0 && it.num_y > 0 && it.num_x <= kMaxReasonableCount && it.num_y <= kMaxReasonableCount; };
+            { return iterate_count_ok(it.num_x, it.num_y); };
 
             for (const RectIterate &it : shape.rect_iterates)
             {

@@ -2,6 +2,8 @@
 #include "../lef_reader.hpp"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 using namespace le;
 
 // src/lefdef/lef/TEST/complete.5.8.lef is the vendored LEF parser's own
@@ -449,6 +451,25 @@ TEST(LEFReaderErrors, GeometryWithoutPrecedingLayerFailsAtTheGrammarLevel)
     Root root;
     LEFReader reader;
     EXPECT_EQ(reader.read_lef(fixture_path("rect_without_layer.lef"), root, "test_lib"), 2);
+}
+
+TEST(LEFReaderErrors, AnIterateOverTheElementCapIsIgnoredWithAWarning)
+{
+    // DO 1000 BY 1001: each axis is within the cap, the product isn't.
+    Root root;
+    LEFReader reader;
+    ASSERT_EQ(reader.read_lef(fixture_path("huge_iterate.lef"), root, "test_lib"), 0);
+
+    const AbstractId abstract_id = root.get_design_abstract(find_design_by_name(root, "HUGEITER"));
+    ASSERT_EQ(root.get_abstract_obstructions(abstract_id).size(), 1u);
+    const std::vector<ShapeId> &shapes = root.get_obstruction_shapes(root.get_abstract_obstructions(abstract_id).front());
+    ASSERT_EQ(shapes.size(), 1u);
+    const ShapeData &shape = *root.get_shape(shapes.front());
+    ASSERT_EQ(shape.rect_iterates.size(), 1u);
+    EXPECT_EQ(shape.rect_iterates.front().num_x, 2);
+    EXPECT_EQ(shape.rect_iterates.front().num_y, 3);
+    EXPECT_TRUE(std::ranges::any_of(reader.messages(), [](const std::string &msg)
+                                    { return msg.starts_with("WARNING") && msg.find("RECT ITERATE DO 1000 BY 1001") != std::string::npos; }));
 }
 
 TEST(LEFReaderErrors, DuplicateLayerNameIsIgnored)

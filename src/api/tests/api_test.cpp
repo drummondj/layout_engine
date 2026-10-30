@@ -5994,6 +5994,38 @@ TEST_F(ApiFixture, NewDesignsGoIntoTheNamedLibrary)
         EXPECT_EQ(le_library_design_count(handle, i), 1);
 }
 
+// A LEF pin whose bracketed index doesn't fit an int is an ordinary name
+// to the netlist read's stub modules, not a crash.
+TEST_F(ApiFixture, ANetlistReadSurvivesAPinIndexOutOfIntRange)
+{
+    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    LeAbstractId abstract{.index = UINT32_MAX, .generation = 0};
+    for (int32_t l = 0; l < le_library_count(handle); ++l)
+        for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
+            if (const LeDesignInfo info = le_library_design_at(handle, l, d); std::string(info.name) == "TESTCELL")
+                abstract = info.abstract_id;
+    ASSERT_NE(abstract.index, UINT32_MAX);
+    ASSERT_NE(le_create_terminal(handle, abstract, "A[99999999999]", "INPUT", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0)
+                  .index,
+              UINT32_MAX);
+
+    const std::filesystem::path verilog_path = le::test::scratch_path("le_huge_index_top.v");
+    {
+        std::ofstream out(verilog_path);
+        out << "module TOP();\n  wire n1;\n  TESTCELL U1(.A(n1));\nendmodule\n";
+    }
+    const std::string verilog = verilog_path.string();
+    const char *paths[] = {verilog.c_str()};
+    EXPECT_EQ(le_read_verilog(handle, paths, 1, /*is_netlist=*/1, "top"), 0);
+    std::filesystem::remove(verilog_path);
+    int32_t top = 0;
+    for (int32_t l = 0; l < le_library_count(handle); ++l)
+        for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
+            top += std::string(le_library_design_at(handle, l, d).name) == "TOP";
+    EXPECT_EQ(top, 1);
+}
+
 // --- Flightlines ---
 
 namespace

@@ -23,6 +23,10 @@
 // It stays valid until that function's next call on the same thread,
 // whatever other threads do to the handle meanwhile. Functions documented
 // as returning static storage are valid for the life of the process.
+//
+// Exceptions: the functions that read, write, link, render or run shape
+// ops log a C++ exception and return their error value, so none crosses
+// this boundary from them.
 
 #ifdef __cplusplus
 extern "C"

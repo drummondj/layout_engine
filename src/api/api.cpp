@@ -77,6 +77,25 @@ namespace
     // compiler/optimization level.
     constexpr const char *kRenderFrameName = "le_render_pixel_buffer";
 
+    // Logs the exception being handled. The entry points that parse, read,
+    // write, link or render catch everything with it, so no exception
+    // crosses the C boundary.
+    void log_exception(const char *function) noexcept
+    {
+        try
+        {
+            throw;
+        }
+        catch (const std::exception &error)
+        {
+            spdlog::error("{}: {}", function, error.what());
+        }
+        catch (...)
+        {
+            spdlog::error("{}: unknown exception", function);
+        }
+    }
+
     // Rebuilds handle->view_layers for its currently-selected Technology
     // and stamps view_layers_built_at_version so ensure_view_layers_current()
     // (below) can tell it's current again. The one place this used to
@@ -2687,6 +2706,7 @@ namespace
         // many Shapes were created, or -1.
         template <typename Op>
         int32_t run_shape_op(LeHandle *handle, const char *command, LeLayerId layer, const char *purpose, LeObjectRef parent, Op &&op)
+        try
         {
             if (!handle)
                 return -1;
@@ -2709,6 +2729,11 @@ namespace
             handle->shape_op_results = *result;
             return static_cast<int32_t>(result->size());
         }
+        catch (...)
+        {
+            log_exception(command);
+            return -1;
+        }
     // --- The session saved beside the database (a .led file's SESS chunk) ---
     // Per-design view state that settings.json (global) doesn't hold: which
     // view is open, the viewport, the generated "current" objects, and
@@ -2725,12 +2750,22 @@ namespace
         return {{"$ref", klass}, {"index", id.index}, {"generation", id.generation}};
     }
 
+    // `obj[key]` if it's an unsigned number that fits a uint32_t, else
+    // `fallback`. json::value would throw on a mistyped value.
+    uint32_t session_uint32(const nlohmann::json &obj, const char *key, uint32_t fallback)
+    {
+        if (!obj.is_object() || !obj.contains(key) || !obj[key].is_number_unsigned())
+            return fallback;
+        const uint64_t value = obj[key].get<uint64_t>();
+        return value <= std::numeric_limits<uint32_t>::max() ? static_cast<uint32_t>(value) : fallback;
+    }
+
     template <class Id>
     Id session_id(const nlohmann::json &ref)
     {
         if (!ref.is_object() || !ref.contains("index") || !ref["index"].is_number_unsigned())
             return Id{};
-        return Id{ref["index"].get<uint32_t>(), ref.value("generation", 0u)};
+        return Id{session_uint32(ref, "index", Id{}.index), session_uint32(ref, "generation", 0)};
     }
 
     nlohmann::json filter_values_json(const std::set<std::string> &values) { return nlohmann::json(std::vector<std::string>(values.begin(), values.end())); }
@@ -2798,7 +2833,7 @@ namespace
             spdlog::warn("read_db: {}'s session isn't valid JSON; ignored", path);
             return;
         }
-        if (j.value("format", 0) > kSessionFormat)
+        if (j.contains("format") && j["format"].is_number_integer() && j["format"].get<int64_t>() > kSessionFormat)
             spdlog::warn("read_db: {}'s session was written by a newer Layout Engine; restoring what this one knows", path);
         le::Root &root = handle->root;
         const auto object = [&](const char *key) -> const nlohmann::json & {
@@ -2955,6 +2990,7 @@ extern "C"
     }
 
     int le_read_lef(LeHandle *handle, const char *path, const char *library_name)
+    try
     {
         if (!handle)
             return 1;
@@ -3048,8 +3084,14 @@ extern "C"
         clean.commit(handle);
         return 0;
     }
+    catch (...)
+    {
+        log_exception("read_lef");
+        return 1;
+    }
 
     int le_read_def(LeHandle *handle, const char *path, const char *library_name)
+    try
     {
         if (!handle)
             return 1;
@@ -3094,8 +3136,14 @@ extern "C"
         clean.commit(handle);
         return 0;
     }
+    catch (...)
+    {
+        log_exception("read_def");
+        return 1;
+    }
 
     int le_read_verilog(LeHandle *handle, const char *const *filenames, int32_t filename_count, int32_t is_netlist, const char *library_name)
+    try
     {
         if (!handle)
             return 1;
@@ -3183,8 +3231,14 @@ extern "C"
             clean.commit_failed(handle);
         return result;
     }
+    catch (...)
+    {
+        log_exception("read_verilog");
+        return 1;
+    }
 
     int le_write_verilog_stubs(LeHandle *handle, const char *path, LeLibraryId library_id_c)
+    try
     {
         if (!handle)
             return 1;
@@ -3224,8 +3278,14 @@ extern "C"
         out << stub_source;
         return 0;
     }
+    catch (...)
+    {
+        log_exception("write_verilog_stubs");
+        return 1;
+    }
 
     int32_t le_link_unresolved_instances(LeHandle *handle)
+    try
     {
         if (!handle)
             return 0;
@@ -3251,6 +3311,11 @@ extern "C"
         handle->root.bump_mutation_version();
         clean.commit(handle);
         return static_cast<int32_t>(resolved);
+    }
+    catch (...)
+    {
+        log_exception("link_unresolved_instances");
+        return 0;
     }
 
     // --- Schematic<->Layout link mutation side-effects - unlike
@@ -3510,6 +3575,7 @@ extern "C"
     int le_write_lef(LeHandle *handle, const char *path,
                      const LeAbstractId *abstract_ids_c, int32_t abstract_id_count,
                      LeLibraryId library_id_c, int32_t layer_write_mode)
+    try
     {
         if (!handle)
             return 1;
@@ -3578,8 +3644,14 @@ extern "C"
         le::LEFWriter writer;
         return writer.write_lef(path, handle->root, abstract_ids, mode);
     }
+    catch (...)
+    {
+        log_exception("write_lef");
+        return 1;
+    }
 
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id_c)
+    try
     {
         if (!handle)
             return 1;
@@ -3609,8 +3681,14 @@ extern "C"
         le::DEFWriter writer;
         return writer.write_def(path, handle->root, layout_id);
     }
+    catch (...)
+    {
+        log_exception("write_def");
+        return 1;
+    }
 
     int le_write_db(LeHandle *handle, const char *path, int32_t with_session)
+    try
     {
         if (!handle)
             return 1;
@@ -3636,8 +3714,14 @@ extern "C"
         handle->db_path = path;
         return 0;
     }
+    catch (...)
+    {
+        log_exception("write_db");
+        return 1;
+    }
 
     int le_read_db(LeHandle *handle, const char *path, int32_t with_session)
+    try
     {
         if (!handle)
             return 1;
@@ -3702,6 +3786,11 @@ extern "C"
         handle->saved_mutation_version = handle->root.mutation_version(); // matches the file
         handle->db_path = path;
         return 0;
+    }
+    catch (...)
+    {
+        log_exception("read_db");
+        return 1;
     }
 
     const char *le_db_path(LeHandle *handle)
@@ -4907,6 +4996,7 @@ extern "C"
     }
 
     int32_t le_save_settings(LeHandle *handle, const char *path)
+    try
     {
         if (!handle)
             return 1;
@@ -4932,6 +5022,11 @@ extern "C"
         spdlog::info("save_settings: wrote '{}'", target);
         return 0;
     }
+    catch (...)
+    {
+        log_exception("save_settings");
+        return 1;
+    }
 
     int32_t le_has_unsaved_database_changes(LeHandle *handle)
     {
@@ -4950,6 +5045,7 @@ extern "C"
     }
 
     int32_t le_load_settings(LeHandle *handle, const char *path)
+    try
     {
         if (!handle)
             return 1;
@@ -4993,6 +5089,11 @@ extern "C"
         handle->saved_settings_json = settings_snapshot(handle); // the settings are saved
         spdlog::info("load_settings: read '{}'", source);
         return 0;
+    }
+    catch (...)
+    {
+        log_exception("load_settings");
+        return 1;
     }
 
     void le_set_mouse_position(LeHandle *handle, int32_t x, int32_t y)
@@ -6638,6 +6739,7 @@ extern "C"
     int frame_mark_count = 0;
 
     LePixelBuffer le_render_pixel_buffer(LeHandle *handle)
+    try
     {
         if (!handle)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
@@ -6725,6 +6827,11 @@ extern "C"
             .height = output.frame->buffer.height,
             .row_bytes = static_cast<int64_t>(output.frame->buffer.row_bytes),
         };
+    }
+    catch (...)
+    {
+        log_exception("render_pixel_buffer");
+        return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
     }
 
     int32_t le_is_rendering(LeHandle *handle)

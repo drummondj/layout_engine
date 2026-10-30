@@ -49,12 +49,6 @@ namespace le
             return resolve_via(root, layout_via_id, layout_via_id.valid() ? ViaId{} : root.get_via_by_name(via_name));
         }
 
-        // Bounds num_x*num_y the same way expand_iterates does for
-        // RectIterate/PathIterate/PolygonIterate - defense in depth, not
-        // just trusting the database's own already-validated values. Also
-        // used below to clamp a fitted GENERATE row/col count.
-        constexpr int kMaxReasonableViaCount = 1'000'000;
-
         /// @brief Expands one via placement at a time into
         /// `shapes_by_layer` - see append_via_shapes.
         template <typename OnPush>
@@ -63,8 +57,6 @@ namespace le
                                    ResolvedVia resolved, const std::string &via_name, Point placement, std::optional<Orientation> placement_orientation,
                                    std::optional<int64_t> placement_width)
         {
-            constexpr int kMaxReasonableCount = kMaxReasonableViaCount;
-
             // Shared core of tiers 2 and 3 - given an already-decided rows x
             // cols grid (however each tier arrived at it) plus cut/spacing/
             // enclosure/offset parameters, synthesizes the cut grid Shape plus
@@ -147,7 +139,7 @@ namespace le
 
                 const int rows = rule->num_cut_rows.value_or(1);
                 const int cols = rule->num_cut_cols.value_or(1);
-                if (rows <= 0 || cols <= 0 || rows > kMaxReasonableCount || cols > kMaxReasonableCount)
+                if (!Geometry::iterate_count_ok(rows, cols))
                     return;
 
                 const LayerId cut_layer_id = root.get_layer_by_name(rule->cut_layer_name);
@@ -229,10 +221,11 @@ namespace le
                     if (available <= 0.0)
                         return 1;
                     const double count = std::floor((available - 2.0 * margin + spacing) / (cut_size + spacing));
-                    return static_cast<int>(std::clamp(count, 1.0, static_cast<double>(kMaxReasonableCount)));
+                    return static_cast<int>(std::clamp(count, 1.0, static_cast<double>(Geometry::kMaxIterateCount)));
                 };
                 const int cols = fit_count(cut_w, space_x, margin_x);
-                const int rows = fit_count(cut_h, space_y, margin_y);
+                // At most kMaxIterateCount cuts in all.
+                const int rows = std::min<int>(fit_count(cut_h, space_y, margin_y), static_cast<int>(Geometry::kMaxIterateCount / cols));
 
                 synthesize_cut_array(origin, orientation, rows, cols, cut_w, cut_h, space_x, space_y, cut_layer_id,
                                       bot_layer->layer_name, Point{.x = static_cast<int64_t>(std::llround(bot_margin_x)), .y = static_cast<int64_t>(std::llround(bot_margin_y))}, std::nullopt,
@@ -344,7 +337,7 @@ namespace le
 
         for (const ShapeViaIterate &via : shape.via_iterates)
         {
-            if (via.num_x <= 0 || via.num_y <= 0 || via.num_x > detail::kMaxReasonableViaCount || via.num_y > detail::kMaxReasonableViaCount)
+            if (!Geometry::iterate_count_ok(via.num_x, via.num_y))
                 continue;
             const detail::ResolvedVia resolved = detail::resolve_via_by_name(root, layout_id, via.via_name);
             for (int ix = 0; ix < via.num_x; ix++)

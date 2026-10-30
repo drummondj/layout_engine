@@ -44,8 +44,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -72,11 +74,14 @@ namespace le
             const size_t open = name.rfind('[');
             if (open == std::string::npos || open + 2 >= name.size())
                 return std::nullopt;
-            const std::string digits = name.substr(open + 1, name.size() - open - 2);
-            if (digits.empty() || !std::all_of(digits.begin(), digits.end(),
-                                                [](unsigned char c) { return std::isdigit(c); }))
+            const std::string_view digits = std::string_view(name).substr(open + 1, name.size() - open - 2);
+            if (!std::all_of(digits.begin(), digits.end(), [](unsigned char c) { return std::isdigit(c); }))
                 return std::nullopt;
-            return std::make_pair(name.substr(0, open), std::stoi(digits));
+            int index = 0;
+            const auto [end, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), index);
+            if (ec != std::errc{} || end != digits.data() + digits.size())
+                return std::nullopt; // out of int's range: an ordinary name
+            return std::make_pair(name.substr(0, open), index);
         }
 
         /// @brief Maps a LEF Terminal's SignalDirection onto the nearest

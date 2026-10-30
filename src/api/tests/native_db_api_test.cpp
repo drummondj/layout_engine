@@ -1,5 +1,6 @@
 #include "../api.hpp"
 #include "../le_handle.hpp"
+#include "../../io/native_format.hpp"
 #include <filesystem>
 #include <gtest/gtest.h>
 #include "../../test_support/scratch_dir.hpp"
@@ -174,6 +175,25 @@ TEST_F(NativeDbApi, TheSessionComesBackWithTheFile)
     ASSERT_EQ(le_read_db(loaded, path.c_str(), 0), 0);
     EXPECT_FALSE(loaded->root.get_layout(loaded->current_layout()));
     EXPECT_NE(le_is_purpose_visible(loaded, static_cast<int32_t>(*routes)), 0);
+    EXPECT_EQ(le_view_flip(loaded), LE_VIEW_FLIP_NONE);
+    le_destroy(loaded);
+}
+
+TEST_F(NativeDbApi, AMistypedSessionLoadsTheDesignAndSkipsWhatItCantRead)
+{
+    // Not object references, so the save stores them as they are.
+    const std::string session = R"({"format": "one",
+        "current": {"layout": {"index": 0, "generation": "g"}},
+        "view": {"layout": {"index": "zero"}, "abstract": {"index": 99999999999}},
+        "viewport": {"pan": ["x", 1], "scale": "big", "flip": 3},
+        "layers": {"visible": {"M1": "no"}}})";
+    ASSERT_TRUE(le::persistence::save_native(source->root, path, le::persistence::SaveOptions{.session_json = session}).ok());
+
+    LeHandle *loaded = le_create();
+    ASSERT_EQ(le_read_db(loaded, path.c_str(), 1), 0);
+    EXPECT_EQ(le_design_count(loaded), le_design_count(source));
+    EXPECT_FALSE(loaded->root.get_layout(loaded->current_layout()));
+    EXPECT_TRUE(le_is_layer_name_visible(loaded, "M1"));
     EXPECT_EQ(le_view_flip(loaded), LE_VIEW_FLIP_NONE);
     le_destroy(loaded);
 }

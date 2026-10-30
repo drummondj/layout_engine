@@ -81,6 +81,18 @@ TEST(VerilogStubWriter, NonContiguousBracketedBitsFallBackToOnePortPerBit)
     EXPECT_EQ(stub.find("[2:0]"), std::string::npos) << stub;
 }
 
+TEST(VerilogStubWriter, AnIndexOutOfIntRangeIsAnOrdinaryEscapedName)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+    const DesignId design = root.create_design(DesignData{.library = library, .name = "HUGE"});
+    const AbstractId abstract_id = root.create_abstract(AbstractData{.design = design});
+    add_terminal(root, abstract_id, "A[99999999999]", SignalDirection::INPUT);
+
+    const std::string stub = generate_verilog_stubs(root, library);
+    EXPECT_NE(stub.find("input \\A[99999999999] ;"), std::string::npos) << stub;
+}
+
 TEST(VerilogStubWriter, DirectionInconsistentBracketedBitsFallBackToOnePortPerBit)
 {
     Root root;

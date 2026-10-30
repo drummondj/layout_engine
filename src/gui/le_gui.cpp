@@ -552,26 +552,34 @@ namespace le::gui
                 const LePixelBuffer buffer = le_render_pixel_buffer(handle);
                 if (buffer.data != nullptr && buffer.width > 0 && buffer.height > 0)
                 {
-                    const size_t byte_count = static_cast<size_t>(buffer.row_bytes) * static_cast<size_t>(buffer.height);
-                    std::lock_guard<std::mutex> lock(mailbox.mutex);
-                    mailbox.pixels.resize(byte_count);
-                    std::memcpy(mailbox.pixels.data(), buffer.data, byte_count);
-                    // The frame is premultiplied RGBA that's still
-                    // translucent wherever only translucent content (grid
-                    // dots, shape fills) was drawn (ComposeStage starts
-                    // from transparent black, so dump_png keeps a
-                    // transparent background). ImGui draws textures with
-                    // straight-alpha blending, which would darken those
-                    // pixels a second time. The design view
-                    // is always on black, and premultiplied color over black
-                    // is the color itself, so making every pixel opaque is
-                    // the exact composite.
-                    for (size_t i = 3; i < byte_count; i += 4)
-                        mailbox.pixels[i] = 255;
-                    mailbox.width = buffer.width;
-                    mailbox.height = buffer.height;
-                    mailbox.row_bytes = buffer.row_bytes;
-                    ++mailbox.generation;
+                    try
+                    {
+                        const size_t byte_count = static_cast<size_t>(buffer.row_bytes) * static_cast<size_t>(buffer.height);
+                        std::lock_guard<std::mutex> lock(mailbox.mutex);
+                        mailbox.pixels.resize(byte_count);
+                        std::memcpy(mailbox.pixels.data(), buffer.data, byte_count);
+                        // The frame is premultiplied RGBA that's still
+                        // translucent wherever only translucent content (grid
+                        // dots, shape fills) was drawn (ComposeStage starts
+                        // from transparent black, so dump_png keeps a
+                        // transparent background). ImGui draws textures with
+                        // straight-alpha blending, which would darken those
+                        // pixels a second time. The design view
+                        // is always on black, and premultiplied color over black
+                        // is the color itself, so making every pixel opaque is
+                        // the exact composite.
+                        for (size_t i = 3; i < byte_count; i += 4)
+                            mailbox.pixels[i] = 255;
+                        mailbox.width = buffer.width;
+                        mailbox.height = buffer.height;
+                        mailbox.row_bytes = buffer.row_bytes;
+                        ++mailbox.generation;
+                    }
+                    catch (const std::exception &error)
+                    {
+                        // An exception here would end the thread and the process.
+                        spdlog::error("render thread: {}", error.what());
+                    }
                 }
             }
         }

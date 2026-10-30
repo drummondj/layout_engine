@@ -582,13 +582,29 @@ namespace le::persistence
                     for_each_reference(value, fn);
         }
 
+        // A reference's fields: empty or `fallback` if missing or mistyped
+        // (json::value would throw).
+        std::string ref_string(const nlohmann::json &ref, const char *key)
+        {
+            return ref.contains(key) && ref[key].is_string() ? ref[key].get<std::string>() : std::string{};
+        }
+
+        template <class T>
+        T ref_unsigned(const nlohmann::json &ref, const char *key, T fallback)
+        {
+            if (!ref.contains(key) || !ref[key].is_number_unsigned())
+                return fallback;
+            const uint64_t value = ref[key].get<uint64_t>();
+            return value <= std::numeric_limits<T>::max() ? static_cast<T>(value) : fallback;
+        }
+
         std::string session_for_file(const std::string &session_json, const Root &root, const EncodeContext &ctx)
         {
             nlohmann::json session = nlohmann::json::parse(session_json);
             for_each_reference(session, [&](nlohmann::json &ref) {
-                const std::string klass = ref.value("$ref", "");
-                const auto index = ref.value("index", std::numeric_limits<uint32_t>::max());
-                const auto generation = ref.value("generation", 0u);
+                const std::string klass = ref_string(ref, "$ref");
+                const auto index = ref_unsigned(ref, "index", std::numeric_limits<uint32_t>::max());
+                const auto generation = ref_unsigned(ref, "generation", uint32_t{0});
                 std::optional<uint32_t> row;
                 nt::for_each_pooled([&]<class P>(P) {
                     if (P::name != klass || !P::pool(root).get(typename P::Id{index, generation}))
@@ -609,8 +625,8 @@ namespace le::persistence
             if (session.is_discarded() || !session.is_object())
                 return {};
             for_each_reference(session, [&](nlohmann::json &ref) {
-                const std::string klass = ref.value("$ref", "");
-                const auto row = ref.value("row", std::numeric_limits<uint64_t>::max());
+                const std::string klass = ref_string(ref, "$ref");
+                const auto row = ref_unsigned(ref, "row", std::numeric_limits<uint64_t>::max());
                 const auto it = rows.find(klass);
                 ref = it != rows.end() && row < it->second ? nlohmann::json{{"$ref", klass}, {"index", row}, {"generation", 0}} : nlohmann::json(nullptr);
             });

@@ -323,6 +323,7 @@ namespace le::persistence
             {"current", ref("Layer", m4)},
             {"gone", ref("Layer", original.m2)}, // M2's old generation
             {"bogus", ref("NoSuchClass", m4)},
+            {"mistyped", {{"$ref", 5}, {"index", "zero"}, {"generation", -1}}},
             {"nested", {{"list", nlohmann::json::array({ref("Design", original.design), 7})}}},
             {"scale", 0.25},
         };
@@ -338,6 +339,7 @@ namespace le::persistence
         EXPECT_EQ(loaded.get_layer(LayerId{id_of(restored["current"]), 0})->name, "M4");
         EXPECT_TRUE(restored["gone"].is_null());
         EXPECT_TRUE(restored["bogus"].is_null());
+        EXPECT_TRUE(restored["mistyped"].is_null());
         EXPECT_EQ(loaded.get_design(DesignId{id_of(restored["nested"]["list"][0]), 0})->name, "top");
         EXPECT_EQ(restored["nested"]["list"][1], 7);
         EXPECT_EQ(restored["scale"], 0.25);

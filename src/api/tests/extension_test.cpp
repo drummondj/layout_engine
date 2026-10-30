@@ -7,6 +7,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <stdexcept>
 #include <thread>
 
 namespace
@@ -608,6 +609,21 @@ namespace
         return std::ranges::any_of(changes, [&](const le::ChangeLogEntry &entry)
                                    { return entry.klass == klass && entry.op == op; });
     }
+}
+
+TEST(MutationListeners, AThrowingListenerIsLoggedAndTheEditStands)
+{
+    LeHandle *handle = watched_handle();
+    listener_log().respond = [](le::ext::ExtensionContext &) { throw std::runtime_error("listener broke"); };
+    const LeLibraryId library = le_create_library(handle, "lib");
+    EXPECT_EQ(listener_log().events.size(), 1u);
+    EXPECT_NE(library.index, UINT32_MAX);
+    // The next edit still reaches it.
+    listener_log().respond = nullptr;
+    le_create_library(handle, "lib2");
+    EXPECT_EQ(listener_log().events.size(), 2u);
+    EXPECT_EQ(le_library_count(handle), 2);
+    le_destroy(handle);
 }
 
 TEST(MutationListeners, EachCApiEditIsOneEventListingWhatChanged)

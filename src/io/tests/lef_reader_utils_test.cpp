@@ -102,3 +102,11 @@ TEST(SafeIterationCount, RejectsCountsAboveTheSaneMaximum)
     EXPECT_EQ(LEFReader::safe_iteration_count(1e18, 1e18), 0u);
     EXPECT_EQ(LEFReader::safe_iteration_count(1e300, 2.0), 0u);
 }
+
+TEST(SafeIterationCount, RejectsAProductAboveTheMaximumEvenWhenEachAxisIsBelowIt)
+{
+    EXPECT_EQ(LEFReader::safe_iteration_count(1e6, 1.0), 1'000'000u);
+    EXPECT_EQ(LEFReader::safe_iteration_count(1000.0, 1000.0), 1'000'000u);
+    EXPECT_EQ(LEFReader::safe_iteration_count(1000.0, 1001.0), 0u);
+    EXPECT_EQ(LEFReader::safe_iteration_count(1e6, 1e6), 0u);
+}

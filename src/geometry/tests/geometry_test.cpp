@@ -1537,3 +1537,19 @@ TEST(Geometry, PathHitPreFilterNeverDropsAHit)
     }
     EXPECT_GT(hits, 0);
 }
+
+TEST(GeometryExpandIterates, SkipsAnIterateWhoseElementCountExceedsTheCap)
+{
+    static_assert(Geometry::iterate_count_ok(1000, 1000));
+    static_assert(!Geometry::iterate_count_ok(1000, 1001));
+    static_assert(!Geometry::iterate_count_ok(0, 5));
+    static_assert(!Geometry::iterate_count_ok(1'000'000, 1'000'000));
+
+    const Rect unit{.ll = {0, 0}, .ur = {1, 1}};
+    ShapeData shape;
+    shape.rect_iterates.push_back(RectIterate{.rect = unit, .num_x = 1'000'000, .num_y = 1'000'000, .space_x = 2, .space_y = 2});
+    shape.rect_iterates.push_back(RectIterate{.rect = unit, .num_x = 2, .num_y = 3, .space_x = 2, .space_y = 2});
+    const ShapeData expanded = Geometry::expand_iterates(shape);
+    EXPECT_EQ(expanded.rects.size(), 6u);
+    EXPECT_TRUE(expanded.rect_iterates.empty());
+}
