@@ -10,6 +10,8 @@
 #include "../port_markers.hpp"
 #include "../rasterize_output.hpp"
 #include "../render_shape.hpp"
+
+#include <spdlog/spdlog.h>
 #include "../tbb_core.hpp"
 #include "hierarchy_resolver_stage.hpp"
 
@@ -991,6 +993,10 @@ namespace le
         /// same documentation's own general guidance for most workloads.
         void set_thread_count(uint32_t thread_count) { thread_count_ = thread_count; }
 
+        /// @brief How often a frame started cutting a node off at
+        /// kMaxImageDimensionPx (each warned once, not every frame after).
+        size_t crop_warnings() const { return crop_warnings_; }
+
     protected:
         RasterizeOutput compute(const HierarchyResolverStage::OutputHandle &culled, const ViewRenderOptions &options) override
         {
@@ -1004,8 +1010,7 @@ namespace le
             std::erase_if(path_outline_cache_by_chunk_, [](const auto &entry)
                           { return entry.second.source.expired(); });
 
-            constexpr int kMaxDimensionPx = 8192;
-
+            bool any_cropped = false;
             for (const auto &[id, data] : culled->view_data)
             {
                 // A nested node covers only what its visible instances show
@@ -1015,8 +1020,21 @@ namespace le
 
                 const double width_dbu = static_cast<double>(local_bbox.ur.x - local_bbox.ll.x);
                 const double height_dbu = static_cast<double>(local_bbox.ur.y - local_bbox.ll.y);
-                const int pixel_width = std::clamp(static_cast<int>(std::ceil(width_dbu * options.scale)), 1, kMaxDimensionPx);
-                const int pixel_height = std::clamp(static_cast<int>(std::ceil(height_dbu * options.scale)), 1, kMaxDimensionPx);
+                // Clamped as doubles: casting an out-of-range double to int is UB.
+                const double wanted_width = std::ceil(width_dbu * options.scale);
+                const double wanted_height = std::ceil(height_dbu * options.scale);
+                const auto to_pixels = [](double wanted)
+                { return wanted >= 1.0 ? static_cast<int>(std::min(wanted, static_cast<double>(kMaxImageDimensionPx))) : 1; };
+                const int pixel_width = to_pixels(wanted_width);
+                const int pixel_height = to_pixels(wanted_height);
+                const bool cropped = wanted_width > kMaxImageDimensionPx || wanted_height > kMaxImageDimensionPx;
+                if (cropped && !any_cropped && !cropping_)
+                {
+                    ++crop_warnings_;
+                    spdlog::warn("render: a cell needs {:.0f} x {:.0f} px at this zoom, more than the {} px limit - it is cut off at the limit",
+                                 wanted_width, wanted_height, kMaxImageDimensionPx);
+                }
+                any_cropped = any_cropped || cropped;
 
                 BLImage image(pixel_width, pixel_height, BL_FORMAT_PRGB32);
 
@@ -1086,9 +1104,11 @@ namespace le
 
                 // ComposeStage composites BLImages natively, so these are
                 // the finished RasterizedImage - no format conversion.
-                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll, std::move(over_placements)});
+                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll, std::move(over_placements), cropped});
             }
 
+            // Warned once per run of cropped frames, not on every pan.
+            cropping_ = any_cropped;
             return result;
         }
 
@@ -1195,5 +1215,7 @@ namespace le
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> glyph_bitmap_cache_;
 
         uint32_t thread_count_ = 8;
+        bool cropping_ = false; // the last frame cut a node off
+        size_t crop_warnings_ = 0;
     };
 }
