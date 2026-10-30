@@ -1,4 +1,5 @@
 #include "lef_writer.hpp"
+#include "lefdef_lock.hpp"
 #include "../lefdef/lef/include/lefwWriter.hpp"
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
@@ -2173,6 +2174,7 @@ namespace le
 
     int LEFWriter::write_lef(const std::string &path, const Root &root, const std::vector<AbstractId> &abstract_ids, LayerWriteMode mode)
     {
+        const std::lock_guard<std::mutex> lefdef_lock(lefdef_mutex());
         const char *mode_name = mode == LayerWriteMode::None            ? "macros only"
                                  : mode == LayerWriteMode::TechnologyOnly ? "technology layers only"
                                                                           : "technology layers + macros";

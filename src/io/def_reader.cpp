@@ -1,5 +1,6 @@
 #include <fmt/format.h>
 #include "def_reader.hpp"
+#include "lefdef_lock.hpp"
 #include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include <algorithm>
@@ -1284,6 +1285,7 @@ namespace le
 
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
     {
+        const std::lock_guard<std::mutex> lefdef_lock(lefdef_mutex());
         const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         spdlog::info("read_def: reading '{}'...", filename);
 

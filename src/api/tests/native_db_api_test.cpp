@@ -4,7 +4,12 @@
 #include <filesystem>
 #include <gtest/gtest.h>
 #include "../../test_support/scratch_dir.hpp"
+#include <atomic>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <thread>
+#include <vector>
 #include <unistd.h>
 
 // le_write_db / le_read_db / le_db_info - the native database file
@@ -210,4 +215,51 @@ TEST_F(NativeDbApi, NoSessionSavesTheDatabaseOnly)
     EXPECT_FALSE(loaded->root.get_layout(loaded->current_layout()));
     EXPECT_TRUE(le_is_layer_name_visible(loaded, "M1"));
     le_destroy(loaded);
+}
+
+// The vendored LEF/DEF parsers and writers keep process-wide state: two
+// handles reading and writing at once must give what one at a time does.
+TEST(LefDefAcrossHandles, ConcurrentReadsAndWritesMatchSequentialOnes)
+{
+    const fs::path dir = le::test::scratch_path("le_lefdef_threads");
+    fs::create_directories(dir);
+    const auto read_text = [](const fs::path &path) {
+        std::ifstream in(path);
+        return std::string(std::istreambuf_iterator<char>(in), {});
+    };
+    // Reads the testcell fixtures into a fresh handle and writes them back.
+    const auto round_trip = [&](const std::string &tag) {
+        LeHandle *handle = le_create();
+        bool ok = le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell") == 0 &&
+                  le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell") == 0;
+        const LeDesignInfo design = le_library_design_at(handle, 0, 0);
+        ok = ok && le_write_lef(handle, (dir / (tag + ".lef")).string().c_str(), nullptr, 0, le_library_at(handle, 0).id,
+                                LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT) == 0;
+        ok = ok && le_write_def(handle, (dir / (tag + ".def")).string().c_str(), design.layout_id) == 0;
+        le_destroy(handle);
+        return ok;
+    };
+    ASSERT_TRUE(round_trip("expected"));
+
+    constexpr int kThreads = 4, kRounds = 10;
+    std::vector<std::thread> threads;
+    std::atomic<int> failures = 0;
+    for (int t = 0; t < kThreads; ++t)
+        threads.emplace_back([&, t] {
+            for (int r = 0; r < kRounds; ++r)
+                if (!round_trip("t" + std::to_string(t) + "_" + std::to_string(r)))
+                    ++failures;
+        });
+    for (std::thread &thread : threads)
+        thread.join();
+    EXPECT_EQ(failures.load(), 0);
+    const std::string lef = read_text(dir / "expected.lef"), def = read_text(dir / "expected.def");
+    for (int t = 0; t < kThreads; ++t)
+        for (int r = 0; r < kRounds; ++r)
+        {
+            const std::string tag = "t" + std::to_string(t) + "_" + std::to_string(r);
+            EXPECT_EQ(read_text(dir / (tag + ".lef")), lef) << tag;
+            EXPECT_EQ(read_text(dir / (tag + ".def")), def) << tag;
+        }
+    fs::remove_all(dir);
 }

@@ -1,4 +1,5 @@
 #include "def_writer.hpp"
+#include "lefdef_lock.hpp"
 #include "../lefdef/def/include/defwWriter.hpp"
 #include "../geometry/geometry.hpp"
 #include "../database/wire_helpers.hpp"
@@ -1083,6 +1084,7 @@ namespace le
 
     int DEFWriter::write_def(const std::string &path, const Root &root, LayoutId layout_id)
     {
+        const std::lock_guard<std::mutex> lefdef_lock(lefdef_mutex());
         spdlog::info(
             "write_def: writing '{}' - {} component(s), {} pin(s), {} route(s)...", path,
             root.get_layout_placements(layout_id).size(), root.get_layout_physical_ports(layout_id).size(),
