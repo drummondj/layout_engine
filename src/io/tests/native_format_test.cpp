@@ -670,6 +670,29 @@ namespace le::persistence
         EXPECT_EQ(loaded.get_library(kept)->name, "kept");
     }
 
+    // The session is decoded before the loaded database replaces the
+    // target's, so a corrupt one can't fail the load after the swap.
+    TEST_F(NativeFormatOlderSchema, ACorruptSessionLoadsTheDesignWithoutItsSession)
+    {
+        file.session = R"({"scale": 0.5})";
+        file.write(path);
+        std::vector<uint8_t> bytes = read_bytes(path);
+        const std::string tag = "SESS";
+        const auto at = std::search(bytes.begin(), bytes.end(), tag.begin(), tag.end());
+        ASSERT_NE(at, bytes.end());
+        // The chunk's last byte is its block's last payload byte.
+        const uint64_t size = *reinterpret_cast<const uint64_t *>(&*(at + 4));
+        bytes[static_cast<size_t>(at - bytes.begin()) + 12 + size - 1] ^= 0xff;
+        write_bytes(path, bytes);
+
+        const LoadReport report = load_native(loaded, path.string());
+        ASSERT_TRUE(report.ok()) << report.error;
+        EXPECT_TRUE(report.session_json.empty());
+        EXPECT_TRUE(std::ranges::any_of(report.warnings, [](const std::string &w) { return w.starts_with("the session can't be read and is ignored: "); }));
+        EXPECT_EQ(loaded.get_layer_ids().size(), 3u);
+        EXPECT_TRUE(loaded.get_layer_by_name("M1").valid());
+    }
+
     TEST_F(NativeFormatOlderSchema, ADeeplyNestedSessionIsDroppedAndTheDesignLoads)
     {
         file.session = R"({"scale": 0.5, "deep": )" + std::string(100000, '[') + std::string(100000, ']') + "}";
