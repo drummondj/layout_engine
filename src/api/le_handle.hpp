@@ -159,9 +159,16 @@ struct LeHandle
     // Extensions' per-handle state (le::ext::ExtensionContext::data<T>()),
     // keyed by extension name and type. State lives here, not in globals,
     // because le_shell and the le_tcl module each link their own copy of
-    // every extension. Its own mutex, so a lookup never waits on a render.
+    // every extension. extension_data_mutex guards the map, so a lookup
+    // never waits on a render; each slot's own mutex is with_data<T>()'s.
+    // Node-based, so a slot (and its mutex) never moves.
+    struct ExtensionDataSlot
+    {
+        std::shared_ptr<void> value;
+        std::mutex mutex;
+    };
     std::mutex extension_data_mutex;
-    std::unordered_map<std::string, std::shared_ptr<void>> extension_data;
+    std::unordered_map<std::string, ExtensionDataSlot> extension_data;
 
     // Extensions' mutation listeners (le::ext::Registry::
     // add_mutation_listener), called by dispatch_mutation_listeners after a

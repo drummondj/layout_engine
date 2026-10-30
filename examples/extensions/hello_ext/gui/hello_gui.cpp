@@ -22,7 +22,8 @@ namespace
     void add_library(le::ext::ExtGuiContext &ctx)
     {
         WindowState &state = ctx.data<WindowState>();
-        ctx.run_tcl_command("hello_add_library " + ctx.data<hello::State>().library_name + std::to_string(++state.added));
+        const std::string name = ctx.with_data<hello::State>([](const hello::State &hello) { return hello.library_name; });
+        ctx.run_tcl_command("hello_add_library " + name + std::to_string(++state.added));
     }
 
     void draw_hello_window(le::ext::ExtGuiContext &ctx)
@@ -33,7 +34,7 @@ namespace
         if (const le::ext::ReadView view = ctx.read(); view.valid())
             state.library_count = static_cast<int>(view.root().get_library_ids().size());
         ImGui::Text("Libraries: %d", state.library_count);
-        ImGui::Text("Libraries added this session: %d", ctx.data<hello::State>().libraries_added);
+        ImGui::Text("Libraries added this session: %d", ctx.with_data<hello::State>([](const hello::State &hello) { return hello.libraries_added; }));
         ImGui::Text("Selected objects: %d", ctx.selection_count());
         // Queued, so it's safe to click mid-render: it runs when the console is free.
         if (ImGui::Button("Add library"))
@@ -43,11 +44,10 @@ namespace
     // hello_ext's section of the Settings panel.
     void draw_settings(le::ext::ExtGuiContext &ctx)
     {
-        std::string &name = ctx.data<hello::State>().library_name;
         char buffer[64] = {};
-        name.copy(buffer, sizeof(buffer) - 1);
+        ctx.with_data<hello::State>([&](const hello::State &hello) { hello.library_name.copy(buffer, sizeof(buffer) - 1); });
         if (ImGui::InputText("Library name", buffer, sizeof(buffer)))
-            name = buffer;
+            ctx.with_data<hello::State>([&](hello::State &hello) { hello.library_name = buffer; });
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Libraries added from the GUI are named hello_<this><n>");
     }
@@ -59,8 +59,7 @@ void le_ext_hello_ext_register_gui(le::ext::GuiRegistry &registry)
     registry.add_menu_item({.label = "Add a library", .action = add_library});
     // Not a database change, so the overlay is asked to redraw.
     registry.add_menu_item({.label = "Show/hide the origin marker", .action = [](le::ext::ExtGuiContext &ctx) {
-                                bool &show = ctx.data<hello::State>().show_origin;
-                                show = !show;
+                                ctx.with_data<hello::State>([](hello::State &hello) { hello.show_origin = !hello.show_origin; });
                                 ctx.request_redraw();
                             }});
     registry.add_toolbar_button({.icon = ICON_LC_BOOK_PLUS, .label = "Hello", .tooltip = "Add a library (hello_ext) - H", .action = add_library});

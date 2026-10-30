@@ -39,7 +39,7 @@ int hello_add_marker_cmd(const char *name)
 
 int hello_libraries_added_cmd()
 {
-    return context().data<hello::State>().libraries_added;
+    return context().with_data<hello::State>([](const hello::State &state) { return state.libraries_added; });
 }
 
 void le_ext_hello_ext_init_tcl(Tcl_Interp *interp)

@@ -282,12 +282,19 @@ namespace le::ext
 
     void *ExtensionContext::data_slot(const char *type_name, std::shared_ptr<void> (*make)())
     {
+        std::mutex *unused = nullptr;
+        return data_slot(type_name, make, &unused);
+    }
+
+    void *ExtensionContext::data_slot(const char *type_name, std::shared_ptr<void> (*make)(), std::mutex **mutex)
+    {
         const std::string key = extension_name_ + "/" + type_name;
         std::lock_guard<std::mutex> lock(handle_->extension_data_mutex);
-        auto &slot = handle_->extension_data[key];
-        if (!slot)
-            slot = make();
-        return slot.get();
+        LeHandle::ExtensionDataSlot &slot = handle_->extension_data[key];
+        if (!slot.value)
+            slot.value = make();
+        *mutex = &slot.mutex;
+        return slot.value.get();
     }
 }
 
