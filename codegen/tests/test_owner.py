@@ -215,6 +215,7 @@ class TestGlobalUniqueIndex(unittest.TestCase):
             self.assertEqual(generate(self._schema(), out, logging.getLogger("test")), 0)
             root = (Path(out) / "root.hpp").read_text()
         self.assertIn("if (index_.shelf_by_name.contains(data.name))\n                return ShelfId{};", root)
-        self.assertIn("if (index_.shelf_by_name.contains(*name))", root)
-        self.assertIn("if (index_.shelf_by_name.contains(value))\n                return false;", root)
+        # update_ checks the clash before writing anything.
+        check = root.index("if (name && *name != existing->name && index_.shelf_by_name.contains(*name))")
+        self.assertLess(check, root.index("// Nothing below can fail.", check))
         self.assertIn('": duplicate name"', root)

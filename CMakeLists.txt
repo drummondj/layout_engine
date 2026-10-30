@@ -1376,6 +1376,7 @@ add_executable(backend_tests
     src/api/tests/delete_pieces_test.cpp
     src/api/tests/wire_edit_test.cpp
     src/api/tests/mutation_cascade_test.cpp
+    src/api/tests/edit_ops_test.cpp
     src/api/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp
     src/api/tests/shape_resize_test.cpp
