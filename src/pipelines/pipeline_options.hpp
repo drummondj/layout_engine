@@ -321,11 +321,11 @@ namespace le
         /// coordinates). A boundary's centre can fall on a half dbu.
         std::array<double, 2> axis_origin_dbu{0.0, 0.0};
 
-        /// @brief The current Abstract's own LEF `ORIGIN` point
-        /// (`AbstractData::origin`, defaulting to dbu (0,0) when unset -
-        /// `api.cpp`'s own `view_render_options_for` resolves this),
-        /// nullopt when `top_level` isn't an `AbstractId` at all (a
-        /// Layout view has no origin marker). Drawn by
+        /// @brief Where the current Abstract's placement point is in its
+        /// own coordinates: -`AbstractData::origin` (LEF MACRO ORIGIN, 0 if
+        /// unset; `api.cpp`'s `view_render_options_for` resolves it).
+        /// nullopt when `top_level` isn't an `AbstractId` (a Layout view
+        /// has no origin marker). Drawn by
         /// `RasterizeBlend2DStage` alongside the grid
         /// above, for the same "only for top_level itself" reason.
         std::optional<Point> abstract_origin_dbu;
