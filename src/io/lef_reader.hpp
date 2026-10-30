@@ -34,18 +34,10 @@ namespace le
         static RoutingDirection routing_direction_from_parser(const char *name);
         static SignalDirection signal_direction_from_parser(const char *name);
 
-        // x_count/y_count are LEF-file-controlled doubles (a RECT/PATH/
-        // POLYGON ITERATE's iteration counts) - an extreme or malformed
-        // value would make x_count * y_count overflow size_t's range, and
-        // converting an out-of-range (or negative/non-finite) double to an
-        // integer type is undefined behavior, not a safe wrap or
-        // saturation (same hazard class le_zoom's own fix in api.cpp
-        // addresses). Returns 0 (skip reserving, let push_back grow
-        // naturally) rather than trusting the file's arithmetic for
-        // anything outside a generous but bounded sane range - a real LEF
-        // ITERATE count is a handful of repetitions, never anywhere close
-        // to this limit. Public (and static, pure) for the same direct-
-        // unit-testing reason as the *_from_parser conversions above.
+        /// @brief The element count of a DO x_count BY y_count ITERATE,
+        /// or 0 if either count is negative or non-finite or the product
+        /// exceeds Geometry::kMaxIterateCount (the counts come from the
+        /// file, and casting an out-of-range double to an integer is UB).
         static size_t safe_iteration_count(double x_count, double y_count);
 
     private:

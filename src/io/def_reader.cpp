@@ -1335,7 +1335,18 @@ namespace le
             return 1;
         }
 
-        const int result = defrRead(file.get(), filename.c_str(), (void *)this, 1);
+        // A callback that throws would unwind through the vendored parser
+        // and out of the C API; it ends the read as a parse failure.
+        int result = 0;
+        try
+        {
+            result = defrRead(file.get(), filename.c_str(), (void *)this, 1);
+        }
+        catch (const std::exception &error)
+        {
+            log_error("Reading DEF file {} failed: {}", filename, error.what());
+            result = -1;
+        }
         messages_ = std::move(g_pending_def_messages);
         if (result != 0)
         {

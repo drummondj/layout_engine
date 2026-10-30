@@ -316,3 +316,17 @@ TEST_F(ViaShapesFixture, ExpandsAViaIterateIntoOneViaPerGridPosition)
     };
     EXPECT_EQ(positions, expected_positions);
 }
+
+TEST_F(ViaShapesFixture, AViaIterateOverTheElementCapIsSkipped)
+{
+    const ViaId via_id = root.create_via(ViaData{.technology = technology_id, .name = "VIA12"});
+    root.create_via_layer(ViaLayerData{.via = via_id, .layer_name = "M2", .rects = {Rect{.ll = {-1, -1}, .ur = {1, 1}}}});
+
+    ShapeData shape{.layer = m1};
+    // Each axis is within the cap; the product isn't.
+    shape.via_iterates.push_back(ShapeViaIterate{.via_name = "VIA12", .origin = Point{0, 0}, .num_x = 1'000'000, .num_y = 1'000'000, .space_x = 10, .space_y = 10});
+
+    std::unordered_map<ViewLayerId, std::vector<RenderShape>> shapes_by_layer;
+    append_via_shapes(root, shape, ViewLayerPurpose::TERMINAL, view_layers, LayoutId{}, shapes_by_layer);
+    EXPECT_TRUE(shapes_by_layer.empty());
+}

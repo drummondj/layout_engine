@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -96,4 +97,12 @@ TEST(CompactVector, ShapeDataStoresItsListsCompactly)
     ShapeData shape{.rects = {Rect{{0, 0}, {1, 1}}}};
     EXPECT_EQ(shape.rects.size(), 1u);
     EXPECT_TRUE(shape.texts.empty());
+}
+
+TEST(CompactVector, RefusesACapacityItsHeaderCantHold)
+{
+    CompactVector<char> v{'a'};
+    EXPECT_THROW(v.reserve(CompactVector<char>::max_size() + 1), std::length_error);
+    ASSERT_EQ(v.size(), 1u);
+    EXPECT_EQ(v[0], 'a');
 }

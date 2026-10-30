@@ -5,9 +5,11 @@ TEMPLATE = """
 #include <cstdint>
 #include <initializer_list>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <new>
 #include <span>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -96,6 +98,7 @@ namespace {{schema.namespace}}
         size_type size() const noexcept { return block_ ? block_->size : 0; }
         size_type capacity() const noexcept { return block_ ? block_->capacity : 0; }
         bool empty() const noexcept { return size() == 0; }
+        static constexpr size_type max_size() noexcept { return std::numeric_limits<uint32_t>::max(); }
 
         T *data() noexcept { return block_ ? elements(block_) : nullptr; }
         const T *data() const noexcept { return block_ ? elements(block_) : nullptr; }
@@ -232,10 +235,13 @@ namespace {{schema.namespace}}
         {
             return reinterpret_cast<const T *>(reinterpret_cast<const std::byte *>(block) + kOffset);
         }
-        size_type grown(size_type needed) const noexcept { return std::max(needed, capacity() * 2); }
+        size_type grown(size_type needed) const noexcept { return std::max(needed, std::min(capacity() * 2, max_size())); }
 
+        /// @brief Throws std::length_error past max_size(), as std::vector does.
         void reallocate(size_type new_capacity)
         {
+            if (new_capacity > max_size())
+                throw std::length_error("CompactVector capacity exceeds 2^32 - 1 elements");
             void *memory = ::operator new(kOffset + new_capacity * sizeof(T), std::align_val_t{kAlign});
             Block *block = ::new (memory) Block{0, static_cast<uint32_t>(new_capacity)};
             if (block_)

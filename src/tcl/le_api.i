@@ -46,6 +46,24 @@
     le::ext::init_tcl(interp);
 %}
 
+// A C++ exception from any wrapped call becomes a Tcl error carrying its
+// message, instead of terminating the process.
+%include <exception.i>
+%exception {
+    try
+    {
+        $action
+    }
+    catch (const std::exception &error)
+    {
+        SWIG_exception_fail(SWIG_RuntimeError, error.what());
+    }
+    catch (...)
+    {
+        SWIG_exception_fail(SWIG_UnknownError, "unknown C++ exception");
+    }
+}
+
 // Gives SWIG a portable definition of int32_t/int64_t (and their Tcl
 // marshalling) independent of whatever <cstdint> resolves to on this
 // toolchain - needed so the typemap pattern below (and the plain
