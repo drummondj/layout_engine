@@ -39,32 +39,24 @@ namespace le
 
     namespace physical_link_detail
     {
+        inline void report_update_failure(PhysicalLinkResult &result, const char *kind, const std::string &name)
+        {
+            const std::string msg = fmt::format("link: {} '{}' could not be updated.", kind, name);
+            spdlog::error("{}", msg);
+            result.messages.push_back("ERROR: " + msg);
+        }
+
         /// @brief Matches every un-linked Placement in `layout_id`
-        /// against `top_schematic` by name. Populates `linked_instances`
-        /// with every Instance
-        /// that has *any* linked Placement, old or new - not just ones
-        /// resolved in this call - since create_default_placements()
-        /// below needs that full picture to stay idempotent across
-        /// repeated `link` calls (an Instance already placed on a prior
-        /// call must not get a second default Placement here).
+        /// against `top_schematic` by name.
         ///
         /// A Placement already successfully linked (`.instance.valid()`)
         /// is skipped - that resolution is permanent, matching
         /// link_unresolved_instances' own "already resolved, skip"
         /// convention. A Placement still marked `physical_only`, though,
-        /// is *always* re-attempted, never permanently skipped - same
-        /// convention link_unresolved_instances itself already uses for
-        /// Instance.reference_design (keyed purely on "is it resolved
-        /// yet", never on "did we already try and fail once"), since the
-        /// whole point of `link` being re-runnable is picking up a fix
-        /// made between calls (e.g. the user adds the missing Instance
-        /// this Placement was named after). Re-marking/re-warning an
-        /// unresolved Placement key `link` re-run is therefore correct,
-        /// not a duplicate-work bug - it reports a real, still-current
-        /// problem, the same way a linter re-reports an unfixed issue
-        /// every run.
-        inline void link_placements(Root &root, LayoutId layout_id, SchematicId top_schematic,
-                                     PhysicalLinkResult &result, std::unordered_set<InstanceId> &linked_instances)
+        /// is always re-attempted, since `link` being re-runnable is how a
+        /// fix made between calls (the missing Instance added) is picked
+        /// up; an unresolved one is re-reported every run.
+        inline void link_placements(Root &root, LayoutId layout_id, SchematicId top_schematic, PhysicalLinkResult &result)
         {
             for (const PlacementId placement_id : root.get_layout_placements(layout_id))
             {
@@ -72,10 +64,7 @@ namespace le
                 if (!placement)
                     continue;
                 if (placement->instance.valid())
-                {
-                    linked_instances.insert(placement->instance);
                     continue; // already linked - permanent, re-running `link` doesn't redo this
-                }
 
                 const std::vector<std::string> segments = hierarchy::split_path(placement->name);
                 const std::vector<InstanceId> matches = hierarchy::resolve_instances(root, top_schematic, segments);
@@ -86,17 +75,26 @@ namespace le
                     // this call may have been marked physical_only=true
                     // by an earlier call that missed, and that stale
                     // marker must not survive a real resolution.
-                    root.update_placement(placement_id, layout_id, std::nullopt, std::optional<InstanceId>(matches[0]),
-                                           std::nullopt, std::optional<bool>(false), std::nullopt, std::nullopt,
-                                           std::nullopt, std::nullopt, std::nullopt);
-                    linked_instances.insert(matches[0]);
+                    const std::string name = placement->name;
+                    if (!root.update_placement(placement_id, layout_id, std::nullopt, std::optional<InstanceId>(matches[0]),
+                                               std::nullopt, std::optional<bool>(false), std::nullopt, std::nullopt,
+                                               std::nullopt, std::nullopt, std::nullopt))
+                    {
+                        report_update_failure(result, "Placement", name);
+                        continue;
+                    }
                     ++result.placements_linked;
                 }
                 else
                 {
-                    root.update_placement(placement_id, layout_id, std::nullopt, std::nullopt, std::nullopt,
-                                           std::optional<bool>(true), std::nullopt, std::nullopt, std::nullopt,
-                                           std::nullopt, std::nullopt);
+                    const std::string name = placement->name;
+                    if (!root.update_placement(placement_id, layout_id, std::nullopt, std::nullopt, std::nullopt,
+                                               std::optional<bool>(true), std::nullopt, std::nullopt, std::nullopt,
+                                               std::nullopt, std::nullopt))
+                    {
+                        report_update_failure(result, "Placement", name);
+                        continue;
+                    }
                     ++result.placements_marked_physical_only;
                     const std::string msg = fmt::format(
                         "link: Placement '{}' has no matching Instance in the Schematic - marked physical_only.",
@@ -108,20 +106,19 @@ namespace le
         }
 
         /// @brief Recursively walks every Instance reachable from
-        /// `schematic`, creating a default Placement for any whose id isn't in
-        /// `linked_instances`. `path_prefix` accumulates the same
-        /// "/"-joined full path a real DEF Placement.name would use, so a
-        /// later `link` re-run - or a real DEF later placing
-        /// this same instance - naturally lines up by name too, not just
-        /// by id. `ancestors` holds the Schematics on the path down to
-        /// `schematic`: an Instance reaching one of them again (a
+        /// `schematic`, creating a default Placement for each path in
+        /// `layout_id` that has none. `path_prefix` accumulates the
+        /// escaped "/"-joined path a DEF Placement.name uses, so a later
+        /// `link` re-run, or a DEF placing the same instance, lines up by
+        /// name. Keyed by path, not Instance: a module instantiated twice
+        /// has one Instance per child but a path (and Placement) per
+        /// instantiation. `ancestors` holds the Schematics on the path down
+        /// to `schematic`: an Instance reaching one of them again (a
         /// recursive hierarchy, from a crafted file or a raw edit) is
-        /// reported and not descended into. Only the current path, since
-        /// a module instantiated twice is visited once per instantiation.
+        /// reported and not descended into.
         inline void create_default_placements(Root &root, LayoutId layout_id, SchematicId schematic,
-                                                const std::string &path_prefix,
-                                                const std::unordered_set<InstanceId> &linked_instances,
-                                                PhysicalLinkResult &result, std::unordered_set<SchematicId> &ancestors)
+                                                const std::string &path_prefix, PhysicalLinkResult &result,
+                                                std::unordered_set<SchematicId> &ancestors)
         {
             ancestors.insert(schematic);
             for (const InstanceId inst_id : root.get_schematic_instances(schematic))
@@ -130,9 +127,10 @@ namespace le
                 if (!inst || !inst->reference_design.valid())
                     continue; // reference_design still unresolved - link_unresolved_instances hasn't placed it yet
 
-                const std::string full_path = path_prefix.empty() ? inst->name : path_prefix + "/" + inst->name;
+                const std::string segment = hierarchy::escape_segment(inst->name);
+                const std::string full_path = path_prefix.empty() ? segment : path_prefix + "/" + segment;
 
-                if (!linked_instances.count(inst_id))
+                if (!root.get_placement_by_name(layout_id, full_path).valid())
                 {
                     root.create_placement(PlacementData{
                         .layout = layout_id,
@@ -157,7 +155,7 @@ namespace le
                     result.messages.push_back("ERROR: " + msg);
                     continue;
                 }
-                create_default_placements(root, layout_id, child, full_path, linked_instances, result, ancestors);
+                create_default_placements(root, layout_id, child, full_path, result, ancestors);
             }
             ancestors.erase(schematic);
         }
@@ -177,8 +175,12 @@ namespace le
                 const std::vector<NetId> matches = hierarchy::resolve_nets(root, top_schematic, segments);
                 if (matches.size() == 1)
                 {
-                    root.update_route(route_id, layout_id, std::optional<NetId>(matches[0]), std::nullopt,
-                                       std::nullopt, std::nullopt, std::nullopt);
+                    if (!root.update_route(route_id, layout_id, std::optional<NetId>(matches[0]), std::nullopt,
+                                           std::nullopt, std::nullopt, std::nullopt))
+                    {
+                        report_update_failure(result, "Route", route->name);
+                        continue;
+                    }
                     ++result.routes_linked;
                 }
                 else
@@ -199,9 +201,13 @@ namespace le
                 const std::vector<NetId> matches = hierarchy::resolve_nets(root, top_schematic, segments);
                 if (matches.size() == 1)
                 {
-                    root.update_physical_port(port_id, layout_id, std::optional<NetId>(matches[0]), std::nullopt,
-                                               std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                                               std::nullopt);
+                    if (!root.update_physical_port(port_id, layout_id, std::optional<NetId>(matches[0]), std::nullopt,
+                                                   std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                                   std::nullopt))
+                    {
+                        report_update_failure(result, "PhysicalPort", port->name);
+                        continue;
+                    }
                     ++result.physical_ports_linked;
                 }
                 else
@@ -230,8 +236,8 @@ namespace le
     /// link_unresolved_instances: a row that's genuinely, permanently
     /// resolved (Placement.instance/Route.net/PhysicalPort.net already
     /// valid) is never re-processed or re-mutated, and
-    /// create_default_placements() never creates a second default
-    /// Placement for an Instance that already has one. A row still
+    /// create_default_placements() never creates a second Placement at
+    /// a path that already has one. A row still
     /// unresolved, though, is deliberately re-attempted (and, if still
     /// unresolved, re-reported) on every call - re-running `link` is how
     /// a user re-checks current state after fixing something, and an
@@ -251,11 +257,9 @@ namespace le
                 if (!top_schematic.valid())
                     return; // no Schematic for this Layout's own Design at all - nothing to link against
 
-                std::unordered_set<InstanceId> linked_instances;
-                physical_link_detail::link_placements(root, layout_id, top_schematic, result, linked_instances);
+                physical_link_detail::link_placements(root, layout_id, top_schematic, result);
                 std::unordered_set<SchematicId> ancestors;
-                physical_link_detail::create_default_placements(root, layout_id, top_schematic, "", linked_instances,
-                                                                  result, ancestors);
+                physical_link_detail::create_default_placements(root, layout_id, top_schematic, "", result, ancestors);
                 physical_link_detail::link_routes_and_physical_ports(root, layout_id, top_schematic, result);
             });
         return result;

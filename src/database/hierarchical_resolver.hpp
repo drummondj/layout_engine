@@ -107,6 +107,24 @@ namespace le::hierarchy
         return segments;
     }
 
+    /// @brief The positions of `path`'s unescaped '/' separators, in order
+    /// (split_path's segment boundaries).
+    inline std::vector<size_t> separator_positions(std::string_view path)
+    {
+        std::vector<size_t> positions;
+        bool escaped = false;
+        for (size_t i = 0; i < path.size(); ++i)
+        {
+            if (escaped)
+                escaped = false;
+            else if (path[i] == '\\')
+                escaped = true;
+            else if (path[i] == '/')
+                positions.push_back(i);
+        }
+        return positions;
+    }
+
     /// @brief `name` as one path segment: '/' and '\\' backslash-escaped,
     /// so split_path gives `name` back unchanged.
     inline std::string escape_segment(std::string_view name)

@@ -3444,7 +3444,14 @@ extern "C"
             spdlog::error("update_net: unknown id - no such Net exists");
             return 1;
         }
-        const le::SchematicId schematic_id = existing_net->schematic;
+
+        const le::RenamePlan plan = le::plan_net_rename(handle->root, net_id, new_name);
+        if (!plan.clashes.empty())
+        {
+            for (const std::string &clash : plan.clashes)
+                spdlog::error("update_net: renaming to '{}' would rename a linked object onto a taken name - {}", new_name, clash);
+            return 1;
+        }
 
         handle->command_history.begin("update_net");
         le::editing::Transaction *txn = handle->command_history.current();
@@ -3463,49 +3470,18 @@ extern "C"
             txn->record_update<le::NetId, le::NetData>(net_id, before_net, *handle->root.get_net(net_id),
                                                         &le::apply_net_snapshot);
 
-        const le::SchematicData *schematic = handle->root.get_schematic(schematic_id);
-        const le::LayoutId layout_id = schematic ? handle->root.get_design_layout(schematic->design) : le::LayoutId{};
-        if (layout_id.valid())
-        {
-            for (const le::RouteId route_id : handle->root.get_layout_routes(layout_id))
+        le::apply_rename_plan(
+            handle->root, plan, [](le::PlacementId, const le::PlacementData &, const le::PlacementData &) {},
+            [&](le::RouteId route_id, const le::RouteData &b, const le::RouteData &a)
             {
-                const le::RouteData *route = handle->root.get_route(route_id);
-                if (!route || route->net != net_id)
-                    continue;
-                const le::RouteData before = *route;
-                if (!handle->root.update_route(route_id, le::LayoutId{}, std::nullopt,
-                                                std::optional<std::string>(new_name), std::nullopt, std::nullopt,
-                                                std::nullopt))
-                {
-                    spdlog::warn(
-                        "update_net: linked Route could not be renamed to '{}' - a sibling Route with that name already exists",
-                        new_name);
-                    continue;
-                }
                 if (txn)
-                    txn->record_update<le::RouteId, le::RouteData>(route_id, before, *handle->root.get_route(route_id),
-                                                                    &le::apply_route_snapshot);
-            }
-            for (const le::PhysicalPortId port_id : handle->root.get_layout_physical_ports(layout_id))
+                    txn->record_update<le::RouteId, le::RouteData>(route_id, b, a, &le::apply_route_snapshot);
+            },
+            [&](le::PhysicalPortId port_id, const le::PhysicalPortData &b, const le::PhysicalPortData &a)
             {
-                const le::PhysicalPortData *port = handle->root.get_physical_port(port_id);
-                if (!port || port->net != net_id)
-                    continue;
-                const le::PhysicalPortData before = *port;
-                if (!handle->root.update_physical_port(port_id, le::LayoutId{}, std::nullopt,
-                                                        std::optional<std::string>(new_name), std::nullopt, std::nullopt,
-                                                        std::nullopt, std::nullopt, std::nullopt, std::nullopt))
-                {
-                    spdlog::warn(
-                        "update_net: linked PhysicalPort could not be renamed to '{}' - a sibling PhysicalPort with that name already exists",
-                        new_name);
-                    continue;
-                }
                 if (txn)
-                    txn->record_update<le::PhysicalPortId, le::PhysicalPortData>(
-                        port_id, before, *handle->root.get_physical_port(port_id), &le::apply_physical_port_snapshot);
-            }
-        }
+                    txn->record_update<le::PhysicalPortId, le::PhysicalPortData>(port_id, b, a, &le::apply_physical_port_snapshot);
+            });
 
         handle->root.bump_mutation_version();
         handle->command_history.end(/*succeeded=*/true);
@@ -3528,6 +3504,14 @@ extern "C"
         if (!existing)
         {
             spdlog::error("update_instance: unknown id - no such Instance exists");
+            return 1;
+        }
+
+        const le::RenamePlan plan = le::plan_instance_rename(handle->root, instance_id, new_name);
+        if (!plan.clashes.empty())
+        {
+            for (const std::string &clash : plan.clashes)
+                spdlog::error("update_instance: renaming to '{}' would rename a linked object onto a taken name - {}", new_name, clash);
             return 1;
         }
 
@@ -3565,7 +3549,7 @@ extern "C"
                 txn->record_update<le::PhysicalPortId, le::PhysicalPortData>(port_id, b, a,
                                                                               &le::apply_physical_port_snapshot);
         };
-        le::propagate_instance_rename(handle->root, instance_id, record_placement, record_route, record_physical_port);
+        le::apply_rename_plan(handle->root, plan, record_placement, record_route, record_physical_port);
 
         handle->root.bump_mutation_version();
         handle->command_history.end(/*succeeded=*/true);
