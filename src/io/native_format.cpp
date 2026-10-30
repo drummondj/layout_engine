@@ -320,6 +320,46 @@ namespace le::persistence
             return FileType::Kind::Int; // every other TYPEMAP type is an integer (int, dbu, dbu2, ...)
         }
 
+        // A struct containing itself, directly or through other structs,
+        // would make decoding recurse without bound (an embedded field
+        // with no presence byte or count consumes nothing first). No
+        // schema has one, so only a crafted file can.
+        void reject_struct_cycles(const FileSchema &schema)
+        {
+            enum class Mark { Visiting, Done };
+            std::map<const FileStruct *, Mark> marks;
+            // Iterative: the walk itself must not recurse on the file's types.
+            for (const auto &[name, root] : schema.structs)
+            {
+                if (marks.contains(root.get()))
+                    continue;
+                std::vector<std::pair<const FileStruct *, size_t>> stack{{root.get(), 0}};
+                marks[root.get()] = Mark::Visiting;
+                while (!stack.empty())
+                {
+                    auto &[structure, next] = stack.back();
+                    if (next == structure->fields.size())
+                    {
+                        marks[structure] = Mark::Done;
+                        stack.pop_back();
+                        continue;
+                    }
+                    const FileField &field = structure->fields[next++];
+                    const FileStruct *child = field.type.kind == FileType::Kind::Struct ? field.type.structure : nullptr;
+                    if (!child)
+                        continue;
+                    const auto mark = marks.find(child);
+                    if (mark == marks.end())
+                    {
+                        marks[child] = Mark::Visiting;
+                        stack.emplace_back(child, 0);
+                    }
+                    else if (mark->second == Mark::Visiting)
+                        throw FormatError("struct " + child->name + " contains itself (through " + structure->name + "." + field.name + ")");
+                }
+            }
+        }
+
         FileSchema parse_schema(const Span &payload)
         {
             ByteReader r(payload.data, payload.size, "SCHM chunk");
@@ -406,6 +446,7 @@ namespace le::persistence
                                 throw FormatError("field " + name + "." + field.name + " has unknown struct type " + field.type.name);
                             field.type.structure = it->second.get();
                         }
+                reject_struct_cycles(schema);
                 return schema;
             }
             catch (const nlohmann::json::exception &e)
@@ -621,8 +662,17 @@ namespace le::persistence
         {
             ByteReader r(payload.data, payload.size, "SESS chunk");
             const std::vector<uint8_t> raw = read_block(r);
-            nlohmann::json session = nlohmann::json::parse(raw.begin(), raw.end(), nullptr, false);
-            if (session.is_discarded() || !session.is_object())
+            // Walking and dumping the session recurse; a session nests a
+            // few levels, so a deeper one is malformed and dropped.
+            constexpr int kMaxSessionDepth = 64;
+            bool too_deep = false;
+            const nlohmann::json::parser_callback_t limit_depth = [&](int depth, nlohmann::json::parse_event_t, nlohmann::json &) {
+                if (depth > kMaxSessionDepth)
+                    too_deep = true;
+                return !too_deep;
+            };
+            nlohmann::json session = nlohmann::json::parse(raw.begin(), raw.end(), limit_depth, false);
+            if (too_deep || session.is_discarded() || !session.is_object())
                 return {};
             for_each_reference(session, [&](nlohmann::json &ref) {
                 const std::string klass = ref_string(ref, "$ref");
