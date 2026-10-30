@@ -1687,7 +1687,7 @@ proc read_lef {args} {
 }
 register_command_help read_lef \
     "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library" \
-    "Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A design in the -library library that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed)." \
+    "Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A MACRO whose design in the -library library already has an abstract view, a repeated PIN within a MACRO, and a repeated LAYER, VIA, VIARULE, SITE or PROPERTYDEFINITIONS entry are skipped with a warning. Returns 0 on success, nonzero on an error (the details are printed)." \
     {
         {-library {type str required 1 description {Library to read the LEF's macros into - created if it doesn't exist}}}
         {<path> {type file required 1 description {LEF file to read}}}

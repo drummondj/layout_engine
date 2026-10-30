@@ -102,6 +102,9 @@ namespace le
         LibraryId library_id_;
         AbstractData abstract_data_;
         AbstractId abstract_id_;
+        // The current MACRO repeats one whose Design already has an
+        // Abstract: its PIN/OBS/DENSITY/END callbacks are ignored.
+        bool skipping_macro_ = false;
         std::vector<std::string> messages_;
 
         // Set by microns_to_dbu/microns_squared_to_dbu the first time
