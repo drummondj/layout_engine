@@ -94,6 +94,7 @@ namespace le::persistence
             nlohmann::json schema;
             std::vector<EditableClass> classes;
             std::vector<std::string> strings;
+            std::string session; // the SESS chunk's JSON; empty: none
 
             static EditableFile read(const fs::path &path)
             {
@@ -144,6 +145,11 @@ namespace le::persistence
                         for (uint64_t i = 0; i < n; ++i)
                             file.strings.emplace_back(s.string());
                     }
+                    else if (tag == "SESS")
+                    {
+                        const Block block = read_raw_block(payload);
+                        file.session.assign(block.bytes.begin(), block.bytes.end());
+                    }
                 }
                 return file;
             }
@@ -188,6 +194,12 @@ namespace le::persistence
                     ByteWriter payload;
                     write_raw_block(payload, Block{table.bytes()});
                     chunk("STRS", payload);
+                }
+                if (!session.empty())
+                {
+                    ByteWriter payload;
+                    write_raw_block(payload, Block{{session.begin(), session.end()}});
+                    chunk("SESS", payload);
                 }
                 chunk("END ", ByteWriter{});
                 write_bytes(path, w.bytes());
@@ -636,6 +648,43 @@ namespace le::persistence
     bool only_migrations_applied(const LoadReport &report)
     {
         return std::ranges::all_of(report.warnings, [](const std::string &warning) { return warning.starts_with("applied migration to "); });
+    }
+
+    // A crafted file: neither recursion is reachable from a file this
+    // build writes.
+    TEST_F(NativeFormatOlderSchema, AStructContainingItselfIsRefusedAndChangesNothing)
+    {
+        nlohmann::json *point = nullptr;
+        for (auto &klass : file.schema["core"]["descriptor"]["classes"])
+            if (klass["name"] == "Point")
+                point = &klass;
+        ASSERT_NE(point, nullptr);
+        ASSERT_EQ((*point)["kind"], "struct");
+        (*point)["fields"].push_back({{"name", "self"}, {"kind", "struct"}, {"type", "Point"}});
+
+        const LibraryId kept = loaded.create_library(LibraryData{.name = "kept"});
+        const LoadReport report = load();
+        ASSERT_FALSE(report.ok());
+        EXPECT_NE(report.error.find("struct Point contains itself (through Point.self)"), std::string::npos) << report.error;
+        ASSERT_EQ(loaded.get_library_ids().size(), 1u);
+        EXPECT_EQ(loaded.get_library(kept)->name, "kept");
+    }
+
+    TEST_F(NativeFormatOlderSchema, ADeeplyNestedSessionIsDroppedAndTheDesignLoads)
+    {
+        file.session = R"({"scale": 0.5, "deep": )" + std::string(100000, '[') + std::string(100000, ']') + "}";
+        const LoadReport report = load();
+        ASSERT_TRUE(report.ok()) << report.error;
+        EXPECT_TRUE(report.session_json.empty());
+        EXPECT_EQ(loaded.get_layer_ids().size(), 3u);
+
+        // A session of ordinary depth still comes back.
+        file.session = R"({"scale": 0.5, "nested": [[[1]]]})";
+        Root again;
+        file.write(path);
+        const LoadReport ordinary = load_native(again, path.string());
+        ASSERT_TRUE(ordinary.ok()) << ordinary.error;
+        EXPECT_EQ(nlohmann::json::parse(ordinary.session_json)["nested"][0][0][0], 1);
     }
 
     TEST_F(NativeFormatOlderSchema, UnchangedShapeLoadsWithoutWarnings)
