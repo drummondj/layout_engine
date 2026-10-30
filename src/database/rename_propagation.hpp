@@ -28,8 +28,11 @@
 #include "database.hpp"
 #include "hierarchical_resolver.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace le
@@ -84,12 +87,15 @@ namespace le
             return maps;
         }
 
+        /// `ancestors`: the Schematics on the path down to `schematic`; a
+        /// recursive hierarchy is reported instead of descended into.
         template <typename OnPlacementRenamed, typename OnRouteRenamed, typename OnPhysicalPortRenamed>
         inline void rename_descendants(Root &root, SchematicId schematic, const std::string &new_prefix,
                                         const PhysicalReverseMaps &maps, RenamePropagationResult &result,
                                         OnPlacementRenamed &on_placement_renamed, OnRouteRenamed &on_route_renamed,
-                                        OnPhysicalPortRenamed &on_physical_port_renamed)
+                                        OnPhysicalPortRenamed &on_physical_port_renamed, std::unordered_set<SchematicId> &ancestors)
         {
+            ancestors.insert(schematic);
             for (const InstanceId child_id : root.get_schematic_instances(schematic))
             {
                 const InstanceData *child = root.get_instance(child_id);
@@ -109,9 +115,16 @@ namespace le
                 }
 
                 const SchematicId grandchild_schematic = root.get_design_schematic(child->reference_design);
-                if (grandchild_schematic.valid())
-                    rename_descendants(root, grandchild_schematic, child_path, maps, result, on_placement_renamed,
-                                        on_route_renamed, on_physical_port_renamed);
+                if (!grandchild_schematic.valid())
+                    continue;
+                if (ancestors.contains(grandchild_schematic))
+                {
+                    spdlog::error("rename: Instance '{}' instantiates a design above it - the hierarchy is recursive, so nothing below it is "
+                                  "renamed.", child_path);
+                    continue;
+                }
+                rename_descendants(root, grandchild_schematic, child_path, maps, result, on_placement_renamed, on_route_renamed,
+                                   on_physical_port_renamed, ancestors);
             }
 
             for (const NetId net_id : root.get_schematic_nets(schematic))
@@ -142,6 +155,7 @@ namespace le
                     ++result.physical_ports_renamed;
                 }
             }
+            ancestors.erase(schematic);
         }
     }
 
@@ -207,9 +221,14 @@ namespace le
         ++result.placements_renamed;
 
         const SchematicId child_schematic = root.get_design_schematic(instance->reference_design);
-        if (child_schematic.valid())
+        // The renamed Instance's own Schematic is on the path too.
+        std::unordered_set<SchematicId> ancestors{instance->schematic};
+        if (ancestors.contains(child_schematic))
+            spdlog::error("rename: Instance '{}' instantiates its own design - the hierarchy is recursive, so nothing below it is renamed.",
+                          new_own_path);
+        else if (child_schematic.valid())
             rename_detail::rename_descendants(root, child_schematic, new_own_path, maps, result, on_placement_renamed,
-                                               on_route_renamed, on_physical_port_renamed);
+                                               on_route_renamed, on_physical_port_renamed, ancestors);
 
         return result;
     }

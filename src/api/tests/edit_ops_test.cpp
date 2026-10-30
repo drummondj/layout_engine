@@ -1,5 +1,5 @@
-// The generated le::edit update ops: a refused update changes nothing and
-// records nothing.
+// The generated le::edit create and update ops: a refused edit changes
+// nothing and records nothing.
 
 #include "../edit_ops.hpp"
 #include "../le_handle.hpp"
@@ -66,4 +66,52 @@ TEST_F(TwoLayouts, ARefusedReferenceUpdateChangesNothing)
     ASSERT_FALSE(updated);
     EXPECT_EQ(root.get_placement(p)->reference_design, cell);
     EXPECT_EQ(root.get_placement(p)->name, "p");
+}
+
+namespace
+{
+    // Design a instantiates b (u_b); b's and c's Schematics are empty.
+    struct Hierarchy : ::testing::Test
+    {
+        LeHandle handle;
+        Root &root = handle.root;
+        LibraryId library = root.create_library(LibraryData{.name = "lib"});
+        DesignId a = root.create_design(DesignData{.library = library, .name = "a"});
+        DesignId b = root.create_design(DesignData{.library = library, .name = "b"});
+        DesignId c = root.create_design(DesignData{.library = library, .name = "c"});
+        SchematicId sa = root.create_schematic(SchematicData{.design = a});
+        SchematicId sb = root.create_schematic(SchematicData{.design = b});
+        SchematicId sc = root.create_schematic(SchematicData{.design = c});
+        InstanceId u_b = root.create_instance(InstanceData{.schematic = sa, .name = "u_b", .reference_design = b});
+    };
+}
+
+TEST_F(Hierarchy, CreatingARecursiveInstanceIsRefused)
+{
+    const auto self = edit::create_instance(handle, InstanceData{.schematic = sa, .name = "u_a", .reference_design = a});
+    ASSERT_FALSE(self);
+    EXPECT_EQ(self.error(), "instantiating design 'a' in design 'a' would make the hierarchy recursive");
+    const auto through_b = edit::create_instance(handle, InstanceData{.schematic = sb, .name = "u_a", .reference_design = a});
+    ASSERT_FALSE(through_b);
+    EXPECT_EQ(through_b.error(), "instantiating design 'a' in design 'b' would make the hierarchy recursive");
+    EXPECT_TRUE(root.get_schematic_instances(sb).empty());
+
+    EXPECT_TRUE(edit::create_instance(handle, InstanceData{.schematic = sb, .name = "u_c", .reference_design = c}));
+}
+
+TEST_F(Hierarchy, AnUpdateMakingTheHierarchyRecursiveIsRefused)
+{
+    const InstanceId u_c = root.create_instance(InstanceData{.schematic = sb, .name = "u_c", .reference_design = c});
+    const uint64_t version = root.mutation_version();
+
+    const auto retargeted = edit::update_instance(handle, u_c, InstanceChanges{.reference_design = a});
+    ASSERT_FALSE(retargeted);
+    EXPECT_EQ(retargeted.error(), "instantiating design 'a' in design 'b' would make the hierarchy recursive");
+    // Moving u_b (an instance of b) into b itself.
+    EXPECT_FALSE(edit::update_instance(handle, u_b, InstanceChanges{.schematic = sb}));
+    EXPECT_EQ(root.get_instance(u_c)->reference_design, c);
+    EXPECT_EQ(root.get_instance(u_b)->schematic, sa);
+    EXPECT_EQ(root.mutation_version(), version);
+
+    EXPECT_TRUE(edit::update_instance(handle, u_c, InstanceChanges{.name = "renamed"}));
 }

@@ -33,6 +33,7 @@
 #include "database.hpp"
 #include "filter.hpp"
 
+#include <algorithm>
 #include <span>
 #include <string>
 #include <string_view>
@@ -155,6 +156,20 @@ namespace le::hierarchy
             if (child.valid())
                 collect_descendant_schematics(root, child, visited, out);
         }
+    }
+
+    /// @brief True if an Instance of `reference_design` in `parent` would
+    /// make the hierarchy recursive: `parent` is the referenced Design's
+    /// own Schematic or one of its descendants.
+    inline bool instantiation_would_cycle(const Root &root, SchematicId parent, DesignId reference_design)
+    {
+        const SchematicId child = root.get_design_schematic(reference_design);
+        if (!child.valid() || !parent.valid())
+            return false;
+        std::unordered_set<uint64_t> visited;
+        std::vector<SchematicId> reached;
+        collect_descendant_schematics(root, child, visited, reached);
+        return std::ranges::find(reached, parent) != reached.end();
     }
 
     /// @brief Descends one hierarchy level: for every Schematic in

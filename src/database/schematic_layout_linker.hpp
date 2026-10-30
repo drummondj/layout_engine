@@ -113,12 +113,17 @@ namespace le
         /// "/"-joined full path a real DEF Placement.name would use, so a
         /// later `link` re-run - or a real DEF later placing
         /// this same instance - naturally lines up by name too, not just
-        /// by id.
+        /// by id. `ancestors` holds the Schematics on the path down to
+        /// `schematic`: an Instance reaching one of them again (a
+        /// recursive hierarchy, from a crafted file or a raw edit) is
+        /// reported and not descended into. Only the current path, since
+        /// a module instantiated twice is visited once per instantiation.
         inline void create_default_placements(Root &root, LayoutId layout_id, SchematicId schematic,
                                                 const std::string &path_prefix,
                                                 const std::unordered_set<InstanceId> &linked_instances,
-                                                PhysicalLinkResult &result)
+                                                PhysicalLinkResult &result, std::unordered_set<SchematicId> &ancestors)
         {
+            ancestors.insert(schematic);
             for (const InstanceId inst_id : root.get_schematic_instances(schematic))
             {
                 const InstanceData *inst = root.get_instance(inst_id);
@@ -142,9 +147,19 @@ namespace le
                 }
 
                 const SchematicId child = root.get_design_schematic(inst->reference_design);
-                if (child.valid())
-                    create_default_placements(root, layout_id, child, full_path, linked_instances, result);
+                if (!child.valid())
+                    continue;
+                if (ancestors.contains(child))
+                {
+                    const std::string msg = fmt::format("link: Instance '{}' instantiates a design above it - the hierarchy is recursive, so "
+                                                        "nothing below it is placed.", full_path);
+                    spdlog::error("{}", msg);
+                    result.messages.push_back("ERROR: " + msg);
+                    continue;
+                }
+                create_default_placements(root, layout_id, child, full_path, linked_instances, result, ancestors);
             }
+            ancestors.erase(schematic);
         }
 
         /// @brief Matches every un-linked Route/PhysicalPort in
@@ -238,8 +253,9 @@ namespace le
 
                 std::unordered_set<InstanceId> linked_instances;
                 physical_link_detail::link_placements(root, layout_id, top_schematic, result, linked_instances);
+                std::unordered_set<SchematicId> ancestors;
                 physical_link_detail::create_default_placements(root, layout_id, top_schematic, "", linked_instances,
-                                                                  result);
+                                                                  result, ancestors);
                 physical_link_detail::link_routes_and_physical_ports(root, layout_id, top_schematic, result);
             });
         return result;

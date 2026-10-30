@@ -1,4 +1,5 @@
 #include "../api.hpp"
+#include "../le_handle.hpp"
 #include "../../test_support/scratch_dir.hpp"
 #include "generated/pipelines/renderable_classes.hpp"
 #include <algorithm>
@@ -6024,6 +6025,36 @@ TEST_F(ApiFixture, ANetlistReadSurvivesAPinIndexOutOfIntRange)
         for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
             top += std::string(le_library_design_at(handle, l, d).name) == "TOP";
     EXPECT_EQ(top, 1);
+}
+
+// read_verilog -rtl of two modules instantiating each other, then link:
+// one instance stays unresolved and link terminates.
+TEST_F(ApiFixture, LinkingARecursiveRtlHierarchyLeavesTheRecursiveInstanceUnresolved)
+{
+    const std::filesystem::path verilog_path = le::test::scratch_path("le_recursive.v");
+    {
+        std::ofstream out(verilog_path);
+        out << "module a();\n  b u_b();\nendmodule\nmodule b();\n  a u_a();\nendmodule\n";
+    }
+    const std::string verilog = verilog_path.string();
+    const char *paths[] = {verilog.c_str()};
+    ASSERT_EQ(le_read_verilog(handle, paths, 1, /*is_netlist=*/0, "rtl"), 0);
+    std::filesystem::remove(verilog_path);
+
+    LeDesignId a{.index = UINT32_MAX, .generation = 0};
+    for (int32_t l = 0; l < le_library_count(handle); ++l)
+        for (int32_t d = 0; d < le_library_design_count(handle, l); ++d)
+            if (const LeDesignInfo info = le_library_design_at(handle, l, d); std::string(info.name) == "a")
+                a = info.id;
+    ASSERT_NE(a.index, UINT32_MAX);
+    const LeLayoutId layout = le_create_layout(handle, a);
+    ASSERT_NE(layout.index, UINT32_MAX);
+
+    le_link_unresolved_instances(handle);
+    int32_t unresolved = 0;
+    handle->root.for_each_instance_id([&](le::InstanceId id) { unresolved += !handle->root.get_instance(id)->reference_design.valid(); });
+    EXPECT_EQ(unresolved, 1);
+    EXPECT_LE(handle->root.get_layout_placements(le::LayoutId{layout.index, layout.generation}).size(), 2u);
 }
 
 // --- Flightlines ---

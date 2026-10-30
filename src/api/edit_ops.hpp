@@ -22,7 +22,16 @@ namespace le::edit
     /// @brief update_placement's check (Klass.update_check): a FIXED or
     /// COVER placement's location and orientation can't change unless the
     /// same update unlocks it.
-    std::optional<std::string> check_placement_update(const PlacementData &before, const PlacementChanges &changes);
+    std::optional<std::string> check_placement_update(const Root &root, const PlacementData &before, const PlacementChanges &changes);
+
+    /// @brief create_instance's check (Klass.create_check): an Instance
+    /// can't make its Design instantiate itself, directly or through
+    /// its descendants.
+    std::optional<std::string> check_instance_create(const Root &root, const InstanceData &data);
+
+    /// @brief update_instance's check (Klass.update_check): the same rule
+    /// as check_instance_create, for a new reference_design or schematic.
+    std::optional<std::string> check_instance_update(const Root &root, const InstanceData &before, const InstanceChanges &changes);
 
 #include "generated/api/edit_ops_decls.inc"
 

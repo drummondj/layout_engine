@@ -1,5 +1,6 @@
 #include "edit_ops.hpp"
 
+#include "../database/hierarchical_resolver.hpp"
 #include "../editing/editing.hpp"
 #include "../geometry/shape_ops.hpp"
 #include "generated/api/snapshot_appliers.hpp"
@@ -10,7 +11,7 @@
 
 namespace le::edit
 {
-    std::optional<std::string> check_placement_update(const PlacementData &before, const PlacementChanges &changes)
+    std::optional<std::string> check_placement_update(const Root &, const PlacementData &before, const PlacementChanges &changes)
     {
         if (!placement_is_locked(changes.placement_status.value_or(before.placement_status)))
             return std::nullopt;
@@ -23,7 +24,33 @@ namespace le::edit
                            to_string(changes.placement_status.value_or(before.placement_status)), moves ? "location" : "orientation");
     }
 
-#include "generated/api/edit_ops_defs.inc"
+namespace
+    {
+        std::optional<std::string> check_instantiation(const Root &root, SchematicId parent, DesignId reference_design)
+        {
+            if (!hierarchy::instantiation_would_cycle(root, parent, reference_design))
+                return std::nullopt;
+            const SchematicData *schematic = root.get_schematic(parent);
+            const DesignData *owner = schematic ? root.get_design(schematic->design) : nullptr;
+            const DesignData *referenced = root.get_design(reference_design);
+            return fmt::format("instantiating design '{}' in design '{}' would make the hierarchy recursive",
+                               referenced ? referenced->name : "", owner ? owner->name : "");
+        }
+    }
+
+    std::optional<std::string> check_instance_create(const Root &root, const InstanceData &data)
+    {
+        return check_instantiation(root, data.schematic, data.reference_design);
+    }
+
+    std::optional<std::string> check_instance_update(const Root &root, const InstanceData &before, const InstanceChanges &changes)
+    {
+        if (!changes.schematic && !changes.reference_design)
+            return std::nullopt;
+        return check_instantiation(root, changes.schematic.value_or(before.schematic), changes.reference_design.value_or(before.reference_design));
+    }
+
+    #include "generated/api/edit_ops_defs.inc"
 
     std::optional<double> dbu_per_um(const Root &root)
     {

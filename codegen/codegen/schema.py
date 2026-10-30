@@ -457,12 +457,14 @@ class Klass:
     # classes use it so far.
     render: Optional["Render"] = None
 
-    # A hand-written check the generated le::edit::update_<type> runs before
-    # changing anything: the name of a function in le::edit (declared in
-    # api/edit_ops.hpp), std::optional<std::string>(const <Klass>Data
-    # &before, const <Klass>Changes &changes), whose message refuses the
-    # update. So every editing front end (Tcl, the C API, extensions)
-    # shares one rule.
+    # Hand-written checks the generated le::edit::create_<type> and
+    # update_<type> run before changing anything, after their own: the
+    # names of functions in le::edit (declared in api/edit_ops.hpp) whose
+    # message refuses the edit, so every editing front end (Tcl, the C
+    # API, extensions) shares one rule.
+    #   create_check: std::optional<std::string>(const Root &, const <Klass>Data &data)
+    #   update_check: std::optional<std::string>(const Root &, const <Klass>Data &before, const <Klass>Changes &changes)
+    create_check: Optional[str] = None
     update_check: Optional[str] = None
 
     # Stores every list field as a CompactVector (one pointer, nothing
@@ -1075,6 +1077,9 @@ class Klass:
         for gf in self.get_global_unique_fields():
             add(f"if (root.get_{snake}_by_{gf.name}(data.{gf.name}).valid())")
             add(f'    return std::unexpected(fmt::format("a {self.name} with this {gf.name} (\'{{}}\') already exists", data.{gf.name}));')
+        if self.create_check:
+            add(f"if (const std::optional<std::string> refused = {self.create_check}(root, data))")
+            add("    return std::unexpected(*refused);")
 
         add()
         if unique_fields:
@@ -1751,7 +1756,7 @@ class Klass:
             add(f'        return std::unexpected(fmt::format("a sibling {self.name} with this {uf.name} (\'{{}}\') already exists", target_{uf.name}));')
             add("}")
         if self.update_check:
-            add(f"if (const std::optional<std::string> refused = {self.update_check}(before, changes))")
+            add(f"if (const std::optional<std::string> refused = {self.update_check}(root, before, changes))")
             add("    return std::unexpected(*refused);")
 
         call_args = ["id"]
