@@ -30,21 +30,6 @@ TEST(Database, LayerIndexedByParentAndName)
     EXPECT_EQ(root.get_layer_by_name("does-not-exist"), LayerId{});
 }
 
-TEST(Database, SetLayerNameKeepsByNameIndexInSync)
-{
-    Root root;
-    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 2000.0});
-    LayerId layer_id = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
-
-    ASSERT_TRUE(root.set_layer_name(layer_id, "M2"));
-
-    EXPECT_EQ(root.get_layer_by_name("M1"), LayerId{});
-    EXPECT_EQ(root.get_layer_by_name("M2"), layer_id);
-    EXPECT_EQ(root.get_layer(layer_id)->name, "M2");
-    // Parent list is untouched by a field set that isn't the parent link.
-    EXPECT_EQ(root.get_technology_layers(technology_id), std::vector<LayerId>{layer_id});
-}
-
 TEST(Database, UpdateLibraryRenameMovesTheGlobalNameIndex)
 {
     Root root;
@@ -64,7 +49,6 @@ TEST(Database, GloballyIndexedNamesAreUnique)
 
     EXPECT_FALSE(root.create_library(LibraryData{.name = "lib"}).valid());
     EXPECT_FALSE(root.update_library(other, std::string("lib")));
-    EXPECT_FALSE(root.set_library_name(other, "lib"));
     EXPECT_EQ(root.get_library(other)->name, "other");
     EXPECT_EQ(root.get_library_by_name("lib"), first);
     EXPECT_EQ(root.get_library_by_name("other"), other);
@@ -105,40 +89,89 @@ TEST(Database, RebuildIndexesReportsADuplicateGlobalName)
     EXPECT_NE(problems.front().find("duplicate name"), std::string::npos) << problems.front();
 }
 
-TEST(Database, SetLayerNameOnNonExistentIdReturnsFalse)
+TEST(Database, UpdateOnADeletedIdReturnsFalse)
 {
     Root root;
-    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 2000.0});
-    LayerId layer_id = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
-    ASSERT_TRUE(root.delete_layer(layer_id));
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+    ASSERT_TRUE(root.delete_library(library));
 
-    EXPECT_FALSE(root.set_layer_name(layer_id, "M2"));
+    EXPECT_FALSE(root.update_library(library, std::string("renamed")));
+    EXPECT_FALSE(root.get_library_by_name("renamed").valid());
 }
 
-TEST(Database, SetLayerTechnologyMovesItBetweenParentIndexEntries)
+// Two Libraries, each with a Design: reparent and rename checks.
+struct TwoLibraries : ::testing::Test
 {
     Root root;
-    TechnologyId tech_a = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
-    TechnologyId tech_b = root.create_technology(TechnologyData{.database_units_microns = 2000.0});
-    LayerId layer_id = root.create_layer(LayerData{.technology = tech_a, .name = "M1", .type = "ROUTING"});
+    LibraryId a = root.create_library(LibraryData{.name = "a"});
+    LibraryId b = root.create_library(LibraryData{.name = "b"});
+    DesignId p = root.create_design(DesignData{.library = a, .name = "p"});
+    DesignId q = root.create_design(DesignData{.library = b, .name = "q"});
 
-    ASSERT_TRUE(root.set_layer_technology(layer_id, tech_b));
+    void expect_unchanged()
+    {
+        EXPECT_EQ(root.get_design(p)->library, a);
+        EXPECT_EQ(root.get_design(p)->name, "p");
+        EXPECT_EQ(root.get_library_designs(a), std::vector<DesignId>{p});
+        EXPECT_EQ(root.get_library_designs(b), std::vector<DesignId>{q});
+        EXPECT_EQ(root.get_design_by_name(a, "p"), p);
+        EXPECT_EQ(root.get_design_by_name(b, "q"), q);
+        EXPECT_FALSE(root.get_design_by_name(b, "p").valid());
+    }
+};
 
-    EXPECT_TRUE(root.get_technology_layers(tech_a).empty());
-    EXPECT_EQ(root.get_technology_layers(tech_b), std::vector<LayerId>{layer_id});
-    EXPECT_EQ(root.get_layer(layer_id)->technology, tech_b);
-    // Unrelated by-name index untouched by a field set that isn't it.
-    EXPECT_EQ(root.get_layer_by_name("M1"), layer_id);
+TEST_F(TwoLibraries, AReparentOntoATakenNameChangesNothing)
+{
+    const uint64_t log_end = root.change_log().end_sequence();
+    EXPECT_FALSE(root.update_design(p, b, std::string("q")));
+    expect_unchanged();
+    EXPECT_EQ(root.change_log().end_sequence(), log_end);
 }
 
-TEST(Database, SetLayerFieldToItsCurrentValueIsANoOpThatStillReturnsTrue)
+TEST_F(TwoLibraries, AReparentWhoseOldNameIsTakenThereButNewNameIsFreeSucceeds)
 {
-    Root root;
-    TechnologyId technology_id = root.create_technology(TechnologyData{.database_units_microns = 2000.0});
-    LayerId layer_id = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
+    root.update_design(q, LibraryId{}, std::string("p")); // b now holds a "p"
+    const DesignId other = root.get_design_by_name(b, "p");
 
-    EXPECT_TRUE(root.set_layer_name(layer_id, "M1"));
-    EXPECT_EQ(root.get_layer_by_name("M1"), layer_id);
+    ASSERT_TRUE(root.update_design(p, b, std::string("fresh")));
+    EXPECT_EQ(root.get_design(p)->library, b);
+    EXPECT_TRUE(root.get_library_designs(a).empty());
+    EXPECT_EQ(root.get_library_designs(b), (std::vector<DesignId>{other, p}));
+    EXPECT_EQ(root.get_design_by_name(b, "fresh"), p);
+    EXPECT_EQ(root.get_design_by_name(b, "p"), other);
+    EXPECT_FALSE(root.get_design_by_name(a, "p").valid());
+}
+
+TEST_F(TwoLibraries, ARenameOntoASiblingsNameChangesNothing)
+{
+    const DesignId sibling = root.create_design(DesignData{.library = a, .name = "s"});
+    EXPECT_FALSE(root.update_design(p, LibraryId{}, std::string("s")));
+    EXPECT_EQ(root.get_design(p)->name, "p");
+    EXPECT_EQ(root.get_design_by_name(a, "p"), p);
+    EXPECT_EQ(root.get_design_by_name(a, "s"), sibling);
+}
+
+TEST_F(TwoLibraries, AReparentKeepingTheNameMovesItsNameIndex)
+{
+    ASSERT_TRUE(root.update_design(p, b, std::nullopt));
+    EXPECT_EQ(root.get_design_by_name(b, "p"), p);
+    EXPECT_FALSE(root.get_design_by_name(a, "p").valid());
+    EXPECT_EQ(root.get_library_designs(b), (std::vector<DesignId>{q, p}));
+}
+
+TEST(Database, AGlobalRenameClashLeavesEveryOtherFieldUnchanged)
+{
+    // A clash found after other fields were written would leave them changed.
+    Root root;
+    const TechnologyId technology = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+    root.create_layer(LayerData{.technology = technology, .name = "M1", .type = "ROUTING"});
+    const LayerId m2 = root.create_layer(LayerData{.technology = technology, .name = "M2", .type = "ROUTING"});
+    LayerData changed = *root.get_layer(m2);
+    changed.name = "M1";
+    changed.type = "CUT";
+    EXPECT_FALSE(root.update_layer(m2, TechnologyId{}, changed.name, changed.type, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt));
+    EXPECT_EQ(root.get_layer(m2)->type, "ROUTING");
+    EXPECT_EQ(root.get_layer_by_name("M2"), m2);
 }
 
 TEST(Database, DeleteLayerRemovesItFromEveryIndex)
@@ -156,18 +189,6 @@ TEST(Database, DeleteLayerRemovesItFromEveryIndex)
     EXPECT_FALSE(root.delete_layer(layer_id));
     EXPECT_FALSE(root.delete_layer(LayerId{}));
 }
-
-// Root::update_terminal is generated (root_hpp_j2.py's own update_<klass>
-// block, codegen/codegen/schema.py's Klass.update_root_body()) - the
-// *only* place a Terminal's fields are ever mutated after creation (no
-// per-field setter exists for this class anymore - see this round's own
-// plan/commit message). Exercises what the pre-existing, narrower
-// set_terminal_name/set_terminal_abstract setters (still generated,
-// still untouched by this round, but no longer reachable from any
-// generated or hand-written caller) could not: reparenting and renaming
-// together in one call, including moving Terminal.name's own
-// unique_per_parent by-name bucket to the new parent - a gap that setter
-// pair has always had (see its own generated doc comment in root.hpp).
 
 TEST(Database, UpdateTerminalRenameKeepsByNameIndexInSyncScopedToItsParentAbstract)
 {
@@ -204,10 +225,7 @@ TEST(Database, UpdateTerminalReparentMovesItBetweenAbstractsAndKeepsNameIndexInS
     EXPECT_EQ(root.get_terminal(terminal_id)->abstract, abstract_b);
     EXPECT_TRUE(root.get_abstract_terminals(abstract_a).empty());
     EXPECT_EQ(root.get_abstract_terminals(abstract_b), std::vector<TerminalId>{terminal_id});
-    // The unique_per_parent by-name bucket moved with it - findable under
-    // the new parent, gone from the old one (the gap the pre-existing
-    // set_terminal_abstract setter alone has always had - see its own
-    // generated doc comment).
+    // The by-name index moved with it.
     EXPECT_EQ(root.get_terminal_by_name(abstract_a, "IN0"), TerminalId{});
     EXPECT_EQ(root.get_terminal_by_name(abstract_b, "IN0"), terminal_id);
 }
@@ -223,11 +241,7 @@ TEST(Database, UpdateTerminalReparentCollisionLeavesTerminalUnderOriginalAbstrac
     TerminalId moving = root.create_terminal(TerminalData{.abstract = abstract_a, .name = "IN0", .direction = SignalDirection::INPUT});
     TerminalId already_there = root.create_terminal(TerminalData{.abstract = abstract_b, .name = "IN0", .direction = SignalDirection::OUTPUT});
 
-    // Reparenting onto abstract_b must fail - it already has a sibling
-    // Terminal named "IN0" - and leave `moving` completely untouched,
-    // including its own by-name index entry under abstract_a (checked
-    // *before* any mutation happens, per Root::update_terminal's own
-    // reparent-then-rename ordering).
+    // abstract_b already has an "IN0": nothing about `moving` changes.
     EXPECT_FALSE(root.update_terminal(moving, abstract_b, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
                                        std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
                                        std::nullopt, std::nullopt, std::nullopt));
@@ -812,7 +826,6 @@ TEST_F(SingularSlotFixture, MovingAShapeOntoATakenDieareaIsRejected)
     const ShapeId free_shape = root.create_shape(ShapeData{.owner = ShapeOwner::in_layout(layout)});
 
     EXPECT_FALSE(root.set_shape_owner(free_shape, ShapeOwner::layout(layout)));
-    EXPECT_FALSE(root.set_shape_layout(free_shape, layout));
     EXPECT_EQ(root.get_shape(free_shape)->in_layout(), layout);
     EXPECT_EQ(root.get_layout_diearea(layout), diearea);
 }

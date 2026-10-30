@@ -1740,6 +1740,16 @@ class Klass:
         for gf in self.get_global_unique_fields():
             add(f"if (changes.{gf.name} && *changes.{gf.name} != before.{gf.name} && root.get_{snake}_by_{gf.name}(*changes.{gf.name}).valid())")
             add(f'    return std::unexpected(fmt::format("a {self.name} with this {gf.name} (\'{{}}\') already exists", *changes.{gf.name}));')
+        if unique_fields and single_parent is not None:
+            uf = unique_fields[0]
+            pf = single_parent
+            add("{")
+            add(f"    const le::{pf.type}Id target_parent = changes.{pf.name} ? *changes.{pf.name} : before.{pf.name};")
+            add(f"    const auto &target_{uf.name} = changes.{uf.name} ? *changes.{uf.name} : before.{uf.name};")
+            add(f"    if ((target_parent != before.{pf.name} || target_{uf.name} != before.{uf.name}) && target_parent.valid() &&")
+            add(f"        root.get_{snake}_by_{uf.name}(target_parent, target_{uf.name}).valid())")
+            add(f'        return std::unexpected(fmt::format("a sibling {self.name} with this {uf.name} (\'{{}}\') already exists", target_{uf.name}));')
+            add("}")
         if self.update_check:
             add(f"if (const std::optional<std::string> refused = {self.update_check}(before, changes))")
             add("    return std::unexpected(*refused);")
@@ -1752,10 +1762,7 @@ class Klass:
         for f in create_fields:
             call_args.append(f"std::move(changes.{f.name})")
         add(f"if (!root.update_{snake}({', '.join(call_args)}))")
-        if unique_fields:
-            add(f'    return std::unexpected("a sibling {self.name} with this {unique_fields[0].name} already exists");')
-        else:
-            add('    return std::unexpected("update failed");')
+        add('    return std::unexpected("internal error: the database rejected an update that passed its checks");')
         add("root.bump_mutation_version();")
         add("if (handle.command_history.is_recording())")
         add(f"    handle.command_history.current()->record_update<le::{self.name}Id, le::{self.name}Data>(")
@@ -1834,34 +1841,13 @@ class Klass:
 
     def update_root_body(self) -> str:
         """
-        The full statement-list body of Root::update_<klass>
-        (update_root_params()) - the *only* place this class's fields
-        are ever mutated after creation (the user's explicit "no per-
-        field setters, generated or hand-written" constraint - see the
-        plan's Context section). Built the same "Python string" way
-        create_api_body()/update_api_body() are; reuses the exact
-        index_ member names/shapes the pre-existing (and untouched)
-        generated set_<klass>_<field>() already established for a
-        parent field (root_hpp_j2.py's own `{%- if field.parent or
-        field.index %}` block) and a unique_per_parent field, but -
-        unlike that pre-existing per-field setter, which reassigns a
-        parent without moving a unique_per_parent field's sibling-index
-        bucket (a documented, previously-unreachable gap, since nothing
-        called it with both present) - this method does both in one
-        call, in the order decision 6 requires: reparent (with its own
-        new-parent collision check) fully applied *before* the
-        unique_per_parent rename, so `existing-><parent_field>` already
-        reflects the new parent by the time the rename's own sibling
-        bucket is computed.
-
-        Every ordinary field: `if (<field>) existing-><field> =
-        *<field>;` - trivial, no index to maintain. Returns true unless
-        the reparent's new-parent collision check or the
-        unique_per_parent rename's own collision check fails (checked,
-        and can return false, before any mutation happens in that block
-        - matches create_x's own "nothing inserted on failure" atomicity
-        for the common single-change case; see decision 6 for the one
-        documented two-change exception).
+        The statement-list body of Root::update_<klass>
+        (update_root_params()), in two phases so a refused update changes
+        nothing: first every check (the reparent's single-slot parent, the
+        unique_per_parent name under the resulting parent with the
+        resulting name, each global unique field), then the writes, which
+        can't fail. The name check uses the resulting parent and name
+        together, so a reparent plus rename is checked as one move.
         """
         indent = "            "
         lines: List[str] = []
@@ -1874,6 +1860,8 @@ class Klass:
         create_fields = self.get_create_fields()
         unique_fields = self.get_unique_per_parent_fields()
         single_parent = parent_fields[0] if len(parent_fields) == 1 else None
+        uf = unique_fields[0] if unique_fields and single_parent is not None else None
+        global_fields = [f for f in create_fields if f.index and not f.unique_per_parent]
 
         add(f"auto* existing = {snake}_.get(id);")
         add("if (!existing) return false;")
@@ -1881,96 +1869,66 @@ class Klass:
         if single_parent is not None:
             pf = single_parent
             parent_index = f"index_.{pf._parent_klass.to_snake_case()}_{pf.parent}"
-            is_list = pf._parent_field.is_list
-            add()
-            # `&& {pf.name} != existing->{pf.name}` - reparenting onto the
-            # object's own current parent is a no-op, not a collision: with
-            # a unique_per_parent field, the new-parent bucket lookup below
-            # would otherwise find the object's own existing entry (itself,
-            # not a real sibling) and spuriously report a collision.
-            add(f"if ({pf.name}.valid() && {pf.name} != existing->{pf.name})")
+            add(f"const bool reparent = {pf.name}.valid() && {pf.name} != existing->{pf.name};")
+            if not pf._parent_field.is_list:
+                add(f"if (reparent && {parent_index}.contains({pf.name}))")
+                add("    return false;")
+        if uf is not None:
+            names = f"index_.{snake}_by_{uf.name}"
+            add(f"const bool rename = {uf.name} && *{uf.name} != existing->{uf.name};")
+            add(f"const {pf.type}Id target_parent = reparent ? {pf.name} : existing->{pf.name};")
+            add("if ((reparent || rename) && target_parent.valid())")
             add("{")
-            if unique_fields:
-                uf = unique_fields[0]
-                add(f"    auto new_bucket_it = index_.{snake}_by_{uf.name}.find({pf.name});")
-                add(
-                    f"    if (new_bucket_it != index_.{snake}_by_{uf.name}.end() && "
-                    f"new_bucket_it->second.find(existing->{uf.name}) != new_bucket_it->second.end())"
-                )
-                add("        return false;")
-                add()
-            if not is_list:
-                add(f"    if ({parent_index}.contains({pf.name}))")
-                add("        return false;")
-            if is_list:
-                add("    {")
-                add(f"        auto& old_siblings = {parent_index}[existing->{pf.name}];")
-                add(
-                    "        old_siblings.erase(std::remove(old_siblings.begin(), old_siblings.end(), id), "
-                    "old_siblings.end());"
-                )
-                add("    }")
+            add(f"    const auto bucket = {names}.find(target_parent);")
+            add(f"    if (bucket != {names}.end() && bucket->second.find(rename ? *{uf.name} : existing->{uf.name}) != bucket->second.end())")
+            add("        return false;")
+            add("}")
+        for gf in global_fields:
+            add(f"if ({gf.name} && *{gf.name} != existing->{gf.name} && index_.{snake}_by_{gf.name}.contains(*{gf.name}))")
+            add("    return false;")
+
+        add()
+        add("// Nothing below can fail.")
+        if uf is not None:
+            add("if (reparent || rename)")
+            add("{")
+            add(f"    const auto bucket = {names}.find(existing->{pf.name});")
+            add(f"    if (bucket != {names}.end())")
+            add(f"        bucket->second.erase(existing->{uf.name});")
+            add("}")
+        if single_parent is not None:
+            add("if (reparent)")
+            add("{")
+            if pf._parent_field.is_list:
+                add(f"    auto& old_siblings = {parent_index}[existing->{pf.name}];")
+                add("    old_siblings.erase(std::remove(old_siblings.begin(), old_siblings.end(), id), old_siblings.end());")
+                add(f"    existing->{pf.name} = {pf.name};")
+                add(f"    {parent_index}[{pf.name}].push_back(id);")
             else:
-                add("    {")
-                add(f"        auto old_it = {parent_index}.find(existing->{pf.name});")
-                add(f"        if (old_it != {parent_index}.end() && old_it->second == id)")
-                add(f"            {parent_index}.erase(old_it);")
-                add("    }")
-            if unique_fields:
-                uf = unique_fields[0]
-                add("    {")
-                add(f"        auto old_bucket_it = index_.{snake}_by_{uf.name}.find(existing->{pf.name});")
-                add(f"        if (old_bucket_it != index_.{snake}_by_{uf.name}.end())")
-                add(f"            old_bucket_it->second.erase(existing->{uf.name});")
-                add("    }")
-            add(f"    existing->{pf.name} = {pf.name};")
-            if is_list:
-                add("    {")
-                add(f"        auto& new_siblings = {parent_index}[{pf.name}];")
-                add("        if (std::find(new_siblings.begin(), new_siblings.end(), id) == new_siblings.end())")
-                add("            new_siblings.push_back(id);")
-                add("    }")
-            else:
+                add(f"    const auto old_it = {parent_index}.find(existing->{pf.name});")
+                add(f"    if (old_it != {parent_index}.end() && old_it->second == id)")
+                add(f"        {parent_index}.erase(old_it);")
+                add(f"    existing->{pf.name} = {pf.name};")
                 add(f"    {parent_index}[{pf.name}] = id;")
-            if unique_fields:
-                uf = unique_fields[0]
-                add(f"    index_.{snake}_by_{uf.name}[{pf.name}][existing->{uf.name}] = id;")
             add("}")
 
         for rf in self.get_reference_create_fields():
             add(f"if ({rf.name}) existing->{rf.name} = *{rf.name};")
 
         for f in create_fields:
-            if f.unique_per_parent:
-                add()
-                # `&& *{f.name} != existing->{f.name}` - renaming to the
-                # object's own current value is a no-op, not a collision:
-                # the sibling-bucket lookup below would otherwise find the
-                # object's own existing entry (itself) and spuriously
-                # report a collision (same reasoning as the reparent guard
-                # above).
+            if f in global_fields:
                 add(f"if ({f.name} && *{f.name} != existing->{f.name})")
                 add("{")
-                add(f"    auto& siblings = index_.{snake}_by_{f.name}[existing->{single_parent.name}];")
-                add(f"    if (siblings.find(*{f.name}) != siblings.end())")
-                add("        return false;")
-                add(f"    siblings.erase(existing->{f.name});")
-                add(f"    existing->{f.name} = *{f.name};")
-                add(f"    siblings[*{f.name}] = id;")
-                add("}")
-            elif f.index:
-                # A global by-<field> index, unique across the whole Root.
-                add()
-                add(f"if ({f.name} && *{f.name} != existing->{f.name})")
-                add("{")
-                add(f"    if (index_.{snake}_by_{f.name}.contains(*{f.name}))")
-                add("        return false;")
                 add(f"    index_.{snake}_by_{f.name}.erase(existing->{f.name});")
-                add(f"    existing->{f.name} = *{f.name};")
-                add(f"    index_.{snake}_by_{f.name}[*{f.name}] = id;")
+                add(f"    existing->{f.name} = std::move(*{f.name});")
+                add(f"    index_.{snake}_by_{f.name}[existing->{f.name}] = id;")
                 add("}")
             else:
-                add(f"if ({f.name}) existing->{f.name} = *{f.name};")
+                add(f"if ({f.name}) existing->{f.name} = std::move(*{f.name});")
+
+        if uf is not None:
+            add(f"if ((reparent || rename) && existing->{pf.name}.valid())")
+            add(f"    {names}[existing->{pf.name}][existing->{uf.name}] = id;")
 
         add()
         add("return true;")

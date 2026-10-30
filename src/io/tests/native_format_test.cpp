@@ -443,14 +443,10 @@ namespace le::persistence
         const RouteId route = root.create_route(RouteData{.layout = layout, .name = "n1"});
         const ShapeId shape = root.create_shape(ShapeData{.owner = ShapeOwner::route(route)});
 
-        ASSERT_TRUE(root.set_shape_in_layout(shape, layout));
+        ASSERT_TRUE(root.set_shape_owner(shape, ShapeOwner::in_layout(layout)));
         EXPECT_TRUE(root.get_route_shapes(route).empty());
         EXPECT_EQ(root.get_layout_free_shapes(layout), std::vector<ShapeId>{shape});
         EXPECT_FALSE(root.get_shape(shape)->route().valid());
-
-        // Clearing a field that isn't the owner leaves the owner alone.
-        ASSERT_TRUE(root.set_shape_route(shape, RouteId{}));
-        EXPECT_EQ(root.get_shape(shape)->in_layout(), layout);
 
         ASSERT_TRUE(root.delete_shape(shape));
         EXPECT_TRUE(root.get_layout_free_shapes(layout).empty());

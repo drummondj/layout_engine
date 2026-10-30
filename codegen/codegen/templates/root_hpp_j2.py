@@ -42,7 +42,7 @@ namespace {{schema.namespace}} {
     };
 
     /// @brief One database mutation, recorded by every generated create_/
-    /// update_/delete_/set_ call and by note_<klass>_changed(). An update
+    /// update_/delete_/set_<klass>_owner call and by note_<klass>_changed(). An update
     /// records the owner before the change and, if it moved, a second
     /// entry with the new one - so a consumer can find everything an edit
     /// affected even after the object (or its owner) is gone.
@@ -123,7 +123,7 @@ namespace {{schema.namespace}} {
         /// domain-specific mutation site (e.g. api.cpp's own CRUD
         /// functions) calls bump_mutation_version()
         /// explicitly, since not every mutation goes through a generated
-        /// create_x/delete_x/set_x_<field> (e.g. appending to a plain list
+        /// create_x/update_x/delete_x (e.g. appending to a plain list
         /// field via a mutable get_x() pointer never does) - this Root
         /// method only tracks the counter itself, not when to bump it.
         uint64_t mutation_version() const { return mutation_version_; }
@@ -226,28 +226,15 @@ namespace {{schema.namespace}} {
             return id;
         }
 
-        /// @brief Update an existing {{klass.name}} in place - the *only*
-        /// way any {{klass.name}} field is ever mutated after creation (no
-        /// generated or hand-written per-field setter exists for this
-        /// class - see this round's own plan/commit message). Every
-        /// parameter beyond `id`{% if klass.get_parent_fields() | length == 1 %} (including the parent){% endif %} is a
-        /// std::optional<T> whose has_value() means "apply this field";
-        /// omitted (nullopt) means "leave unchanged", the opposite of
-        /// create_{{klass.to_snake_case()}}()'s own "omitted means unset"
-        /// convention. False (no-op, nothing applied) if `id` doesn't
-        /// exist{% if klass.get_parent_fields() | length == 1 and klass.get_unique_per_parent_fields() %}, if the new parent already has a sibling {{klass.name}} sharing the current {{klass.get_unique_per_parent_fields()[0].name}} (reparenting), or if a sibling under the (possibly just-reassigned) parent already has the requested {{klass.get_unique_per_parent_fields()[0].name}} (renaming){% elif klass.get_unique_per_parent_fields() %}, or if a sibling {{klass.name}} sharing the same {{klass.get_parent_field().name}} already has the requested {{klass.get_unique_per_parent_fields()[0].name}}{% endif %}.
-        {%- if klass.get_parent_fields() | length == 1 and klass.get_singular_parent_fields() %}
-        /// Also false if the new {{klass.get_parent_fields()[0].name}} already has a {{klass.get_parent_fields()[0].parent}}.
-        {%- endif %}
-        {%- for field in klass.get_global_unique_fields() %}
-        /// Also false if another {{klass.name}} already has the requested {{field.name}}.
-        {%- endfor %}
-        {%- if klass.get_parent_fields() | length > 1 %}
-        /// {{klass.name}} has multiple parent fields ({%- for pf in klass.get_parent_fields() -%}{{pf.name}}{% if not loop.last %}, {% endif %}{%- endfor -%}) -
-        /// no parent flag is generated at all here, since reassigning one
-        /// alone would violate the "exactly one parent set" invariant
-        /// create_{{klass.to_snake_case()}}() itself enforces.
-        {%- endif %}
+        /// @brief Update an existing {{klass.name}} in place - the only way
+        /// its fields change after creation{% if klass.get_owner_fields() %} (its owner moves with
+        /// set_{{klass.to_snake_case()}}_owner()){% endif %}. Every parameter beyond `id`{% if klass.get_parent_fields() | length == 1 %}
+        /// but the parent (an invalid id leaves it unchanged){% endif %} is a std::optional<T>:
+        /// present means apply, nullopt leaves the field unchanged.
+        /// Atomic: every check runs before anything changes, so false
+        /// means nothing was applied - `id` doesn't exist{% if klass.get_unique_per_parent_fields() %}, or another
+        /// {{klass.name}} under the resulting {{klass.get_parent_field().name}} already has the resulting
+        /// {{klass.get_unique_per_parent_fields()[0].name}}{% endif %}{% if klass.get_parent_fields() | length == 1 and klass.get_singular_parent_fields() %}, or the new {{klass.get_parent_fields()[0].name}} already has a {{klass.get_parent_fields()[0].parent}}{% endif %}{% for field in klass.get_global_unique_fields() %}, or another {{klass.name}} already has the requested {{field.name}}{% endfor %}.
         bool update_{{klass.to_snake_case()}}({{klass.update_root_params()}}) {
             const auto *before = {{klass.to_snake_case()}}_.get(id);
             if (!before) return false;
@@ -387,88 +374,6 @@ namespace {{schema.namespace}} {
         }
         {%- endif %}
 
-        {%- for field in klass.get_ordered_fields() %}
-            {%- if field.parent or field.index %}
-        /// @brief Set {{klass.name}}'s {{field.name}}, keeping the relevant
-        /// Root index in sync (unlike assigning through
-        /// get_{{klass.to_snake_case()}}() directly, which would leave a
-        /// stale index entry behind). False (no-op) if id doesn't exist{% if field.unique_per_parent %}, or if a sibling {{klass.name}} sharing the current {{klass.get_parent_field().name}} already has this {{field.name}} (unique_per_parent){% elif field.parent and not field.owner and not field._parent_field.is_list %}, or if the new {{field.name}} already has a {{field.parent}}{% elif field.index %}, or if another {{klass.name}} already has this {{field.name}}{% endif %}.
-                {%- if field.parent and klass.fields | selectattr("unique_per_parent") | list %}
-        /// NOTE: this Klass has a unique_per_parent field
-        /// ({%- for f in klass.fields | selectattr("unique_per_parent") -%}{{f.name}}{% if not loop.last %}, {% endif %}{%- endfor -%}) -
-        /// reparenting via this setter does NOT move that field's
-        /// sibling-index entries to the new parent's bucket (no generated
-        /// or hand-written caller reparents a {{klass.name}} today, so
-        /// this is a documented, currently-unreachable gap rather than a fix).
-                {%- endif %}
-        bool set_{{klass.to_snake_case()}}_{{field.name}}({{klass.name}}Id id, {{field.get_cpp_type()}} value) {
-            {%- if field.owner %}
-            const auto* existing = {{klass.to_snake_case()}}_.get(id);
-            if (!existing) return false;
-            // Clearing a field that isn't the current owner changes nothing.
-            if (!value.valid() && existing->owner.kind != {{klass.name}}OwnerKind::{{field.owner_kind()}}) return true;
-            return set_{{klass.to_snake_case()}}_owner(id, {{klass.owner_type_name()}}::{{field.name}}(value));
-        }
-            {%- else %}
-            auto* existing = {{klass.to_snake_case()}}_.get(id);
-            if (!existing) return false;
-            if (existing->{{field.name}} == value) return true;
-            {%- if field.parent and not field._parent_field.is_list %}
-            if (value.valid() && index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.contains(value))
-                return false;
-            {%- endif %}
-            log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, change_parent_(id, *existing));
-
-            {%- if field.unique_per_parent %}
-            {
-                auto& siblings = index_.{{klass.to_snake_case()}}_by_{{field.name}}[existing->{{klass.get_parent_field().name}}];
-                if (siblings.find(value) != siblings.end())
-                    return false;
-                siblings.erase(existing->{{field.name}});
-                existing->{{field.name}} = value;
-                siblings[value] = id;
-            }
-            return true;
-            {%- elif field.parent %}
-                {%- if field._parent_field.is_list %}
-            {
-                auto& old_siblings = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[existing->{{field.name}}];
-                old_siblings.erase(std::remove(old_siblings.begin(), old_siblings.end(), id), old_siblings.end());
-            }
-                {%- else %}
-            {
-                auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(existing->{{field.name}});
-                if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end() && it->second == id)
-                    index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.erase(it);
-            }
-                {%- endif %}
-
-            existing->{{field.name}} = value;
-
-                {%- if field._parent_field.is_list %}
-            {
-                auto& new_siblings = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[value];
-                if (std::find(new_siblings.begin(), new_siblings.end(), id) == new_siblings.end())
-                    new_siblings.push_back(id);
-            }
-                {%- else %}
-            index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[value] = id;
-                {%- endif %}
-            return true;
-            {%- else %}
-            if (index_.{{klass.to_snake_case()}}_by_{{field.name}}.contains(value))
-                return false;
-            index_.{{klass.to_snake_case()}}_by_{{field.name}}.erase(existing->{{field.name}});
-
-            existing->{{field.name}} = value;
-
-            index_.{{klass.to_snake_case()}}_by_{{field.name}}[value] = id;
-            return true;
-            {%- endif %}
-        }
-            {%- endif %}
-            {%- endif %}
-        {%- endfor %}
 
         /// @brief Get mutable {{klass.name}}Data from a {{klass.name}}Id
         {{klass.name}}Data* get_{{klass.to_snake_case()}}({{klass.name}}Id id) { return {{klass.to_snake_case()}}_.get(id); }
