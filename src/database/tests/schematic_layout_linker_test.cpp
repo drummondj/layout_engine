@@ -1,6 +1,9 @@
 #include "../database.hpp"
+#include "../rename_propagation.hpp"
 #include "../schematic_layout_linker.hpp"
 #include <gtest/gtest.h>
+
+#include <algorithm>
 
 using namespace le;
 
@@ -196,4 +199,64 @@ TEST(SchematicLayoutLinker, LayoutWithNoSchematicIsSkippedWithoutError)
     EXPECT_EQ(result.placements_linked, 0u);
     EXPECT_EQ(result.placements_marked_physical_only, 0u);
     EXPECT_TRUE(result.messages.empty());
+}
+
+namespace
+{
+    std::vector<std::string> placement_names(const Root &root, LayoutId layout)
+    {
+        std::vector<std::string> names;
+        for (const PlacementId id : root.get_layout_placements(layout))
+            names.push_back(root.get_placement(id)->name);
+        std::ranges::sort(names);
+        return names;
+    }
+}
+
+// A module instantiated twice is placed under each instantiation.
+TEST(SchematicLayoutLinker, AModuleInstantiatedTwiceIsPlacedUnderBothInstances)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+    const DesignId leaf = root.create_design(DesignData{.library = library, .name = "LEAF"});
+    const DesignId mid = root.create_design(DesignData{.library = library, .name = "MID"});
+    const SchematicId mid_schematic = root.create_schematic(SchematicData{.design = mid});
+    root.create_instance(InstanceData{.schematic = mid_schematic, .name = "x", .reference_design = leaf});
+    const DesignId top = root.create_design(DesignData{.library = library, .name = "TOP"});
+    const SchematicId top_schematic = root.create_schematic(SchematicData{.design = top});
+    root.create_instance(InstanceData{.schematic = top_schematic, .name = "u1", .reference_design = mid});
+    root.create_instance(InstanceData{.schematic = top_schematic, .name = "u2", .reference_design = mid});
+    const LayoutId layout = root.create_layout(LayoutData{.design = top});
+
+    const PhysicalLinkResult result = link_physical(root);
+    EXPECT_EQ(result.default_placements_created, 4u);
+    EXPECT_EQ(placement_names(root, layout), (std::vector<std::string>{"u1", "u1/x", "u2", "u2/x"}));
+}
+
+// A recursive hierarchy (only a crafted file or a raw edit can make one) is
+// reported and placed down to where it recurses.
+TEST(SchematicLayoutLinker, ARecursiveHierarchyIsReportedInsteadOfRecursingForever)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+    const DesignId a = root.create_design(DesignData{.library = library, .name = "a"});
+    const DesignId b = root.create_design(DesignData{.library = library, .name = "b"});
+    const SchematicId sa = root.create_schematic(SchematicData{.design = a});
+    const SchematicId sb = root.create_schematic(SchematicData{.design = b});
+    root.create_instance(InstanceData{.schematic = sa, .name = "u_b", .reference_design = b});
+    root.create_instance(InstanceData{.schematic = sb, .name = "u_a", .reference_design = a});
+    const LayoutId layout = root.create_layout(LayoutData{.design = a});
+
+    const PhysicalLinkResult result = link_physical(root);
+    EXPECT_EQ(placement_names(root, layout), (std::vector<std::string>{"u_b", "u_b/u_a"}));
+    EXPECT_TRUE(has_message_containing(result.messages, "ERROR: link: Instance 'u_b/u_a' instantiates a design above it"));
+
+    // Renaming u_b propagates down to where the hierarchy recurses.
+    const InstanceId u_b = root.get_instance_by_name(sa, "u_b");
+    ASSERT_TRUE(root.update_instance(u_b, SchematicId{}, std::nullopt, std::optional<std::string>("v_b"), std::nullopt, std::nullopt,
+                                     std::nullopt, std::nullopt, std::nullopt));
+    const auto ignore = [](auto, const auto &, const auto &) {};
+    const RenamePropagationResult renamed = propagate_instance_rename(root, u_b, ignore, ignore, ignore);
+    EXPECT_EQ(renamed.placements_renamed, 2u);
+    EXPECT_EQ(placement_names(root, layout), (std::vector<std::string>{"v_b", "v_b/u_a"}));
 }

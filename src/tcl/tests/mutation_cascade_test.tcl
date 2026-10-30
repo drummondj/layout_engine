@@ -39,7 +39,8 @@ set design [create_design -library $library -name TOP]
 set schematic [create_schematic -design $design]
 current_schematic $schematic
 
-set instance [create_instance -schematic $schematic -reference_design $design -name u1]
+set cell [create_design -library $library -name CELL]
+set instance [create_instance -schematic $schematic -reference_design $cell -name u1]
 set net [create_net -schematic $schematic -name n1]
 set pin [create_pin -instance $instance -net $net -name A]
 set port [create_port -schematic $schematic -net $net -name n1_port -direction OUTPUT]

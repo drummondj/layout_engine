@@ -170,7 +170,7 @@ class TestSmallUnsignedCreateFields(unittest.TestCase):
 
 
 class TestUpdateCheck(unittest.TestCase):
-    """Klass.update_check: the generated edit op asks a hand-written
+    """Klass.create_check/update_check: the generated edit op asks a hand-written
     function before changing anything."""
 
     def test_update_op_calls_the_check_before_updating(self):
@@ -178,11 +178,20 @@ class TestUpdateCheck(unittest.TestCase):
                       fields=[Field(name="size", description="", type="int")])
         Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
         body = klass.update_op_body()
-        check = body.index("if (const std::optional<std::string> refused = check_marker_update(before, changes))")
+        check = body.index("if (const std::optional<std::string> refused = check_marker_update(root, before, changes))")
         self.assertIn("return std::unexpected(*refused);", body)
         self.assertLess(check, body.index("root.update_marker("))
+
+    def test_create_op_calls_the_check_before_creating(self):
+        klass = Klass(name="Marker", description="", create_check="check_marker_create",
+                      fields=[Field(name="size", description="", type="int")])
+        Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
+        body = klass.create_op_body()
+        check = body.index("if (const std::optional<std::string> refused = check_marker_create(root, data))")
+        self.assertLess(check, body.index("root.create_marker("))
 
     def test_no_check_by_default(self):
         klass = Klass(name="Marker", description="", fields=[Field(name="size", description="", type="int")])
         Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
         self.assertNotIn("refused", klass.update_op_body())
+        self.assertNotIn("refused", klass.create_op_body())

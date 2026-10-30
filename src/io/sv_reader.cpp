@@ -1,5 +1,6 @@
 #include "sv_reader.hpp"
 
+#include "../database/hierarchical_resolver.hpp"
 #include "../database/library_helpers.hpp"
 
 #include <algorithm>
@@ -792,6 +793,9 @@ namespace le
 
             if (parent_schematic_id.valid())
             {
+                // Can't make the hierarchy recursive: slang refuses that
+                // within one read, and every module instantiated here is
+                // defined by this read (check_no_existing_schematics).
                 const InstanceId instance_id = root.create_instance(InstanceData{
                     .schematic = parent_schematic_id,
                     .name = qualified_name,
@@ -1188,6 +1192,13 @@ namespace le
             const SchematicData *schematic = root.get_schematic(instance->schematic);
             const DesignData *owner = schematic ? root.get_design(schematic->design) : nullptr;
             const DesignId design_id = find_design_by_name(root, *instance->reference_name, owner ? owner->library : LibraryId{});
+            if (design_id.valid() && hierarchy::instantiation_would_cycle(root, instance->schematic, design_id))
+            {
+                // Left unresolved: every walk down the hierarchy would recurse forever.
+                spdlog::error("link: Instance '{}' of design '{}' would make the hierarchy recursive - left unresolved", instance->name,
+                              owner ? owner->name : "");
+                continue;
+            }
             if (design_id.valid())
             {
                 root.update_instance(id, SchematicId{}, std::optional<DesignId>(design_id), std::nullopt,

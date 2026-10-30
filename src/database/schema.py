@@ -2361,6 +2361,8 @@ schema = Schema(
             name="Instance",
             tcl_category="Schematic",
             description="An instance of another design, or a placeholder for source code that could not be fully read",
+            create_check="check_instance_create",
+            update_check="check_instance_update",
             # Name uniqueness is enforced per-Schematic by the generated
             # unique_per_parent index (create_instance returns an invalid
             # id on collision), same shape as Port.name/Net.name on this
