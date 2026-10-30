@@ -3393,16 +3393,17 @@ extern "C"
                 if (route && route->net == net_id)
                     routes_to_delete.push_back(route_id);
             }
-            for (const le::RouteId route_id : routes_to_delete)
+            // Newest first, so each comes off the end of its parent's list.
+            for (auto route = routes_to_delete.rbegin(); route != routes_to_delete.rend(); ++route)
             {
                 // Copies: deleting a child edits the list being walked.
-                const std::vector<le::WireId> wire_ids = handle->root.get_route_wires(route_id);
-                for (const le::WireId wire_id : wire_ids)
-                    le::editing::delete_object(handle->root, txn, wire_id);
-                const std::vector<le::ShapeId> shape_ids = handle->root.get_route_shapes(route_id);
-                for (const le::ShapeId shape_id : shape_ids)
-                    le::editing::delete_object(handle->root, txn, shape_id);
-                le::editing::delete_object(handle->root, txn, route_id);
+                const std::vector<le::WireId> wire_ids = handle->root.get_route_wires(*route);
+                for (auto wire = wire_ids.rbegin(); wire != wire_ids.rend(); ++wire)
+                    le::editing::delete_object(handle->root, txn, *wire);
+                const std::vector<le::ShapeId> shape_ids = handle->root.get_route_shapes(*route);
+                for (auto shape = shape_ids.rbegin(); shape != shape_ids.rend(); ++shape)
+                    le::editing::delete_object(handle->root, txn, *shape);
+                le::editing::delete_object(handle->root, txn, *route);
             }
 
             for (const le::PhysicalPortId port_id : handle->root.get_layout_physical_ports(layout_id))

@@ -115,3 +115,83 @@ TEST_F(Hierarchy, AnUpdateMakingTheHierarchyRecursiveIsRefused)
 
     EXPECT_TRUE(edit::update_instance(handle, u_c, InstanceChanges{.name = "renamed"}));
 }
+
+namespace
+{
+    // A Layout with n Routes (each with a Wire) and n Placements.
+    struct BigLayout
+    {
+        LeHandle handle;
+        Root &root = handle.root;
+        LibraryId library = root.create_library(LibraryData{.name = "lib"});
+        DesignId cell = root.create_design(DesignData{.library = library, .name = "cell"});
+        LayoutId layout = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = library, .name = "top"})});
+        std::vector<RouteId> routes;
+
+        explicit BigLayout(int n)
+        {
+            for (int i = 0; i < n; ++i)
+            {
+                routes.push_back(root.create_route(RouteData{.layout = layout, .name = "n" + std::to_string(i)}));
+                root.create_wire(WireData{.route = routes.back()});
+                root.create_placement(PlacementData{.layout = layout, .name = "u" + std::to_string(i), .reference_design = cell});
+            }
+        }
+
+        std::vector<std::string> route_names() const
+        {
+            std::vector<std::string> names;
+            for (const RouteId id : root.get_layout_routes(layout))
+                names.push_back(root.get_route(id)->name);
+            return names;
+        }
+    };
+}
+
+TEST(EditOpsDelete, ACascadeLeavesNoChildListKeysAndUndoRestoresTheOrder)
+{
+    BigLayout d(50);
+    const std::vector<std::string> names = d.route_names();
+    const std::vector<RouteId> routes = d.root.get_layout_routes(d.layout);
+
+    d.handle.command_history.begin("delete layout");
+    ASSERT_TRUE(edit::delete_layout(d.handle, d.layout));
+    d.handle.command_history.end(true);
+    EXPECT_TRUE(d.root.get_route_ids().empty());
+    EXPECT_TRUE(d.root.get_wire_ids().empty());
+    EXPECT_TRUE(d.root.get_placement_ids().empty());
+    // Nothing is left keyed by the deleted objects.
+    EXPECT_FALSE(d.root.index().layout_routes.contains(d.layout));
+    EXPECT_FALSE(d.root.index().layout_placements.contains(d.layout));
+    EXPECT_FALSE(d.root.index().placement_by_name.contains(d.layout));
+    EXPECT_FALSE(d.root.index().route_wires.contains(routes.front()));
+
+    ASSERT_TRUE(d.handle.command_history.undo().replayed);
+    EXPECT_EQ(d.root.get_layout_routes(d.layout), routes);
+    EXPECT_EQ(d.route_names(), names);
+    EXPECT_EQ(d.root.get_route_wires(routes.back()).size(), 1u);
+    EXPECT_EQ(d.root.get_placement_by_name(d.layout, "u7").valid(), true);
+}
+
+TEST(EditOpsDelete, DeletingChildrenInAnyOrderMatchesTheCascade)
+{
+    BigLayout cascade(20), oldest_first(20), scattered(20);
+    ASSERT_TRUE(edit::delete_layout(cascade.handle, cascade.layout));
+
+    for (const RouteId id : oldest_first.routes)
+        ASSERT_TRUE(edit::delete_route(oldest_first.handle, id));
+    for (size_t i = 0; i < scattered.routes.size(); i += 2)
+        ASSERT_TRUE(edit::delete_route(scattered.handle, scattered.routes[i]));
+    for (size_t i = 1; i < scattered.routes.size(); i += 2)
+        ASSERT_TRUE(edit::delete_route(scattered.handle, scattered.routes[i]));
+    for (BigLayout *d : {&oldest_first, &scattered})
+    {
+        ASSERT_TRUE(edit::delete_layout(d->handle, d->layout));
+        EXPECT_EQ(d->root.get_route_ids().size(), cascade.root.get_route_ids().size());
+        EXPECT_EQ(d->root.get_wire_ids().size(), cascade.root.get_wire_ids().size());
+        EXPECT_EQ(d->root.get_placement_ids().size(), cascade.root.get_placement_ids().size());
+        EXPECT_EQ(d->root.index().layout_routes.size(), cascade.root.index().layout_routes.size());
+        EXPECT_EQ(d->root.index().route_wires.size(), cascade.root.index().route_wires.size());
+    }
+    EXPECT_TRUE(cascade.root.index().route_wires.empty());
+}
