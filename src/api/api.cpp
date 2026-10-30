@@ -727,28 +727,11 @@ namespace
     // Deletes `owner` (a Shape or a Wire), recording it for undo.
     void delete_owner(LeHandle *handle, le::GeometryId owner)
     {
-        le::Root &root = handle->root;
         le::editing::Transaction *txn = handle->command_history.current();
-        if (const le::ShapeData *shape = root.get_shape(owner.shape))
-        {
-            const le::ShapeData before = *shape;
-            root.delete_shape(owner.shape);
-            if (txn)
-                txn->record_delete<le::ShapeId, le::ShapeData>(
-                    owner.shape, before, [](le::Root &r, const le::ShapeData &d)
-                    { return r.create_shape(d); }, [](le::Root &r, le::ShapeId i)
-                    { return r.delete_shape(i); });
-        }
-        else if (const le::WireData *wire = root.get_wire(owner.wire))
-        {
-            const le::WireData before = *wire;
-            root.delete_wire(owner.wire);
-            if (txn)
-                txn->record_delete<le::WireId, le::WireData>(
-                    owner.wire, before, [](le::Root &r, const le::WireData &d)
-                    { return r.create_wire(d); }, [](le::Root &r, le::WireId i)
-                    { return r.delete_wire(i); });
-        }
+        if (owner.shape.valid())
+            le::editing::delete_object(handle->root, txn, owner.shape);
+        else
+            le::editing::delete_object(handle->root, txn, owner.wire);
     }
 
     std::optional<le::ShapeData> resolve_selected_outline(const LeHandle *handle, const LeHandle::SelectedObject &selected, int remaining_depth)
@@ -3278,7 +3261,7 @@ extern "C"
     // generated public le_update_x/le_delete_x - those can't express
     // "clear this reference field back to unset", which the Net-delete
     // cascade specifically needs) under one held lock, with every step
-    // manually recorded via Transaction::record_update/record_delete.
+    // recorded by hand (record_update, le::editing::delete_object).
     // handle->command_history.begin/end is called unconditionally in
     // each - a no-op if a caller (le_repl_eval) already has one open,
     // and otherwise starts/ends one itself (le_shell's own console isn't
@@ -3297,18 +3280,10 @@ extern "C"
             spdlog::error("delete_net: unknown id - no such Net exists");
             return 1;
         }
-        const le::NetData net_snapshot = *existing_net;
-        const le::SchematicId schematic_id = net_snapshot.schematic;
+        const le::SchematicId schematic_id = existing_net->schematic;
 
         handle->command_history.begin("delete_net");
         le::editing::Transaction *txn = handle->command_history.current();
-        // Captured before the Net itself is deleted below, so a Route's
-        // own record_delete create_fn can repoint its `.net` at whatever
-        // id the Net ends up with on undo (recreated with a *new* id,
-        // per Pool::create()'s own "never reuses an id" rule - see
-        // IdCell's own comment) rather than the stale one snapshotted in
-        // route_snapshot.net.
-        le::editing::IdCellPtr<le::NetId> net_cell = txn ? txn->id_cell_for(net_id) : nullptr;
 
         const le::SchematicData *schematic = handle->root.get_schematic(schematic_id);
         if (schematic)
@@ -3355,60 +3330,14 @@ extern "C"
             }
             for (const le::RouteId route_id : routes_to_delete)
             {
-                const le::RouteData route_snapshot = *handle->root.get_route(route_id);
-                le::editing::IdCellPtr<le::RouteId> route_cell = txn ? txn->id_cell_for(route_id) : nullptr;
-
                 // Copies: deleting a child edits the list being walked.
                 const std::vector<le::WireId> wire_ids = handle->root.get_route_wires(route_id);
                 for (const le::WireId wire_id : wire_ids)
-                {
-                    const le::WireData wire_snapshot = *handle->root.get_wire(wire_id);
-                    handle->root.delete_wire(wire_id);
-                    if (txn)
-                    {
-                        txn->record_delete<le::WireId, le::WireData>(
-                            wire_id, wire_snapshot,
-                            [route_cell](le::Root &r, const le::WireData &d)
-                            {
-                                le::WireData fixed = d;
-                                fixed.route = route_cell->id;
-                                return r.create_wire(fixed);
-                            },
-                            [](le::Root &r, le::WireId i) { return r.delete_wire(i); });
-                    }
-                }
+                    le::editing::delete_object(handle->root, txn, wire_id);
                 const std::vector<le::ShapeId> shape_ids = handle->root.get_route_shapes(route_id);
                 for (const le::ShapeId shape_id : shape_ids)
-                {
-                    const le::ShapeData shape_snapshot = *handle->root.get_shape(shape_id);
-                    handle->root.delete_shape(shape_id);
-                    if (txn)
-                    {
-                        txn->record_delete<le::ShapeId, le::ShapeData>(
-                            shape_id, shape_snapshot,
-                            [route_cell](le::Root &r, const le::ShapeData &d)
-                            {
-                                le::ShapeData fixed = d;
-                                fixed.owner = le::ShapeOwner::route(route_cell->id);
-                                return r.create_shape(fixed);
-                            },
-                            [](le::Root &r, le::ShapeId i) { return r.delete_shape(i); });
-                    }
-                }
-
-                handle->root.delete_route(route_id);
-                if (txn)
-                {
-                    txn->record_delete<le::RouteId, le::RouteData>(
-                        route_id, route_snapshot,
-                        [net_cell](le::Root &r, const le::RouteData &d)
-                        {
-                            le::RouteData fixed = d;
-                            fixed.net = net_cell->id;
-                            return r.create_route(fixed);
-                        },
-                        [](le::Root &r, le::RouteId i) { return r.delete_route(i); });
-                }
+                    le::editing::delete_object(handle->root, txn, shape_id);
+                le::editing::delete_object(handle->root, txn, route_id);
             }
 
             for (const le::PhysicalPortId port_id : handle->root.get_layout_physical_ports(layout_id))
@@ -3426,14 +3355,8 @@ extern "C"
             }
         }
 
-        handle->root.delete_net(net_id);
+        le::editing::delete_object(handle->root, txn, net_id);
         handle->root.bump_mutation_version();
-        if (txn)
-        {
-            txn->record_delete<le::NetId, le::NetData>(
-                net_id, net_snapshot, [](le::Root &r, const le::NetData &d) { return r.create_net(d); },
-                [](le::Root &r, le::NetId i) { return r.delete_net(i); });
-        }
         handle->command_history.end(/*succeeded=*/true);
         return 0;
     }
@@ -4285,15 +4208,24 @@ extern "C"
         handle->release_renders();
     }
 
+    // le_undo/le_redo's result: logs the steps that couldn't be applied.
+    static int32_t report_replay(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb)
+    {
+        if (!result.replayed)
+            return 0;
+        refresh_armed_move_geometry_unlocked(handle);
+        if (result.failed_steps == 0)
+            return 1;
+        spdlog::error("{} '{}': {} of its {} steps could not be applied", verb, result.label, result.failed_steps, result.steps);
+        return -1;
+    }
+
     int32_t le_undo(LeHandle *handle)
     {
         if (!handle)
             return 0;
         HandleWriteLock lock(handle);
-        const bool undone = handle->command_history.undo(handle->root);
-        if (undone)
-            refresh_armed_move_geometry_unlocked(handle);
-        return undone ? 1 : 0;
+        return report_replay(handle, handle->command_history.undo(), "undo");
     }
 
     int32_t le_redo(LeHandle *handle)
@@ -4301,10 +4233,7 @@ extern "C"
         if (!handle)
             return 0;
         HandleWriteLock lock(handle);
-        const bool redone = handle->command_history.redo(handle->root);
-        if (redone)
-            refresh_armed_move_geometry_unlocked(handle);
-        return redone ? 1 : 0;
+        return report_replay(handle, handle->command_history.redo(), "redo");
     }
 
     int32_t le_can_undo(LeHandle *handle)
@@ -5148,9 +5077,9 @@ extern "C"
             if (ctrl)
             {
                 if (shift)
-                    handle->command_history.redo(handle->root);
+                    report_replay(handle, handle->command_history.redo(), "redo");
                 else
-                    handle->command_history.undo(handle->root);
+                    report_replay(handle, handle->command_history.undo(), "undo");
                 refresh_armed_move_geometry_unlocked(handle);
                 break;
             }

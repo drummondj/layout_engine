@@ -73,27 +73,28 @@ TEST(MutationCascade, DeleteNetIsUndoable)
     const NetId net = root.create_net(NetData{.schematic = schematic, .name = "n1"});
     const LayoutId layout = root.create_layout(LayoutData{.design = design});
     const RouteId route = root.create_route(RouteData{.layout = layout, .name = "n1", .net = net});
+    const WireId wire = root.create_wire(WireData{.route = route});
+    const ShapeId shape = root.create_shape(ShapeData{.owner = ShapeOwner::route(route)});
 
     ASSERT_EQ(le_delete_net_cascade(&handle, to_c(net)), 0);
     EXPECT_EQ(root.get_net(net), nullptr);
     EXPECT_EQ(root.get_route(route), nullptr);
+    EXPECT_EQ(root.get_wire(wire), nullptr);
+    EXPECT_EQ(root.get_shape(shape), nullptr);
 
-    ASSERT_TRUE(handle.command_history.undo(root));
-    // Both the recreated Net and Route get fresh ids (Pool::create()
-    // never reuses the original one - see Transaction's own comment) -
-    // find them by name/schematic instead of by the now-stale `net`/
-    // `route` ids captured before the delete.
-    NetId recreated_net;
-    for (const NetId id : root.get_schematic_nets(schematic))
-        if (const NetData *n = root.get_net(id); n && n->name == "n1")
-            recreated_net = id;
-    ASSERT_TRUE(recreated_net.valid());
+    // Everything comes back at its own id, under its own parent.
+    ASSERT_TRUE(handle.command_history.undo().replayed);
+    ASSERT_NE(root.get_net(net), nullptr);
+    EXPECT_EQ(root.get_schematic_nets(schematic), std::vector<NetId>{net});
+    ASSERT_NE(root.get_route(route), nullptr);
+    EXPECT_EQ(root.get_route(route)->net, net);
+    EXPECT_EQ(root.get_layout_routes(layout), std::vector<RouteId>{route});
+    EXPECT_EQ(root.get_route_wires(route), std::vector<WireId>{wire});
+    EXPECT_EQ(root.get_route_shapes(route), std::vector<ShapeId>{shape});
 
-    bool found_route_with_right_net = false;
-    for (const RouteId id : root.get_layout_routes(layout))
-        if (const RouteData *r = root.get_route(id); r && r->name == "n1")
-            found_route_with_right_net = (r->net == recreated_net);
-    EXPECT_TRUE(found_route_with_right_net);
+    ASSERT_TRUE(handle.command_history.redo().replayed);
+    EXPECT_EQ(root.get_route(route), nullptr);
+    EXPECT_TRUE(root.get_layout_routes(layout).empty());
 }
 
 TEST(MutationCascade, DeleteNetFailsForUnknownId)
@@ -203,7 +204,7 @@ TEST(MutationCascade, RenameInstanceIsUndoable)
 {
     RenameInstanceFixture f;
     ASSERT_EQ(le_rename_instance_propagate(&f.handle, to_c(f.inst_a), "a_renamed"), 0);
-    ASSERT_TRUE(f.handle.command_history.undo(f.root));
+    ASSERT_TRUE(f.handle.command_history.undo().replayed);
 
     EXPECT_EQ(f.root.get_instance(f.inst_a)->name, "a");
     EXPECT_EQ(f.root.get_placement(f.placement_a)->name, "a");

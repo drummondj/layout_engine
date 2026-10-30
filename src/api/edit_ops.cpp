@@ -68,14 +68,9 @@ namespace le::edit
             if (!result || result->empty())
                 return result;
             handle.root.bump_mutation_version();
-            if (handle.command_history.is_recording())
-            {
+            if (editing::Transaction *txn = handle.command_history.current())
                 for (ShapeId id : *result)
-                    handle.command_history.current()->record_create<ShapeId, ShapeData>(
-                        id, *handle.root.get_shape(id),
-                        [](Root &r, const ShapeData &d) { return r.create_shape(d); },
-                        [](Root &r, ShapeId i) { return r.delete_shape(i); });
-            }
+                    txn->record_create(id);
             return result;
         }
     }

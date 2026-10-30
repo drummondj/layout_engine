@@ -593,15 +593,8 @@ check "get_terminals no longer sees it after undo" {} [get_terminals UNDOTEST]
 check "redo re-creates it" 1 [redo]
 check_true "get_terminals sees it again after redo" [expr {[get_terminals UNDOTEST] ne {}}]
 
-# update_shape round trip - scratch_shape's layer is M1 (set above). M2
-# is created here (not read from either fixture LEF) purely as a second,
-# distinct layer to rename onto - outside le_repl_eval's own recording so
-# this create isn't itself swept into the same undo/redo transaction as
-# the rename below (a Layer created *inside* a recording transaction
-# would become its own undo/redo step, and Pool::create() always
-# allocates a fresh generation on redo - never reproducing the original
-# id - so the rename's own recorded "after" LayerId would go stale the
-# moment that Layer-create step is undone and redone alongside it).
+# update_shape round trip - scratch_shape's layer is M1 (set above); M2
+# is a second layer to move it onto.
 create_layer -name M2 -type ROUTING -direction NONE
 le_repl_eval "update_shape $scratch_shape -layer layer:M2"
 check "update_shape via le_repl_eval renamed the layer" M2 [get_properties $scratch_shape .layer.name]
@@ -620,6 +613,34 @@ check "undo restores the removed rect" 1 [undo]
 check "both rects are back, in order, after undo" {{{0 0} {1 1}} {{2 2} {3 3}}} [dict get [get_properties $scratch_shape] rects]
 check "redo removes it again" 1 [redo]
 check "one rect left after redo" {{{2 2} {3 3}}} [dict get [get_properties $scratch_shape] rects]
+
+# Objects keep their ids across undo/redo, so a later command's ids (here
+# the design's library) still name them.
+le_repl_eval {create_library -name UNDO_LIB}
+le_repl_eval {create_design -library library:UNDO_LIB -name UNDO_DESIGN}
+undo; undo; redo; redo
+check "a redone design is listed under its redone library" design:UNDO_DESIGN [get_designs -of library:UNDO_LIB]
+
+le_repl_eval {create_terminal -name UNDO_KEEP -direction INPUT}
+set kept [get_terminals UNDO_KEEP]
+le_repl_eval "delete_terminal $kept"
+undo
+check "an undone delete brings the terminal back under its old id" $kept [get_terminals UNDO_KEEP]
+undo
+check "undoing its create then removes it" {} [get_terminals UNDO_KEEP]
+
+# Undoing a cascading delete restores the children in their order.
+set order_design [le_repl_eval {create_design -library library:UNDO_LIB -name ORDER}]
+set order_abstract [le_repl_eval "create_abstract -design $order_design"]
+foreach name {T1 T2 T3} {
+    le_repl_eval "create_terminal -abstract $order_abstract -name $name -direction INPUT"
+}
+set order_before [get_terminals -of $order_abstract]
+le_repl_eval "delete_abstract $order_abstract"
+check "delete_abstract removes the abstract" {} [get_abstracts -of $order_design]
+undo
+check "undo restores the terminals in their order" $order_before [get_terminals -of $order_abstract]
+current_abstract $scratch_abstract
 
 # A deliberately-errored command is still added to command_history -
 # unlike every other entry so far, its
@@ -660,15 +681,13 @@ check "help via le_repl_eval matches the direct (untruncated) result exactly" \
 check_true "help via le_repl_eval is long enough that it would have been truncated otherwise" \
     [expr {[string length $help_via_repl] > $kMaxResultDisplayLength}]
 
-# delete_terminal round trip - undo recreates the terminal (at a new id,
-# not necessarily $delete_target - see Transaction's own id-cell doc
-# comment), which get_terminals (name-scoped, not id-scoped) still finds.
+# delete_terminal round trip.
 set delete_target [le_repl_eval {create_terminal -name DELETETEST -direction OUTPUT}]
 le_repl_eval "delete_terminal $delete_target"
 check "delete_terminal via le_repl_eval removed the terminal" {} [get_terminals DELETETEST]
 
 check "undo recreates the deleted terminal" 1 [undo]
-check_true "get_terminals sees the recreated terminal" [expr {[get_terminals DELETETEST] ne {}}]
+check "get_terminals sees the recreated terminal" $delete_target [get_terminals DELETETEST]
 
 # --- Error messages name the real user-facing command, not the raw le_
 # C API function (read_lef, not le_read_lef). A generated create_<type>

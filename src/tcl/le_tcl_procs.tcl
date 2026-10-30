@@ -741,11 +741,15 @@ proc undo {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "undo \[-help\] - Undoes the most recently recorded command or edit"
     }
-    return [expr {[undo_command] ? "1" : "0"}]
+    set result [undo_command]
+    if {$result < 0} {
+        error "undo: some steps could not be applied - see the log"
+    }
+    return $result
 }
 register_command_help undo \
     "undo \[-help\] - Undoes the most recently recorded command or edit" \
-    "Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1 if something was undone, 0 if there was nothing to undo." \
+    "Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1 if something was undone, 0 if there was nothing to undo. An error if some of its steps could not be applied (it still counts as undone)." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
@@ -754,11 +758,15 @@ proc redo {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "redo \[-help\] - Redoes the most recently undone command or edit"
     }
-    return [expr {[redo_command] ? "1" : "0"}]
+    set result [redo_command]
+    if {$result < 0} {
+        error "redo: some steps could not be applied - see the log"
+    }
+    return $result
 }
 register_command_help redo \
     "redo \[-help\] - Redoes the most recently undone command or edit" \
-    "Redoes the last undone change. Returns 1 if something was redone, 0 otherwise." \
+    "Redoes the last undone change. Returns 1 if something was redone, 0 otherwise. An error if some of its steps could not be applied (it still counts as redone)." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

@@ -3686,7 +3686,7 @@ Loads a database file written by write_db. Only works in an empty session (befor
 
 `redo [-help]`
 
-Redoes the last undone change. Returns 1 if something was redone, 0 otherwise.
+Redoes the last undone change. Returns 1 if something was redone, 0 otherwise. An error if some of its steps could not be applied (it still counts as redone).
 
 ### remove_shape_path
 
@@ -3900,7 +3900,7 @@ Runs a Tcl script file, as Tcl's own source does. Returns the result of the scri
 
 `undo [-help]`
 
-Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1 if something was undone, 0 if there was nothing to undo.
+Undoes the last change - a typed command or a GUI edit such as a Move. Returns 1 if something was undone, 0 if there was nothing to undo. An error if some of its steps could not be applied (it still counts as undone).
 
 ### unsaved_changes
 
