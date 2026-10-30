@@ -223,6 +223,8 @@ int get_hierarchy_depth_command();
 void set_hierarchy_depth_command(int depth);
 int get_flightline_max_fanout_command();
 void set_flightline_max_fanout_command(int max_fanout);
+int get_undo_limit_command();
+void set_undo_limit_command(int limit);
 double get_grid_spacing_um_command(int major);
 void set_grid_spacing_um_command(double minor_um, double major_um);
 int get_confirm_overwrite_command();

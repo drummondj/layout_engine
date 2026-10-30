@@ -18,5 +18,6 @@
     "polygon": "none",
     "rect": "user"
   },
+  "undo_limit": 50,
   "version": 3
 }

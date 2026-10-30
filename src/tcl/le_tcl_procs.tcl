@@ -140,7 +140,7 @@ foreach {_le_category _le_names} {
         load_settings save_settings get_confirm_overwrite set_confirm_overwrite
         get_grid_spacing set_grid_spacing get_label_min_size set_label_min_size get_label_max_size set_label_max_size
         get_ruler_label_size set_ruler_label_size get_max_concurrency set_max_concurrency
-        get_flightline_max_fanout set_flightline_max_fanout
+        get_flightline_max_fanout set_flightline_max_fanout get_undo_limit set_undo_limit
         get_placement_snap_mode set_placement_snap_mode placement_snap_mode_available
         get_shape_snap_mode set_shape_snap_mode shape_snap_mode_available
         get_layer_color set_layer_color reset_layer_color
@@ -2855,6 +2855,37 @@ proc get_flightline_max_fanout {args} {
 register_command_help get_flightline_max_fanout \
     "get_flightline_max_fanout \[-help\]" \
     "Returns the flightline fanout limit (0 means no limit)." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc set_undo_limit { limit } {
+    if {$limit eq "-help"} {
+        return "set_undo_limit <limit> \[-help\] - Sets how many commands undo can step back through"
+    }
+    if {![string is integer -strict $limit] || $limit < 0} {
+        error "set_undo_limit: expected a non-negative integer, got \"$limit\""
+    }
+    set_undo_limit_command $limit
+    return ""
+}
+register_command_help set_undo_limit \
+    "set_undo_limit <limit> \[-help\]" \
+    "Sets how many commands undo can step back through. Older steps are forgotten, now and as new commands run, so the memory each holds (a copy of everything it changed) is freed. 0 keeps none; 200 by default." \
+    {
+        {<limit> {type int required 1 description {The number of undo steps to keep}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_undo_limit {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_undo_limit \[-help\] - Returns how many commands undo can step back through"
+    }
+    return [get_undo_limit_command]
+}
+register_command_help get_undo_limit \
+    "get_undo_limit \[-help\]" \
+    "Returns how many commands undo can step back through - see set_undo_limit." \
     {
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }

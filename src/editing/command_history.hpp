@@ -1,6 +1,7 @@
 #pragma once
 #include "transaction.hpp"
 #include "../database/database.hpp"
+#include <deque>
 #include <optional>
 #include <string>
 #include <utility>
@@ -20,9 +21,12 @@ namespace le::editing
     /// @brief Per-handle undo/redo stack plus the command-recall log, over
     /// one Root. One LeHandle owns exactly one of these.
     ///
-    /// A transaction that leaves the history (the redo stack cleared by a
-    /// new edit, or clear_undo_redo()) releases the ids it holds retired,
-    /// so their slots can be reused.
+    /// Both are bounded: the undo stack keeps the newest undo_limit()
+    /// transactions (each holds full before/after copies of what it
+    /// changed), the recall log the newest kRecallLimit lines. A
+    /// transaction that leaves the history (trimmed, the redo stack
+    /// cleared by a new edit, or clear_undo_redo()) releases the ids it
+    /// holds retired, so their slots can be reused.
     ///
     /// begin()/end() bracket a single recording transaction - every
     /// generated create/update/delete edit op and the hand-written edits
@@ -32,7 +36,21 @@ namespace le::editing
     class CommandHistory
     {
     public:
+        static constexpr size_t kDefaultUndoLimit = 200;
+        static constexpr size_t kRecallLimit = 10'000;
+
         explicit CommandHistory(Root &root) : root_(root) {}
+
+        /// @brief How many transactions undo can step back through.
+        size_t undo_limit() const { return undo_limit_; }
+
+        /// @brief Sets undo_limit(), dropping the oldest transactions past
+        /// it now. 0 keeps none.
+        void set_undo_limit(size_t limit)
+        {
+            undo_limit_ = limit;
+            trim_undo_stack();
+        }
 
         void begin(std::string label)
         {
@@ -66,9 +84,12 @@ namespace le::editing
             {
                 undo_stack_.push_back(std::move(txn));
                 release_all(redo_stack_);
+                trim_undo_stack();
             }
 
             command_text_log_.push_back(label);
+            if (command_text_log_.size() > kRecallLimit)
+                command_text_log_.pop_front();
         }
 
         bool is_recording() const { return recording_.has_value(); }
@@ -100,7 +121,7 @@ namespace le::editing
         const std::string &recall_at(size_t index) const { return command_text_log_.at(index); }
 
     private:
-        ReplayResult replay(std::vector<Transaction> &from, std::vector<Transaction> &to, size_t (Transaction::*apply)(Root &))
+        ReplayResult replay(std::deque<Transaction> &from, std::deque<Transaction> &to, size_t (Transaction::*apply)(Root &))
         {
             if (from.empty())
                 return {};
@@ -114,17 +135,28 @@ namespace le::editing
             return result;
         }
 
-        void release_all(std::vector<Transaction> &stack)
+        void release_all(std::deque<Transaction> &stack)
         {
             for (Transaction &txn : stack)
                 txn.release(root_);
             stack.clear();
         }
 
+        // Oldest first: undo can no longer reach them.
+        void trim_undo_stack()
+        {
+            while (undo_stack_.size() > undo_limit_)
+            {
+                undo_stack_.front().release(root_);
+                undo_stack_.pop_front();
+            }
+        }
+
         Root &root_;
+        size_t undo_limit_ = kDefaultUndoLimit;
         std::optional<Transaction> recording_;
-        std::vector<Transaction> undo_stack_;
-        std::vector<Transaction> redo_stack_;
-        std::vector<std::string> command_text_log_;
+        std::deque<Transaction> undo_stack_;
+        std::deque<Transaction> redo_stack_;
+        std::deque<std::string> command_text_log_;
     };
 }
