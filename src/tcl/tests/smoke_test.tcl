@@ -303,6 +303,11 @@ file delete $units_lef
 check "a length reads in microns" "0.050" [get_properties layer:UNITS_M2 .width]
 check "an area reads in square microns" "0.000666" [get_properties layer:UNITS_M2 .area]
 check "-filter compares lengths in microns" "layer:UNITS_M2" [get_layers -filter {.width < 0.1}]
+check "a malformed -filter is a Tcl error" 1 [catch {get_layers -filter {(.name == UNITS_M2) "oops}} filter_error]
+check "the -filter error names the command" "get_layers: invalid -filter expression - see the error above" $filter_error
+check "a single & is a Tcl error" 1 [catch {get_layers -filter {(.name == UNITS_M2) & .type == ROUTING}}]
+check "a malformed get_instances -filter is a Tcl error" 1 [catch {get_instances -filter {.name ==}} filter_error]
+check "the get_instances error names it" "get_instances: invalid -filter expression - see the error above" $filter_error
 update_layer layer:UNITS_M2 -area 0.002
 check "update_layer -area takes square microns" "0.002" [get_properties layer:UNITS_M2 .area]
 open_design TESTCELL

@@ -192,3 +192,21 @@ TEST(FilterExpression, UnknownFieldOrHopNeverMatchesRatherThanErroring)
     EXPECT_FALSE(matches(".does_not_exist == M1", root, layer_id, *data));
     EXPECT_FALSE(matches(".bogus_hop.name == M1", root, layer_id, *data));
 }
+
+TEST(FilterExpression, ALexerErrorAfterAValidTermFailsTheWholeExpression)
+{
+    // Each of these is a valid term followed by text the lexer rejects.
+    const auto unterminated = parse_filter_expression(R"((.name == M1) "oops)");
+    ASSERT_FALSE(unterminated.has_value());
+    EXPECT_NE(unterminated.error().find("unterminated"), std::string::npos) << unterminated.error();
+
+    const auto single_and = parse_filter_expression("(.name == M1) & .type == ROUTING");
+    ASSERT_FALSE(single_and.has_value());
+    EXPECT_EQ(single_and.error(), "single '&' - use '&&'");
+
+    const auto single_or = parse_filter_expression(".name == M1 | .name == M2");
+    ASSERT_FALSE(single_or.has_value());
+    EXPECT_EQ(single_or.error(), "single '|' - use '||'");
+
+    EXPECT_TRUE(parse_filter_expression("(.name == M1) && .type == ROUTING").has_value());
+}
