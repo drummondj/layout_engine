@@ -1117,7 +1117,7 @@ namespace
     // clean after it. Construct before; after a successful read commit(),
     // which leaves the design it read unsaved until write_db writes it;
     // after a failed one commit_failed(), which also keeps a clean design
-    // clean - whatever it added partway is nothing the user would lose.
+    // clean - a failed read rolls back everything it added (ReadRollback).
     class CleanAcrossRead
     {
     public:
@@ -3032,8 +3032,8 @@ extern "C"
         // version itself - without this, anything keyed on it (the render
         // graph's LayerGenerationStage, ensure_view_layers_current) kept
         // whatever it computed before the read - a GUI opened before any
-        // LEF would stay blank. Also on
-        // failure: a read that fails partway may still have added content.
+        // LEF would stay blank. Also on failure: the rollback put the
+        // content back, but saturated the change log.
         handle->root.bump_mutation_version();
         if (result != 0)
         {

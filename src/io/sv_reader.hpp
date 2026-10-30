@@ -83,6 +83,10 @@ namespace le
         static SignalDirection signal_direction_from_parser(slang::ast::ArgumentDirection direction);
 
     private:
+        // read_rtl without the rollback: may return an error with objects created.
+        int read_rtl_contents(std::vector<std::string> filenames, Root &root, std::string library_name);
+        // read_netlist without the rollback: may return an error with objects created.
+        int read_netlist_contents(std::vector<std::string> filenames, Root &root, std::string library_name);
         /// @brief The Design module `name` goes into for this read - the
         /// same one for every instance of it, even after the first gave a
         /// LEF cell its Schematic.

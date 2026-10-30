@@ -1,4 +1,5 @@
 #include "sv_reader.hpp"
+#include "read_rollback.hpp"
 
 #include "../database/hierarchical_resolver.hpp"
 #include "../database/library_helpers.hpp"
@@ -721,6 +722,15 @@ namespace le
 
     int SVReader::read_netlist(std::vector<std::string> filenames, Root &root, std::string library_name)
     {
+        ReadRollback rollback(root);
+        const int result = read_netlist_contents(std::move(filenames), root, std::move(library_name));
+        if (result == 0)
+            rollback.commit();
+        return result;
+    }
+
+    int SVReader::read_netlist_contents(std::vector<std::string> filenames, Root &root, std::string library_name)
+    {
         const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         {
             std::string joined_filenames;
@@ -1047,6 +1057,15 @@ namespace le
     }
 
     int SVReader::read_rtl(std::vector<std::string> filenames, Root &root, std::string library_name)
+    {
+        ReadRollback rollback(root);
+        const int result = read_rtl_contents(std::move(filenames), root, std::move(library_name));
+        if (result == 0)
+            rollback.commit();
+        return result;
+    }
+
+    int SVReader::read_rtl_contents(std::vector<std::string> filenames, Root &root, std::string library_name)
     {
         const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         {

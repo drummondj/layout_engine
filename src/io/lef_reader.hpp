@@ -41,6 +41,8 @@ namespace le
         static size_t safe_iteration_count(double x_count, double y_count);
 
     private:
+        // read_lef without the rollback: may return an error with objects created.
+        int read_lef_contents(std::string filename, Root &root, std::string library_name);
         // Callbacks
         static int lefrLayerCbkFn(lefrCallbackType_e typ, lefiLayer *lef_layer, void *user_data);
         static int lefrMacroBeginCbkFn(lefrCallbackType_e typ, const char *name, void *user_data);

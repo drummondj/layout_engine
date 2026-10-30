@@ -637,6 +637,16 @@ TEST(Pool, ErasedIdIsNotReused)
     EXPECT_DOUBLE_EQ(pool.get(second)->database_units_microns, 2.0);
 }
 
+TEST(Pool, IsEmptyCountsOnlyLiveObjects)
+{
+    Pool<TechnologyData, TechnologyId> pool;
+    EXPECT_TRUE(pool.is_empty());
+    const TechnologyId id = pool.create(TechnologyData{});
+    EXPECT_FALSE(pool.is_empty());
+    pool.erase(id);
+    EXPECT_TRUE(pool.is_empty()); // the slot stays, but nothing lives in it
+}
+
 TEST(Database, PortNetInstancePinRelationshipsRoundTrip)
 {
     Root root;

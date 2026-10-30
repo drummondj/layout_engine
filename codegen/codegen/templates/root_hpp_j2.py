@@ -54,6 +54,14 @@ namespace {{schema.namespace}} {
         ChangeParent parent;
     };
 
+    /// @brief One object create_<klass>() made while a creation journal
+    /// was open (Root::open_creation_journal).
+    struct CreatedObject {
+        ChangeKlass klass = ChangeKlass::None;
+        uint32_t index = 0;
+        uint32_t generation = 0;
+    };
+
     /// @brief A fixed-capacity ring of the most recent ChangeLogEntries,
     /// addressed by an ever-increasing sequence number - lets a consumer
     /// (e.g. a render stage) update incrementally instead of recomputing
@@ -140,6 +148,27 @@ namespace {{schema.namespace}} {
         /// bypasses the generated create_/update_/delete_ calls.
         void saturate_change_log() { change_log_.saturate(); }
 
+        /// @brief Append every object create_<klass>() makes to `journal`
+        /// (nullptr: stop), so a failed bulk operation can delete what it
+        /// made. 12 bytes per object, nothing while closed.
+        void open_creation_journal(std::vector<CreatedObject> *journal) { creation_journal_ = journal; }
+
+        /// @brief The open creation journal, or nullptr.
+        std::vector<CreatedObject> *creation_journal() const { return creation_journal_; }
+
+        /// @brief delete_<klass>() of the object `created` names. False if it's gone.
+        bool delete_created(const CreatedObject &created) {
+            switch (created.klass) {
+            {%- for klass in schema.get_pool_classes() %}
+            case ChangeKlass::{{klass.name}}:
+                return delete_{{klass.to_snake_case()}}({{klass.name}}Id{created.index, created.generation});
+            {%- endfor %}
+            case ChangeKlass::None:
+                break;
+            }
+            return false;
+        }
+
         /// @brief The current owner of the (live) object `klass`/`index`/
         /// `generation` names - ChangeKlass::None if it's gone or has none.
         ChangeParent change_parent_of(ChangeKlass klass, uint32_t index, uint32_t generation) const {
@@ -222,6 +251,8 @@ namespace {{schema.namespace}} {
         {%- endfor %}
             {{klass.name}}Id id = {{klass.to_snake_case()}}_.create(std::move(data));
             log_change_(ChangeKlass::{{klass.name}}, ChangeOp::CREATE, id, change_parent_(id, *{{klass.to_snake_case()}}_.get(id)));
+            if (creation_journal_)
+                creation_journal_->push_back(CreatedObject{ChangeKlass::{{klass.name}}, id.index, id.generation});
             index_insert_{{klass.to_snake_case()}}_(id, *{{klass.to_snake_case()}}_.get(id));
             return id;
         }
@@ -562,8 +593,11 @@ namespace {{schema.namespace}} {
             {
                 auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(d.{{field.accessor}});
                 if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end()) {
-                    auto found = std::find(it->second.begin(), it->second.end(), id);
-                    if (found != it->second.end()) {
+                    // From the back: the newest child is the likeliest to
+                    // go (an undone create, a rolled-back read).
+                    const auto from_back = std::find(it->second.rbegin(), it->second.rend(), id);
+                    if (from_back != it->second.rend()) {
+                        const auto found = std::prev(from_back.base());
                         if (positions)
                             (*positions)[{{list_parents.index(field)}}] = static_cast<uint32_t>(found - it->second.begin());
                         it->second.erase(found);
@@ -647,6 +681,7 @@ namespace {{schema.namespace}} {
     {%- endfor %}
 
         ChangeLog change_log_;
+        std::vector<CreatedObject> *creation_journal_ = nullptr;
         uint64_t mutation_version_ = 0;
     {%- for klass in schema.get_pool_classes() %}
         Pool<{{klass.name}}Data, {{klass.name}}Id> {{klass.to_snake_case()}}_;
