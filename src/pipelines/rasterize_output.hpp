@@ -32,6 +32,10 @@ namespace le
         /// cover its cells' content. Empty when the node has no child
         /// content to go between, and `image` holds every shape.
         BLImage over_placements;
+
+        /// @brief The node needed more than kMaxImageDimensionPx pixels at
+        /// this zoom; `image` holds only its first kMaxImageDimensionPx.
+        bool cropped = false;
     };
 
     /// @brief A Rasterize stage's own output - one RasterizedImage per

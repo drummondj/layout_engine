@@ -473,6 +473,15 @@ TEST_F(ApiFixture, RenderPixelBufferBeforeAnySetupDoesNotCrashAndStaysWithinRequ
     EXPECT_GE(buffer.row_bytes, 50 * 4);
 }
 
+TEST_F(ApiFixture, AnOversizedViewportIsClampedToTheImageLimit)
+{
+    le_set_viewport_size(handle, 100000, 300);
+    EXPECT_EQ(le_viewport_width_px(handle), 8192);
+    EXPECT_EQ(le_viewport_height_px(handle), 300);
+    le_set_viewport_size(handle, -5, 300);
+    EXPECT_EQ(le_viewport_width_px(handle), 0);
+}
+
 TEST_F(ApiFixture, RenderPixelBufferWithZeroSizedViewportDoesNotCrash)
 {
     LePixelBuffer buffer = le_render_pixel_buffer(handle);

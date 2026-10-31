@@ -662,7 +662,7 @@ namespace le
                 {
                     const BLImage child_image = compose_node(placement.id, culled, rasterized, composed_cache, scale);
                     if (child_image.is_empty())
-                        continue; // degrade - child wasn't rasterized (e.g. RasterizeBlend2DStage's own pixel-dimension clamp)
+                        continue; // degrade - child wasn't rasterized
 
                     const auto child_raw_it = rasterized.find(placement.id);
                     if (child_raw_it == rasterized.end())

@@ -534,8 +534,8 @@ struct LeHandle
 
         void set_viewport_size(int width_px, int height_px)
         {
-            viewport_width_px_ = width_px;
-            viewport_height_px_ = height_px;
+            viewport_width_px_ = std::clamp(width_px, 0, le::kMaxImageDimensionPx);
+            viewport_height_px_ = std::clamp(height_px, 0, le::kMaxImageDimensionPx);
             ++viewport_version_;
         }
         int viewport_width_px() const { return viewport_width_px_; }

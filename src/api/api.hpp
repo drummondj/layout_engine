@@ -1092,8 +1092,8 @@ extern "C"
     int32_t le_view_flip(LeHandle *handle);
 
     /// @brief Set the viewport size in pixels - also the size of the
-    /// buffer le_render_pixel_buffer() produces. Mirrors
-    /// LeHandle::set_viewport_size directly.
+    /// buffer le_render_pixel_buffer() produces. Each side is clamped to
+    /// 0..8192, the largest image the renderer draws.
     void le_set_viewport_size(LeHandle *handle, int32_t width_px, int32_t height_px);
 
     /// @brief The viewport width set by le_set_viewport_size(), in pixels.

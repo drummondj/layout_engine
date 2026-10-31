@@ -374,3 +374,39 @@ TEST(GridBlend2D, AxisLinesCrossAtTheAxisOrigin)
     EXPECT_GT(sample(image, 10, 80).a, 0u) << "the horizontal axis at y = -30";
     EXPECT_EQ(sample(image, 10, 50).a, 0u) << "none at y = 0";
 }
+
+// A node needing more than kMaxImageDimensionPx is cut off at the limit
+// and flagged, with one warning for a run of such frames. The viewport is
+// a thin strip, so only its width goes over and the images stay small.
+TEST_F(RasterizeBlend2DStageFixture, ANodeOverTheLimitIsCroppedWithOneWarning)
+{
+    const Rect strip{.ll = Point{0, 0}, .ur = Point{10, 0}};
+    // 10 dbu at 1000 px/dbu: 10000 px wanted.
+    const RasterizeOutput &output = rasterize_runner.run(hierarchy_output, 0, options_for(HierarchyId{leaf_abstract}, 0, strip, 1000.0));
+    const RasterizedImage &image = output.images.at(HierarchyId{leaf_abstract});
+    EXPECT_TRUE(image.cropped);
+    EXPECT_EQ(image.image.width(), kMaxImageDimensionPx);
+    EXPECT_EQ(image.image.height(), 1);
+    EXPECT_EQ(rasterize_runner.stage().crop_warnings(), 1u);
+
+    // Still cropped at another zoom: no second warning.
+    rasterize_runner.run(hierarchy_output, 0, options_for(HierarchyId{leaf_abstract}, 0, strip, 2000.0));
+    EXPECT_EQ(rasterize_runner.stage().crop_warnings(), 1u);
+
+    // Back within the limit, then over it again: warned again.
+    const RasterizeOutput &fits = rasterize_runner.run(hierarchy_output, 0, options_for(HierarchyId{leaf_abstract}, 0, strip, 10.0));
+    EXPECT_FALSE(fits.images.at(HierarchyId{leaf_abstract}).cropped);
+    rasterize_runner.run(hierarchy_output, 0, options_for(HierarchyId{leaf_abstract}, 0, strip, 1000.0));
+    EXPECT_EQ(rasterize_runner.stage().crop_warnings(), 2u);
+}
+
+// A scale so large the pixel count overflows int is clamped, not UB.
+TEST_F(RasterizeBlend2DStageFixture, AnEnormousScaleIsClampedBeforeTheIntCast)
+{
+    const RasterizeOutput &output =
+        rasterize_runner.run(hierarchy_output, 0, options_for(HierarchyId{leaf_abstract}, 0, Rect{.ll = Point{0, 0}, .ur = Point{10, 0}}, 1e12));
+    const RasterizedImage &image = output.images.at(HierarchyId{leaf_abstract});
+    EXPECT_TRUE(image.cropped);
+    EXPECT_EQ(image.image.width(), kMaxImageDimensionPx);
+    EXPECT_EQ(image.image.height(), 1);
+}
