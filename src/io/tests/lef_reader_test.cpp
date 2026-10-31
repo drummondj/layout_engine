@@ -587,21 +587,58 @@ TEST(LEFReaderErrors, GeometryAfterAnEarlierReadAlreadyDeclaredDatabaseMicronsIs
     EXPECT_EQ(macro_reader.read_lef(fixture_path("no_units_with_geometry.lef"), root, "test_lib"), 0);
 }
 
-TEST(LEFReaderErrors, DuplicateMacroNameIsRejected)
+TEST(LEFReaderErrors, ADuplicateMacroIsIgnoredWithAWarningAndTheParseContinues)
 {
-    // The second `MACRO DUPTEST` must be rejected (an abstract already
-    // exists for that design name); only the first's Design/Abstract stick.
+    // The second MACRO DUPTEST's PIN/OBS/DENSITY must not land on the
+    // first's Abstract, and MACRO AFTER is still read.
     Root root;
     LEFReader reader;
-    EXPECT_EQ(reader.read_lef(fixture_path("duplicate_macro.lef"), root, "test_lib"), 2);
-    EXPECT_EQ(root.get_design_ids().size(), 1u);
+    ASSERT_EQ(reader.read_lef(fixture_path("duplicate_macro.lef"), root, "test_lib"), 0);
+    EXPECT_EQ(root.get_design_ids().size(), 2u);
+    EXPECT_EQ(root.get_abstract_ids().size(), 2u);
 
-    // log_error - this failure comes from our own
-    // lefrMacroBeginCbkFn, not the vendored parser's own log callback,
-    // and still reaches messages().
-    ASSERT_FALSE(reader.messages().empty());
-    EXPECT_NE(reader.messages().front().find("ERROR"), std::string::npos);
-    EXPECT_NE(reader.messages().front().find("DUPTEST"), std::string::npos);
+    const AbstractId dup = root.get_design_abstract(find_design_by_name(root, "DUPTEST"));
+    ASSERT_TRUE(root.get_abstract(dup));
+    EXPECT_EQ(root.get_abstract(dup)->size->x, 10000);
+    ASSERT_EQ(root.get_abstract_terminals(dup).size(), 1u);
+    EXPECT_EQ(root.get_terminal(root.get_abstract_terminals(dup).front())->name, "A");
+    EXPECT_TRUE(root.get_abstract_obstructions(dup).empty());
+    EXPECT_TRUE(root.get_abstract_densities(dup).empty());
+    EXPECT_EQ(root.get_shape_ids().size(), 3u); // PIN A's rect and the two Abstracts' boundaries
+    EXPECT_TRUE(root.get_design_abstract(find_design_by_name(root, "AFTER")).valid());
+
+    EXPECT_TRUE(std::ranges::any_of(reader.messages(), [](const std::string &msg)
+                                    { return msg == "WARNING: MACRO DUPTEST: design DUPTEST already has an Abstract view - ignored."; }));
+}
+
+TEST(LEFReaderErrors, ADuplicatePinIsIgnoredWithAWarning)
+{
+    Root root;
+    LEFReader reader;
+    ASSERT_EQ(reader.read_lef(fixture_path("duplicate_pin.lef"), root, "test_lib"), 0);
+
+    const AbstractId abstract_id = root.get_design_abstract(find_design_by_name(root, "DUPPIN"));
+    ASSERT_EQ(root.get_abstract_terminals(abstract_id).size(), 2u);
+    const TerminalId a = root.get_terminal_by_name(abstract_id, "A");
+    ASSERT_TRUE(a.valid());
+    EXPECT_EQ(root.get_terminal(a)->direction, SignalDirection::INPUT);
+    // Nothing of the second PIN A exists, reachable or not.
+    EXPECT_EQ(root.get_terminal_ids().size(), 2u);
+    EXPECT_EQ(root.get_terminal_port_ids().size(), 2u);
+    EXPECT_TRUE(root.get_pin_antenna_model_ids().empty());
+    EXPECT_EQ(root.get_shape_ids().size(), 3u); // two pins' rects and the boundary
+    EXPECT_TRUE(std::ranges::any_of(reader.messages(), [](const std::string &msg) { return msg == "WARNING: MACRO DUPPIN: duplicate PIN A - ignored."; }));
+}
+
+TEST(LEFReaderErrors, APropertyDefinitionAlreadyReadIsNotDuplicated)
+{
+    Root root;
+    LEFReader first;
+    ASSERT_EQ(first.read_lef(fixture_path("duplicate_pin.lef"), root, "first"), 0);
+    ASSERT_EQ(root.get_property_definition_ids().size(), 1u);
+    LEFReader second;
+    ASSERT_EQ(second.read_lef(fixture_path("duplicate_pin.lef"), root, "second"), 0);
+    EXPECT_EQ(root.get_property_definition_ids().size(), 1u);
 }
 
 // VIA/VIARULE - writer_roundtrip.lef (shared with
@@ -1353,14 +1390,17 @@ TEST_F(LEFAntennaFixture, ReadsPinScalarFieldsDirectionEnumPortClassViaAndSiteAr
 
 TEST_F(LEFReaderViaFixture, DuplicateViaAndViaRuleNamesAreIgnoredWithAWarning)
 {
-    // Re-reading the whole fixture into the same Root also re-declares
-    // MACRO WRITERTEST, which DuplicateMacroNameIsRejected already covers
-    // as its own hard failure (result 2) - VIA/VIARULE appear earlier in
-    // the file than MACRO, so their own warnings are logged (and land in
-    // messages(), moved from g_pending_lef_messages regardless of the
-    // later abort - see read_lef's own structure) before that happens.
+    // Re-reading the whole fixture into the same Root repeats every VIA,
+    // VIARULE and MACRO; each repeat is skipped with a warning and nothing
+    // is added.
+    const size_t vias = root.get_via_ids().size();
+    const size_t terminals = root.get_terminal_ids().size();
+    const size_t shapes = root.get_shape_ids().size();
     LEFReader second_reader;
-    ASSERT_EQ(second_reader.read_lef(fixture_path("writer_roundtrip.lef"), root, "test_lib"), 2);
+    ASSERT_EQ(second_reader.read_lef(fixture_path("writer_roundtrip.lef"), root, "test_lib"), 0);
+    EXPECT_EQ(root.get_via_ids().size(), vias);
+    EXPECT_EQ(root.get_terminal_ids().size(), terminals);
+    EXPECT_EQ(root.get_shape_ids().size(), shapes);
 
     ASSERT_FALSE(second_reader.messages().empty());
     bool saw_via_warning = false;

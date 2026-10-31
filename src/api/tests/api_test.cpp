@@ -5937,13 +5937,14 @@ TEST_F(ApiFixture, ReadLefCreatesTheNamedLibraryOnceThenReusesIt)
     EXPECT_EQ(le_library_design_count(handle, 0), 2);
 }
 
-TEST_F(ApiFixture, ReadingAViewTheDesignAlreadyHasIsAnError)
+TEST_F(ApiFixture, ReadingAViewTheDesignAlreadyHasIsSkippedForLefAndAnErrorForDef)
 {
     ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
-    EXPECT_NE(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    // A repeated MACRO is skipped with a warning, like a repeated LAYER.
+    EXPECT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "cells"), 0);
+    EXPECT_EQ(le_library_design_count(handle, 0), 1);
 
     ASSERT_EQ(le_read_def(handle, fixture_path("testcell.def").c_str(), "cells"), 0);
-    // Used to log an error but still return 0.
     EXPECT_NE(le_read_def(handle, fixture_path("testcell.def").c_str(), "cells"), 0);
 }
 

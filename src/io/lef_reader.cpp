@@ -107,6 +107,7 @@ namespace le
         const uint64_t abstract_before = root.get_abstract_size();
 
         lefrInit();
+        skipping_macro_ = false;
         messages_.clear();
         g_pending_lef_messages.clear();
         used_dbu_before_units_declared_ = false;
@@ -1482,11 +1483,13 @@ namespace le
         // or Verilog read made it first (see get_or_create_design).
         const DesignId design_id = get_or_create_design(*reader->root_, reader->library_id_, name, DesignView::Abstract, "read_lef");
 
-        // Each view can only be read once per design.
-        if (reader->root_->get_design_abstract(design_id).valid())
+        // Each view can only be read once per design; the repeat is
+        // skipped, like a repeated LAYER or VIA.
+        reader->skipping_macro_ = reader->root_->get_design_abstract(design_id).valid();
+        if (reader->skipping_macro_)
         {
-            log_error("read_lef: design {} already has an Abstract view - each view can only be read once per design.", name);
-            return 1;
+            log_warning("MACRO {}: design {} already has an Abstract view - ignored.", name, name);
+            return 0;
         }
 
         reader->abstract_data_ = AbstractData{.design = design_id};
@@ -1498,6 +1501,8 @@ namespace le
     int LEFReader::lefrMacroCbkFn(lefrCallbackType_e typ, lefiMacro *lef_macro, void *user_data)
     {
         auto reader = static_cast<LEFReader *>(user_data);
+        if (std::exchange(reader->skipping_macro_, false))
+            return 0;
 
         if (lef_macro->hasClass())
             reader->abstract_data_.type = lef_macro->macroClass();
@@ -1600,9 +1605,8 @@ namespace le
         // Post process
         post_process(reader);
 
-        // Update stored AbstractData in pool
-        // TODO: change this to build AbstractData first, then add child objects by
-        // iterating through lef_macro data twice.
+        // The Abstract was created at MACRO begin so its children could
+        // reference it; its own fields are complete only now.
         if (reader->abstract_id_.valid())
         {
             if (auto stored = reader->root_->get_abstract(reader->abstract_id_))
@@ -1623,9 +1627,15 @@ namespace le
         void *user_data)
     {
         auto reader = static_cast<LEFReader *>(user_data);
-
-        // TODO: Check that pin doesn't already exists with the same name
-        // TODO: link to shematic depending if we are creating the schematic or not
+        if (reader->skipping_macro_)
+            return 0;
+        if (reader->root_->get_terminal_by_name(reader->abstract_id_, lef_pin->name()).valid())
+        {
+            const AbstractData *abstract = reader->root_->get_abstract(reader->abstract_id_);
+            const DesignData *design = abstract ? reader->root_->get_design(abstract->design) : nullptr;
+            log_warning("MACRO {}: duplicate PIN {} - ignored.", design ? design->name : "", lef_pin->name());
+            return 0;
+        }
 
         // The parser reuses one scratch lefiPin across every PIN statement
         // and never resets direction_ between them, so a pin that omits
@@ -1786,6 +1796,8 @@ namespace le
     int LEFReader::lefrObstructionCbkFn(lefrCallbackType_e typ, lefiObstruction *lef_obs, void *user_data)
     {
         auto reader = static_cast<LEFReader *>(user_data);
+        if (reader->skipping_macro_)
+            return 0;
 
         auto shapes = shapes_from_parser(reader, lef_obs->geometries());
         spdlog::debug("shapes size = {}", shapes.size());
@@ -1803,6 +1815,8 @@ namespace le
     int LEFReader::lefrDensityCbkFn(lefrCallbackType_e typ, lefiDensity *lef_density, void *user_data)
     {
         auto reader = static_cast<LEFReader *>(user_data);
+        if (reader->skipping_macro_)
+            return 0;
 
         // Fires between MacroBeginCbk and MacroCbk (same lifecycle as
         // Pin/Obstruction) - densities are a pooled class, so like
@@ -1847,6 +1861,16 @@ namespace le
             def.default_number = lef_prop->number();
         if (lef_prop->hasString())
             def.default_string = lef_prop->string();
+
+        // A tech and a cell LEF commonly both declare the same one.
+        for (const PropertyDefinitionId id : reader->root_->get_technology_property_definitions(reader->technology_id_))
+            if (const PropertyDefinitionData *existing = reader->root_->get_property_definition(id);
+                existing && existing->owner_type == def.owner_type && existing->name == def.name)
+            {
+                if (existing->data_type != def.data_type)
+                    log_warning("PROPERTYDEFINITIONS {} {} is already defined as type {} - ignored.", def.owner_type, def.name, existing->data_type);
+                return 0;
+            }
 
         reader->root_->create_property_definition(std::move(def));
 
