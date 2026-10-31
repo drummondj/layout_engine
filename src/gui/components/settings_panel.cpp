@@ -87,6 +87,12 @@ namespace le::gui
                                  { provider.set_flightline_max_fanout(value); });
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Nets connecting more pins than this (besides the selected one) draw no flightlines - 0 for no limit");
+        static CommittedField<int32_t> undo_limit_field;
+        draw_committed_int_field("##undo_limit", "Undo Steps", settings.undo_limit, undo_limit_field,
+                                 [&](int32_t value)
+                                 { provider.set_undo_limit(value); });
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How many commands undo can step back through - older ones are forgotten to free their memory");
 
         // set_max_concurrency.
         section("Performance");

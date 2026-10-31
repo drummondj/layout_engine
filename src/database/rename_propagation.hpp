@@ -1,42 +1,47 @@
 #pragma once
 
-// Rename-propagation side effects for the Schematic<->Layout link (design:
-// plans/LINKING_STRATEGY_RESEARCH.md): when an Instance renames,
-// every DEF-style hierarchical name that embeds its own path segment -
-// its own linked Placement (the renamed segment is the trailing
-// component) and every descendant Instance/Net's linked
-// Placement/Route/PhysicalPort (the renamed segment is a leading
-// component of theirs) - needs to be rewritten to match. Header-only,
-// like hierarchical_resolver.hpp/schematic_layout_linker.hpp (which this
-// builds on) - no new CMake compiled target for one relatively small
-// feature.
+// Renaming an Instance or Net renames the physical objects named after it.
+// A Placement, Route or PhysicalPort names its logical counterpart by a
+// DEF-style hierarchical path. One linked to the renamed object keeps its
+// path's prefix byte for byte and takes the escaped new name as its last
+// segment; one named below such a path (a descendant's Placement, Route
+// or PhysicalPort) has that leading part replaced, whole segments only,
+// so "top/a/b" never touches "top/a/b2" and every other segment keeps its
+// escaping. A module instantiated twice has one Instance per child but a
+// linked Placement per instantiation, and each is renamed by its own path.
 //
-// Deliberately real id-based graph traversal (walking Instance/Net
-// objects and looking up their *linked* Placement/Route/PhysicalPort via
-// a request-scoped reverse map built once), never string-prefix matching
-// against existing names - prefix matching would wrongly touch siblings
-// (renaming "top/a/b" would also hit "top/a/b2").
-//
-// Every mutation callback below is a template parameter, not a direct
-// dependency on src/editing/ (Transaction) - src/editing/transaction.hpp
-// already depends on src/database/database.hpp, so a direct dependency
-// the other way would be circular. A caller that wants each rename
-// recorded into an undo transaction (api.cpp's own
-// le_rename_instance_propagate) supplies callbacks that do so; a test
-// (or any caller that doesn't care about undo) can pass no-ops.
+// plan_*_rename computes every change and every clash before anything
+// changes, so a caller can refuse a rename that would collide.
+// apply_rename_plan's callbacks are template parameters, not a dependency
+// on src/editing/ (which depends on this module): a caller recording undo
+// passes callbacks that record each update.
 
 #include "database.hpp"
 #include "hierarchical_resolver.hpp"
 
-#include <spdlog/spdlog.h>
+#include <fmt/format.h>
 
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace le
 {
+    /// @brief Every rename a planned Instance or Net rename makes, and
+    /// every name it would collide with.
+    struct RenamePlan
+    {
+        std::vector<std::pair<PlacementId, std::string>> placements;
+        std::vector<std::pair<RouteId, std::string>> routes;
+        std::vector<std::pair<PhysicalPortId, std::string>> physical_ports;
+        /// @brief One message per new name already taken in its Layout.
+        std::vector<std::string> clashes;
+    };
+
     struct RenamePropagationResult
     {
         size_t placements_renamed = 0;
@@ -46,190 +51,150 @@ namespace le
 
     namespace rename_detail
     {
-        struct PhysicalReverseMaps
-        {
-            std::unordered_map<InstanceId, PlacementId> instance_to_placement;
-            std::unordered_map<NetId, RouteId> net_to_route;
-            std::unordered_map<NetId, PhysicalPortId> net_to_physical_port;
-        };
+        /// Old path -> new path, for one Layout.
+        using PathMap = std::unordered_map<std::string, std::string>;
 
-        /// @brief Built once per propagate_instance_rename() call, across
-        /// every Layout in `root` (not just one "the" Layout - matches
-        /// link_physical's own for_each_layout_id scope) - O(total
-        /// physical design size) once, turning every per-descendant
-        /// lookup below into O(1) rather than a fresh linear scan per
-        /// descendant.
-        inline PhysicalReverseMaps build_reverse_maps(Root &root)
+        /// @brief `name` rewritten if it is a path in `paths` or lies
+        /// below one (the longest such prefix, ending at a separator).
+        inline std::optional<std::string> rewritten(const std::string &name, const PathMap &paths)
         {
-            PhysicalReverseMaps maps;
-            root.for_each_layout_id(
-                [&](LayoutId layout_id)
-                {
-                    for (const PlacementId placement_id : root.get_layout_placements(layout_id))
-                    {
-                        const PlacementData *placement = root.get_placement(placement_id);
-                        if (placement && placement->instance.valid())
-                            maps.instance_to_placement[placement->instance] = placement_id;
-                    }
-                    for (const RouteId route_id : root.get_layout_routes(layout_id))
-                    {
-                        const RouteData *route = root.get_route(route_id);
-                        if (route && route->net.valid())
-                            maps.net_to_route[route->net] = route_id;
-                    }
-                    for (const PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
-                    {
-                        const PhysicalPortData *port = root.get_physical_port(port_id);
-                        if (port && port->net.valid())
-                            maps.net_to_physical_port[port->net] = port_id;
-                    }
-                });
-            return maps;
+            if (const auto it = paths.find(name); it != paths.end())
+                return it->second;
+            const std::vector<size_t> separators = hierarchy::separator_positions(name);
+            for (auto at = separators.rbegin(); at != separators.rend(); ++at)
+                if (const auto it = paths.find(name.substr(0, *at)); it != paths.end())
+                    return it->second + name.substr(*at);
+            return std::nullopt;
         }
 
-        /// `ancestors`: the Schematics on the path down to `schematic`; a
-        /// recursive hierarchy is reported instead of descended into.
-        template <typename OnPlacementRenamed, typename OnRouteRenamed, typename OnPhysicalPortRenamed>
-        inline void rename_descendants(Root &root, SchematicId schematic, const std::string &new_prefix,
-                                        const PhysicalReverseMaps &maps, RenamePropagationResult &result,
-                                        OnPlacementRenamed &on_placement_renamed, OnRouteRenamed &on_route_renamed,
-                                        OnPhysicalPortRenamed &on_physical_port_renamed, std::unordered_set<SchematicId> &ancestors)
+        /// @brief `path` with its last segment replaced by `new_name`, escaped.
+        inline std::string with_last_segment(const std::string &path, std::string_view new_name)
         {
-            ancestors.insert(schematic);
-            for (const InstanceId child_id : root.get_schematic_instances(schematic))
+            const std::vector<size_t> separators = hierarchy::separator_positions(path);
+            const std::string prefix = separators.empty() ? std::string{} : path.substr(0, separators.back() + 1);
+            return prefix + hierarchy::escape_segment(new_name);
+        }
+
+        /// @brief Plans renaming every object of one kind in `ids` whose
+        /// name `paths` rewrites, noting clashes with names not being
+        /// renamed away.
+        template <typename Id, typename GetName, typename FindByName>
+        void plan_kind(const std::vector<Id> &ids, const PathMap &paths, GetName &&name_of, FindByName &&find_by_name, const char *kind,
+                       std::vector<std::pair<Id, std::string>> &out, std::vector<std::string> &clashes)
+        {
+            const size_t first = out.size();
+            std::unordered_set<Id> renamed;
+            for (const Id id : ids)
+                if (const std::string *name = name_of(id))
+                    if (std::optional<std::string> next = rewritten(*name, paths); next && *next != *name)
+                    {
+                        out.emplace_back(id, std::move(*next));
+                        renamed.insert(id);
+                    }
+            for (size_t i = first; i < out.size(); ++i)
+                if (const Id taken = find_by_name(out[i].second); taken.valid() && !renamed.contains(taken))
+                    clashes.push_back(fmt::format("a {} named '{}' already exists", kind, out[i].second));
+        }
+
+        /// @brief Plans the renames in every Layout `paths_by_layout` names.
+        inline RenamePlan plan(const Root &root, const std::unordered_map<LayoutId, PathMap> &paths_by_layout)
+        {
+            RenamePlan plan;
+            for (const auto &[layout, paths] : paths_by_layout)
             {
-                const InstanceData *child = root.get_instance(child_id);
-                if (!child)
-                    continue;
-                const std::string child_path = new_prefix + "/" + child->name;
-
-                const auto it = maps.instance_to_placement.find(child_id);
-                if (it != maps.instance_to_placement.end())
-                {
-                    const PlacementData before = *root.get_placement(it->second);
-                    root.update_placement(it->second, LayoutId{}, std::nullopt, std::nullopt,
-                                           std::optional<std::string>(child_path), std::nullopt, std::nullopt,
-                                           std::nullopt, std::nullopt, std::nullopt, std::nullopt);
-                    on_placement_renamed(it->second, before, *root.get_placement(it->second));
-                    ++result.placements_renamed;
-                }
-
-                const SchematicId grandchild_schematic = root.get_design_schematic(child->reference_design);
-                if (!grandchild_schematic.valid())
-                    continue;
-                if (ancestors.contains(grandchild_schematic))
-                {
-                    spdlog::error("rename: Instance '{}' instantiates a design above it - the hierarchy is recursive, so nothing below it is "
-                                  "renamed.", child_path);
-                    continue;
-                }
-                rename_descendants(root, grandchild_schematic, child_path, maps, result, on_placement_renamed, on_route_renamed,
-                                   on_physical_port_renamed, ancestors);
+                plan_kind(
+                    root.get_layout_placements(layout), paths,
+                    [&](PlacementId id) { const PlacementData *d = root.get_placement(id); return d ? &d->name : nullptr; },
+                    [&](const std::string &name) { return root.get_placement_by_name(layout, name); }, "Placement", plan.placements,
+                    plan.clashes);
+                plan_kind(
+                    root.get_layout_routes(layout), paths,
+                    [&](RouteId id) { const RouteData *d = root.get_route(id); return d ? &d->name : nullptr; },
+                    [&](const std::string &name) { return root.get_route_by_name(layout, name); }, "Route", plan.routes, plan.clashes);
+                plan_kind(
+                    root.get_layout_physical_ports(layout), paths,
+                    [&](PhysicalPortId id) { const PhysicalPortData *d = root.get_physical_port(id); return d ? &d->name : nullptr; },
+                    [&](const std::string &name) { return root.get_physical_port_by_name(layout, name); }, "PhysicalPort",
+                    plan.physical_ports, plan.clashes);
             }
-
-            for (const NetId net_id : root.get_schematic_nets(schematic))
-            {
-                const NetData *net = root.get_net(net_id);
-                if (!net)
-                    continue;
-                const std::string net_path = new_prefix + "/" + net->name;
-
-                const auto route_it = maps.net_to_route.find(net_id);
-                if (route_it != maps.net_to_route.end())
-                {
-                    const RouteData before = *root.get_route(route_it->second);
-                    root.update_route(route_it->second, LayoutId{}, std::nullopt, std::optional<std::string>(net_path),
-                                       std::nullopt, std::nullopt, std::nullopt);
-                    on_route_renamed(route_it->second, before, *root.get_route(route_it->second));
-                    ++result.routes_renamed;
-                }
-
-                const auto port_it = maps.net_to_physical_port.find(net_id);
-                if (port_it != maps.net_to_physical_port.end())
-                {
-                    const PhysicalPortData before = *root.get_physical_port(port_it->second);
-                    root.update_physical_port(port_it->second, LayoutId{}, std::nullopt,
-                                               std::optional<std::string>(net_path), std::nullopt, std::nullopt,
-                                               std::nullopt, std::nullopt, std::nullopt, std::nullopt);
-                    on_physical_port_renamed(port_it->second, before, *root.get_physical_port(port_it->second));
-                    ++result.physical_ports_renamed;
-                }
-            }
-            ancestors.erase(schematic);
+            return plan;
         }
     }
 
-    /// @brief Propagates an already-applied Instance rename
-    /// (`instance_id`'s own `.name` must already be the *new* name by
-    /// the time this runs) to every Placement/Route/PhysicalPort whose
-    /// own DEF-style hierarchical name embeds the renamed Instance's own
-    /// path segment.
-    ///
-    /// The renamed Instance's own parent-path prefix (the part of its
-    /// own linked Placement's name *above* its own segment, which the
-    /// rename doesn't change) is recovered from that Placement's
-    /// existing name via hierarchy::split_path (escape-aware) rather
-    /// than by string-stripping the old Instance name - works
-    /// regardless of what the old name was, and tolerates DEF's own
-    /// backslash-escaping of special characters in ancestor segments.
-    ///
-    /// Known limitation: if the renamed Instance itself has no linked
-    /// Placement (e.g. `link` hasn't resolved it, or it's physical_only
-    /// under a different name), its own correct path prefix can't be
-    /// recovered this way, and descendant propagation is skipped
-    /// entirely (returns with everything at 0) rather than guessing a
-    /// wrong prefix - a real, documented scope limit, not an oversight.
+    /// @brief What renaming `instance_id` to `new_name` does to the
+    /// Layouts: its linked Placements, and everything named below them.
+    inline RenamePlan plan_instance_rename(const Root &root, InstanceId instance_id, std::string_view new_name)
+    {
+        std::unordered_map<LayoutId, rename_detail::PathMap> paths_by_layout;
+        root.for_each_layout_id([&](LayoutId layout)
+                                {
+            for (const PlacementId id : root.get_layout_placements(layout))
+                if (const PlacementData *placement = root.get_placement(id); placement && placement->instance == instance_id)
+                    paths_by_layout[layout][placement->name] = rename_detail::with_last_segment(placement->name, new_name); });
+        return rename_detail::plan(root, paths_by_layout);
+    }
+
+    /// @brief What renaming `net_id` to `new_name` does to the Layouts: its
+    /// linked Routes and PhysicalPorts.
+    inline RenamePlan plan_net_rename(const Root &root, NetId net_id, std::string_view new_name)
+    {
+        std::unordered_map<LayoutId, rename_detail::PathMap> paths_by_layout;
+        root.for_each_layout_id([&](LayoutId layout)
+                                {
+            for (const RouteId id : root.get_layout_routes(layout))
+                if (const RouteData *route = root.get_route(id); route && route->net == net_id)
+                    paths_by_layout[layout][route->name] = rename_detail::with_last_segment(route->name, new_name);
+            for (const PhysicalPortId id : root.get_layout_physical_ports(layout))
+                if (const PhysicalPortData *port = root.get_physical_port(id); port && port->net == net_id)
+                    paths_by_layout[layout][port->name] = rename_detail::with_last_segment(port->name, new_name); });
+        return rename_detail::plan(root, paths_by_layout);
+    }
+
+    /// @brief Applies a clash-free `plan`, calling on_<kind>_renamed(id,
+    /// before, after) after each update.
     template <typename OnPlacementRenamed, typename OnRouteRenamed, typename OnPhysicalPortRenamed>
-    inline RenamePropagationResult propagate_instance_rename(Root &root, InstanceId instance_id,
-                                                               OnPlacementRenamed on_placement_renamed,
-                                                               OnRouteRenamed on_route_renamed,
-                                                               OnPhysicalPortRenamed on_physical_port_renamed)
+    inline RenamePropagationResult apply_rename_plan(Root &root, const RenamePlan &plan, OnPlacementRenamed on_placement_renamed,
+                                                     OnRouteRenamed on_route_renamed, OnPhysicalPortRenamed on_physical_port_renamed)
     {
         RenamePropagationResult result;
-        const InstanceData *instance = root.get_instance(instance_id);
-        if (!instance)
-            return result;
-
-        const rename_detail::PhysicalReverseMaps maps = rename_detail::build_reverse_maps(root);
-
-        const auto self_it = maps.instance_to_placement.find(instance_id);
-        if (self_it == maps.instance_to_placement.end())
-            return result; // no linked Placement - see this function's own "known limitation" comment
-
-        const PlacementData *own_placement = root.get_placement(self_it->second);
-        if (!own_placement)
-            return result;
-
-        std::vector<std::string> ancestor_segments = hierarchy::split_path(own_placement->name);
-        if (!ancestor_segments.empty())
-            ancestor_segments.pop_back(); // drop the (old) trailing segment for this Instance itself
-
-        std::string parent_prefix;
-        for (size_t i = 0; i < ancestor_segments.size(); ++i)
+        for (const auto &[id, name] : plan.placements)
         {
-            if (i)
-                parent_prefix += "/";
-            parent_prefix += ancestor_segments[i];
+            const PlacementData *existing = root.get_placement(id);
+            if (!existing)
+                continue;
+            const PlacementData before = *existing;
+            if (root.update_placement(id, LayoutId{}, std::nullopt, std::nullopt, name, std::nullopt, std::nullopt, std::nullopt,
+                                      std::nullopt, std::nullopt, std::nullopt))
+            {
+                on_placement_renamed(id, before, *root.get_placement(id));
+                ++result.placements_renamed;
+            }
         }
-        const std::string new_own_path = parent_prefix.empty() ? instance->name : parent_prefix + "/" + instance->name;
-
-        const PlacementData before = *own_placement;
-        root.update_placement(self_it->second, LayoutId{}, std::nullopt, std::nullopt,
-                               std::optional<std::string>(new_own_path), std::nullopt, std::nullopt, std::nullopt,
-                               std::nullopt, std::nullopt, std::nullopt);
-        on_placement_renamed(self_it->second, before, *root.get_placement(self_it->second));
-        ++result.placements_renamed;
-
-        const SchematicId child_schematic = root.get_design_schematic(instance->reference_design);
-        // The renamed Instance's own Schematic is on the path too.
-        std::unordered_set<SchematicId> ancestors{instance->schematic};
-        if (ancestors.contains(child_schematic))
-            spdlog::error("rename: Instance '{}' instantiates its own design - the hierarchy is recursive, so nothing below it is renamed.",
-                          new_own_path);
-        else if (child_schematic.valid())
-            rename_detail::rename_descendants(root, child_schematic, new_own_path, maps, result, on_placement_renamed,
-                                               on_route_renamed, on_physical_port_renamed, ancestors);
-
+        for (const auto &[id, name] : plan.routes)
+        {
+            const RouteData *existing = root.get_route(id);
+            if (!existing)
+                continue;
+            const RouteData before = *existing;
+            if (root.update_route(id, LayoutId{}, std::nullopt, name, std::nullopt, std::nullopt, std::nullopt))
+            {
+                on_route_renamed(id, before, *root.get_route(id));
+                ++result.routes_renamed;
+            }
+        }
+        for (const auto &[id, name] : plan.physical_ports)
+        {
+            const PhysicalPortData *existing = root.get_physical_port(id);
+            if (!existing)
+                continue;
+            const PhysicalPortData before = *existing;
+            if (root.update_physical_port(id, LayoutId{}, std::nullopt, name, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                          std::nullopt, std::nullopt))
+            {
+                on_physical_port_renamed(id, before, *root.get_physical_port(id));
+                ++result.physical_ports_renamed;
+            }
+        }
         return result;
     }
 }

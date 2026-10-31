@@ -16,8 +16,10 @@ namespace le::ext
 {
     /// @brief What an overlay draws with, valid for one call. It runs on the
     /// render thread with the session locked for reading: read root() and
-    /// data<T>(), but don't call le_* functions or ExtensionContext::read()/
-    /// write(). Keep it quick - it runs on every mouse move.
+    /// your state, but don't call le_* functions or ExtensionContext::read()/
+    /// write(). The session lock doesn't cover state a GUI callback or Tcl
+    /// command changes: read that with with_data<T>(), and have them write
+    /// it the same way. Keep it quick - it runs on every mouse move.
     class OverlayContext
     {
     public:
@@ -43,6 +45,12 @@ namespace le::ext
         T &data()
         {
             return extension_.data<T>();
+        }
+        /// @brief ExtensionContext::with_data.
+        template <class T, class Fn>
+        decltype(auto) with_data(Fn &&fn)
+        {
+            return extension_.with_data<T>(std::forward<Fn>(fn));
         }
 
     private:

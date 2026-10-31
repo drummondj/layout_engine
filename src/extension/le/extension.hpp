@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <typeinfo>
+#include <utility>
 #include <vector>
 
 #ifndef LE_EXTENSION_API_VERSION
@@ -367,14 +368,37 @@ namespace le::ext
 
         /// @brief This extension's state of type T for this session, created
         /// (default-constructed) on first use and destroyed with the session.
+        /// Unsynchronized: when another thread may use the same T at the
+        /// same time (an overlay on the render thread, a GUI callback, a Tcl
+        /// command on the console thread), use with_data<T>() instead.
         template <class T>
         T &data()
         {
-            return *static_cast<T *>(data_slot(typeid(T).name(), []() -> std::shared_ptr<void> { return std::make_shared<T>(); }));
+            return *static_cast<T *>(data_slot(typeid(T).name(), &make_data<T>));
+        }
+
+        /// @brief Calls `fn(T &)` on data<T>() with it locked against every
+        /// other with_data<T>() for this extension and session, on any
+        /// thread, and returns what `fn` returns. Don't call with_data<T>()
+        /// for the same T inside `fn`.
+        template <class T, class Fn>
+        decltype(auto) with_data(Fn &&fn)
+        {
+            std::mutex *mutex = nullptr;
+            T &value = *static_cast<T *>(data_slot(typeid(T).name(), &make_data<T>, &mutex));
+            std::lock_guard<std::mutex> lock(*mutex);
+            return std::forward<Fn>(fn)(value);
         }
 
     private:
+        template <class T>
+        static std::shared_ptr<void> make_data()
+        {
+            return std::make_shared<T>();
+        }
+
         void *data_slot(const char *type_name, std::shared_ptr<void> (*make)());
+        void *data_slot(const char *type_name, std::shared_ptr<void> (*make)(), std::mutex **mutex);
 
         LeHandle *handle_;
         std::string extension_name_;

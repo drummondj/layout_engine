@@ -219,12 +219,11 @@ check "get_terminals -filter or-expression match count" 3 [llength $both]
 check "get_terminals name-expression no match" {} [get_terminals DOES_NOT_EXIST]
 
 # A bare positional name-expression is never a parse error (it's just a
-# glob pattern, matched literally if it contains no wildcard) - the
-# parse-error path only exists behind -filter now. The ERROR itself is
-# now logged via spdlog::error (terminal output), not queryable from
-# Tcl - the empty-result return value is the only assertion left here.
-check "get_terminals -filter parse-error result" {} [get_terminals -filter {not a filter expression}]
-check "get_terminals -filter with an unknown field returns empty" {} [get_terminals -filter {.bogus_field == 1}]
+# glob pattern, matched literally if it contains no wildcard); a bad
+# -filter is a Tcl error, its details logged.
+check "get_terminals -filter parse error is a Tcl error" 1 [catch {get_terminals -filter {not a filter expression}} filter_error]
+check "get_terminals -filter parse error message" "get_terminals: invalid -filter expression - see the error above" $filter_error
+check "get_terminals -filter with an unknown field is a Tcl error" 1 [catch {get_terminals -filter {.bogus_field == 1}}]
 
 # --- TerminalPort + Shape (rect/polygon/path via the coordinate typemap) ---
 

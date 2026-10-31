@@ -116,6 +116,7 @@ namespace le::gui
                 double label_max_size_px = 0.0;
                 int32_t hierarchy_depth = 0;
                 int32_t flightline_max_fanout = 0;
+                int32_t undo_limit = 0;
                 int32_t max_concurrency = 0; // "CPUs"
                 bool confirm_overwrite = true; // ask before a Save overwrites a design file
             } settings;
@@ -219,6 +220,7 @@ namespace le::gui
         // Queues set_view_flip; `flip` is an LeViewFlip.
         void set_view_flip(int32_t flip);
         void set_flightline_max_fanout(int32_t max_fanout);
+        void set_undo_limit(int32_t limit);
         // Settings panel - a spacing <= 0 is left unchanged; a
         // null/empty path means the default settings file.
         void set_grid_spacing_um(double minor_um, double major_um);

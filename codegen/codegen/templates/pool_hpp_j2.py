@@ -127,8 +127,9 @@ namespace {{schema.namespace}}
             return result;
         }
 
-        bool is_empty() {
-            return slots_.size() == 0;
+        /// @brief No live objects (deleted and retired slots don't count).
+        bool is_empty() const noexcept {
+            return alive_count() == 0;
         }
 
         uint64_t size() {

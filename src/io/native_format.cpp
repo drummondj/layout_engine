@@ -1174,15 +1174,25 @@ namespace le::persistence
                     message += " (and " + std::to_string(problems.size() - 1) + " more)";
                 throw FormatError(message);
             }
-            root.replace_contents_from(std::move(loaded));
-            timer.lap("replace");
+            // The session is advisory: a bad one is a warning, never a
+            // failed load. Decoded first, so the swap is the last step and
+            // nothing after it can fail.
             if (file.session_payload.size > 0)
             {
                 std::map<std::string, uint64_t> rows;
                 for (const FileClass &klass : file.classes)
                     rows[klass.name] = klass.rows;
-                report.session_json = session_from_file(file.session_payload, rows);
+                try
+                {
+                    report.session_json = session_from_file(file.session_payload, rows);
+                }
+                catch (const std::exception &e)
+                {
+                    report.warnings.push_back(std::string("the session can't be read and is ignored: ") + e.what());
+                }
             }
+            root.replace_contents_from(std::move(loaded));
+            timer.lap("replace");
         }
         catch (const std::exception &e)
         {

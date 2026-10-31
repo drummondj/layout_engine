@@ -721,8 +721,17 @@ extern "C"
     /// Returns 0 if handle is null.
     int32_t le_can_redo(LeHandle *handle);
 
+    /// @brief How many commands le_undo() can step back through (200 by
+    /// default; a setting). Returns 0 if handle is null.
+    int32_t le_undo_limit(LeHandle *handle);
+
+    /// @brief Sets le_undo_limit(), forgetting the oldest undo steps past
+    /// it now. 0 keeps none; a negative limit is ignored.
+    void le_set_undo_limit(LeHandle *handle, int32_t limit);
+
     /// @brief Number of recorded command-recall entries - every command
-    /// passed to le_end_command, successful or not, in submission order.
+    /// passed to le_end_command, successful or not, in submission order;
+    /// the newest 10000 are kept.
     /// Indexes le_command_history_at()'s
     /// own `index` parameter. Returns 0 if handle is null.
     int32_t le_command_history_count(LeHandle *handle);

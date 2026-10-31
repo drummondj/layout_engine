@@ -133,12 +133,18 @@ proc get_{{plural}} {args} {
         {%- if id_field %}
         foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
             set count [get_{{plural}}_cmd {% for op in scope.of_params %}$of_{{op.parent_field.name}} {% endfor %}$name_expr $filter]
+            if {$count < 0} {
+                error "get_{{plural}}: invalid -filter expression - see the error above"
+            }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_{{plural}}_at $i]
             }
         }
         {%- else %}
         set count [get_{{plural}}_cmd {% for op in scope.of_params %}$of_{{op.parent_field.name}} {% endfor %}$filter]
+        if {$count < 0} {
+            error "get_{{plural}}: invalid -filter expression - see the error above"
+        }
         for {set i 0} {$i < $count} {incr i} {
             lappend result [get_{{plural}}_at $i]
         }

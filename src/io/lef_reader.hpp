@@ -41,6 +41,8 @@ namespace le
         static size_t safe_iteration_count(double x_count, double y_count);
 
     private:
+        // read_lef without the rollback: may return an error with objects created.
+        int read_lef_contents(std::string filename, Root &root, std::string library_name);
         // Callbacks
         static int lefrLayerCbkFn(lefrCallbackType_e typ, lefiLayer *lef_layer, void *user_data);
         static int lefrMacroBeginCbkFn(lefrCallbackType_e typ, const char *name, void *user_data);
@@ -102,6 +104,9 @@ namespace le
         LibraryId library_id_;
         AbstractData abstract_data_;
         AbstractId abstract_id_;
+        // The current MACRO repeats one whose Design already has an
+        // Abstract: its PIN/OBS/DENSITY/END callbacks are ignored.
+        bool skipping_macro_ = false;
         std::vector<std::string> messages_;
 
         // Set by microns_to_dbu/microns_squared_to_dbu the first time

@@ -222,7 +222,8 @@ le::ext::ExtensionContext ctx(handle, "my_ext");
 | `write(label)` | A `WriteView` whose edits are one undo step named `label` (below). Call `view.fail()` if the operation failed. Inside a typed Tcl command, which is already a step, it joins that one. |
 | `write()` | A `WriteView` that opens no undo step. `view.root()` is a writable `le::Root &`, held under an exclusive lock. When the view ends, it bumps the database's mutation version and wakes the renderer. |
 | `transaction(label)` | A `Transaction`: the C API edits made while it lives become one undo step named `label`. Call `fail()` if the operation failed. It does nothing if a transaction is already open. |
-| `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. |
+| `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. Unsynchronized. |
+| `with_data<T>(fn)` | Calls `fn(T &)` on that state with it locked against every other `with_data<T>()` on any thread, and returns what `fn` returns. Use it for state another thread also touches (below). Don't nest it for the same `T`. |
 | `current_layout()`, `current_schematic()`, `current_abstract()`, `current_technology()` | The session's current object (what Tcl's `current_layout` etc. set), as an `le::LayoutId` etc.; invalid if none. `ReadView` and `WriteView` have the same accessors. |
 
 **Editing.** A `WriteView` has `create_<type>`, `update_<type>` and
@@ -340,6 +341,17 @@ statics. `le_shell` and the `le_tcl` module each link their own copy of your
 extension, so a global would exist twice and the two copies would diverge.
 State is per extension and per type: `data<State>()` in `my_ext` and in
 `other_ext` are different objects.
+
+Your code runs on three threads: overlays on the render thread, GUI
+callbacks on the GUI thread, and Tcl commands, settings and mutation
+listeners on the console thread. The session lock doesn't cover your state
+(GUI callbacks don't take it), so state more than one of them uses goes
+through `with_data<T>()` everywhere, as `hello_ext`'s `State` does:
+
+```cpp
+ctx.with_data<State>([](State &state) { state.show_origin = !state.show_origin; });
+const bool show = ctx.with_data<State>([](const State &state) { return state.show_origin; });
+```
 
 ### Being told when the database changes
 
@@ -522,12 +534,15 @@ void le_ext_my_ext_register(le::ext::Registry &registry)
 ```
 
 - `OverlayContext` gives the canvas, `to_pixel`, `scale()`,
-  `visible_area()` (dbu), `width()`/`height()`, `root()` and `data<T>()`.
+  `visible_area()` (dbu), `width()`/`height()`, `root()`, `data<T>()` and
+  `with_data<T>()`.
   `to_pixel` follows the view's mirror (`set_view_flip`), so map every
   point through it rather than computing pixels from `scale()` yourself.
 - It runs on the render thread with the session locked for reading: read
-  `root()` and `data<T>()`, but don't call `le_*` functions or
-  `read()`/`write()`. It runs on every mouse move, so keep it quick.
+  `root()` and your state, but don't call `le_*` functions or
+  `read()`/`write()`. Read state that a GUI callback or Tcl command
+  changes with `with_data<T>()`. It runs on every mouse move, so keep it
+  quick.
 - The canvas's state is restored after each overlay, so one can't affect
   the next.
 - The view redraws on database changes and view changes. When only your
@@ -590,7 +605,8 @@ void le_ext_my_ext_register_gui(le::ext::GuiRegistry &registry)
   callbacks over `nlohmann::json` (the SDK provides it). It's saved in
   `settings.json` as `"extensions": {"my_ext": {"version": 1, ...}}`, and
   the Settings panel's Save/Load and unsaved-changes check include it. The
-  callbacks run with the session locked: use only `ctx.data<T>()`.
+  callbacks run with the session locked: use only `ctx.with_data<T>()`
+  (or `data<T>()` for state nothing else uses).
   `load` gets the version the section was written at, so migrating an
   older one is up to you. A build without your extension keeps your
   section as it was. `GuiRegistry::add_settings_panel` adds a collapsible
@@ -601,7 +617,9 @@ void le_ext_my_ext_register_gui(le::ext::GuiRegistry &registry)
   - `run_tcl_command()` queues a command for the console, as if typed. It's
     the way to change the design from the GUI: the command shows in the
     console's history and is one undo step.
-  - `data<T>()` is the same per-session state your Tcl commands see.
+  - `data<T>()` and `with_data<T>()` reach the same per-session state your
+    Tcl commands and overlays see; GUI callbacks don't hold the session
+    lock, so use `with_data<T>()` for anything they share.
   - `is_busy()`, `selection_count()` and `selected_object(i)` cover the
     rest.
 
@@ -783,6 +801,9 @@ The first version.
   `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,
   `GuiKeyBinding`, `ExtGuiContext` (with `font`), `register_all_gui()`.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.
+- `with_data<T>()` on `ExtensionContext`, `OverlayContext` and
+  `ExtGuiContext` (added in 0.3, without a version bump: it can't break an
+  extension).
 - Mutation listeners: `Registry::add_mutation_listener`, `MutationEvent`
   (added in 0.3, without a version bump: it can't break an extension).
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`

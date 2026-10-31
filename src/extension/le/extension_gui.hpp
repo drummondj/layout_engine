@@ -48,11 +48,19 @@ namespace le::ext
         ReadView read() const;
 
         /// @brief This extension's per-session state, shared with its Tcl
-        /// commands (ExtensionContext::data).
+        /// commands and overlays (ExtensionContext::data). GUI callbacks run
+        /// on the GUI thread without the session lock: for state another
+        /// thread also uses, use with_data<T>().
         template <class T>
         T &data()
         {
             return extension_.data<T>();
+        }
+        /// @brief ExtensionContext::with_data.
+        template <class T, class Fn>
+        decltype(auto) with_data(Fn &&fn)
+        {
+            return extension_.with_data<T>(std::forward<Fn>(fn));
         }
 
         /// @brief Redraws the design view's overlays (ExtensionContext::request_redraw).

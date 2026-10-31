@@ -1,5 +1,6 @@
 #include <fmt/format.h>
 #include "def_reader.hpp"
+#include "read_rollback.hpp"
 #include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include <algorithm>
@@ -1283,6 +1284,15 @@ namespace le
     }
 
     int DEFReader::read_def(std::string filename, Root &root, std::string library_name)
+    {
+        ReadRollback rollback(root);
+        const int result = read_def_contents(std::move(filename), root, std::move(library_name));
+        if (result == 0)
+            rollback.commit();
+        return result;
+    }
+
+    int DEFReader::read_def_contents(std::string filename, Root &root, std::string library_name)
     {
         const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         spdlog::info("read_def: reading '{}'...", filename);

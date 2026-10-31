@@ -243,3 +243,103 @@ TEST(MutationCascade, RenameInstanceRejectsEmptyName)
     EXPECT_NE(le_rename_instance_propagate(&handle, to_c(instance), ""), 0);
     EXPECT_EQ(root.get_instance(instance)->name, "a");
 }
+
+namespace
+{
+    // TOP instantiates MID twice (u1, u2); MID has Instance x (-> LEAF) and
+    // Net n. TOP's Layout places each copy: u1, u1/x, u2, u2/x, with
+    // Routes u1/n and u2/n - both copies' x and n are the same objects.
+    struct SharedModule
+    {
+        LeHandle handle;
+        Root &root = handle.root;
+        LibraryId library = root.create_library(LibraryData{.name = "lib"});
+        DesignId leaf = root.create_design(DesignData{.library = library, .name = "LEAF"});
+        DesignId mid = root.create_design(DesignData{.library = library, .name = "MID"});
+        SchematicId mid_schematic = root.create_schematic(SchematicData{.design = mid});
+        InstanceId x = root.create_instance(InstanceData{.schematic = mid_schematic, .name = "x", .reference_design = leaf});
+        NetId n = root.create_net(NetData{.schematic = mid_schematic, .name = "n"});
+        DesignId top = root.create_design(DesignData{.library = library, .name = "TOP"});
+        SchematicId top_schematic = root.create_schematic(SchematicData{.design = top});
+        InstanceId u1 = root.create_instance(InstanceData{.schematic = top_schematic, .name = "u1", .reference_design = mid});
+        InstanceId u2 = root.create_instance(InstanceData{.schematic = top_schematic, .name = "u2", .reference_design = mid});
+        LayoutId layout = root.create_layout(LayoutData{.design = top});
+        PlacementId p_u1 = place("u1", mid, u1);
+        PlacementId p_u1x = place("u1/x", leaf, x);
+        PlacementId p_u2 = place("u2", mid, u2);
+        PlacementId p_u2x = place("u2/x", leaf, x);
+        RouteId r_u1n = root.create_route(RouteData{.layout = layout, .name = "u1/n", .net = n});
+        RouteId r_u2n = root.create_route(RouteData{.layout = layout, .name = "u2/n", .net = n});
+
+        PlacementId place(const char *name, DesignId design, InstanceId instance)
+        {
+            return root.create_placement(PlacementData{.layout = layout, .name = name, .reference_design = design, .instance = instance});
+        }
+        const std::string &name(PlacementId id) { return root.get_placement(id)->name; }
+    };
+}
+
+TEST(MutationCascade, RenamingAnInstanceOfAModuleInstantiatedTwiceRenamesBothCopies)
+{
+    SharedModule f;
+    ASSERT_EQ(le_rename_instance_propagate(&f.handle, to_c(f.x), "y"), 0);
+    EXPECT_EQ(f.name(f.p_u1x), "u1/y");
+    EXPECT_EQ(f.name(f.p_u2x), "u2/y");
+    EXPECT_EQ(f.name(f.p_u1), "u1");
+
+    ASSERT_EQ(le_rename_instance_propagate(&f.handle, to_c(f.u2), "v2"), 0);
+    EXPECT_EQ(f.name(f.p_u2), "v2");
+    EXPECT_EQ(f.name(f.p_u2x), "v2/y");
+    EXPECT_EQ(f.root.get_route(f.r_u2n)->name, "v2/n");
+    EXPECT_EQ(f.name(f.p_u1x), "u1/y");
+    EXPECT_EQ(f.root.get_route(f.r_u1n)->name, "u1/n");
+}
+
+TEST(MutationCascade, RenamingANetInAModuleInstantiatedTwiceKeepsEachRoutesPrefix)
+{
+    SharedModule f;
+    ASSERT_EQ(le_rename_net_propagate(&f.handle, to_c(f.n), "m"), 0);
+    EXPECT_EQ(f.root.get_route(f.r_u1n)->name, "u1/m");
+    EXPECT_EQ(f.root.get_route(f.r_u2n)->name, "u2/m");
+}
+
+TEST(MutationCascade, RenamingKeepsEscapedSegmentsAndEscapesTheNewName)
+{
+    LeHandle handle;
+    Root &root = handle.root;
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+    const DesignId leaf = root.create_design(DesignData{.library = library, .name = "LEAF"});
+    const DesignId mid = root.create_design(DesignData{.library = library, .name = "MID"});
+    const SchematicId mid_schematic = root.create_schematic(SchematicData{.design = mid});
+    const InstanceId a = root.create_instance(InstanceData{.schematic = mid_schematic, .name = "a", .reference_design = leaf});
+    const DesignId top = root.create_design(DesignData{.library = library, .name = "TOP"});
+    const SchematicId top_schematic = root.create_schematic(SchematicData{.design = top});
+    const InstanceId blk = root.create_instance(InstanceData{.schematic = top_schematic, .name = "blk[0]/q", .reference_design = mid});
+    const LayoutId layout = root.create_layout(LayoutData{.design = top});
+    // DEF escapes '[', ']' and a '/' inside a name.
+    const PlacementId p_blk = root.create_placement(PlacementData{.layout = layout, .name = "blk\\[0\\]\\/q", .reference_design = mid, .instance = blk});
+    const PlacementId p_a = root.create_placement(PlacementData{.layout = layout, .name = "blk\\[0\\]\\/q/a", .reference_design = leaf, .instance = a});
+    const PlacementId p_deep = root.create_placement(PlacementData{.layout = layout, .name = "blk\\[0\\]\\/q/a/deep", .reference_design = leaf});
+    const PlacementId p_sibling = root.create_placement(PlacementData{.layout = layout, .name = "blk\\[0\\]\\/q/ab", .reference_design = leaf});
+
+    ASSERT_EQ(le_rename_instance_propagate(&handle, to_c(a), "b/c"), 0);
+    EXPECT_EQ(root.get_placement(p_a)->name, "blk\\[0\\]\\/q/b\\/c");
+    EXPECT_EQ(root.get_placement(p_deep)->name, "blk\\[0\\]\\/q/b\\/c/deep");
+    EXPECT_EQ(root.get_placement(p_sibling)->name, "blk\\[0\\]\\/q/ab"); // whole segments only
+    EXPECT_EQ(root.get_placement(p_blk)->name, "blk\\[0\\]\\/q");
+}
+
+TEST(MutationCascade, ARenameThatWouldClashIsRefusedAndChangesNothing)
+{
+    SharedModule f;
+    const PlacementId taken = f.place("u2/y", f.leaf, InstanceId{});
+    const uint64_t version = f.root.mutation_version();
+
+    EXPECT_NE(le_rename_instance_propagate(&f.handle, to_c(f.x), "y"), 0);
+    EXPECT_EQ(f.root.get_instance(f.x)->name, "x");
+    EXPECT_EQ(f.name(f.p_u1x), "u1/x");
+    EXPECT_EQ(f.name(f.p_u2x), "u2/x");
+    EXPECT_EQ(f.name(taken), "u2/y");
+    EXPECT_EQ(f.root.mutation_version(), version);
+    EXPECT_EQ(f.handle.command_history.can_undo(), false);
+}

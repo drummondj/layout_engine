@@ -56,6 +56,7 @@ namespace le::gui
 
         state_.settings.hierarchy_depth = le_hierarchy_depth(handle_);
         state_.settings.flightline_max_fanout = le_flightline_max_fanout(handle_);
+        state_.settings.undo_limit = le_undo_limit(handle_);
         state_.settings.max_concurrency = le_max_concurrency(handle_);
         state_.settings.minor_grid_um = le_grid_spacing_um(handle_, 0);
         state_.settings.major_grid_um = le_grid_spacing_um(handle_, 1);
@@ -435,6 +436,12 @@ namespace le::gui
     void GuiProvider::set_flightline_max_fanout(int32_t max_fanout)
     {
         run_tcl_command("set_flightline_max_fanout " + std::to_string(max_fanout));
+    }
+
+    void GuiProvider::set_undo_limit(int32_t limit)
+    {
+        if (limit >= 0)
+            run_tcl_command("set_undo_limit " + std::to_string(limit));
     }
 
     namespace

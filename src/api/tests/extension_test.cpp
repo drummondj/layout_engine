@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <future>
@@ -735,5 +736,70 @@ TEST(MutationListeners, AnotherThreadsEditDuringACallComesInTheNextCall)
     ASSERT_EQ(*outcome, 2u);
     ASSERT_EQ(listener_log().changes[1].size(), 1u);
     EXPECT_EQ(listener_log().changes[1][0].klass, le::ChangeKlass::Library);
+    le_destroy(handle);
+}
+
+namespace
+{
+    struct SharedCounter
+    {
+        int value = 0; // deliberately not atomic: with_data is the only guard
+    };
+}
+
+TEST(ExtensionData, WithDataSerializesEveryThreadUsingTheSameState)
+{
+    LeHandle *handle = le_create();
+    constexpr int kThreads = 4;
+    constexpr int kIncrements = 20000;
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t)
+        threads.emplace_back([handle]
+                             {
+            le::ext::ExtensionContext ctx(handle, "data_test");
+            for (int i = 0; i < kIncrements; ++i)
+                ctx.with_data<SharedCounter>([](SharedCounter &counter) { ++counter.value; }); });
+    for (std::thread &thread : threads)
+        thread.join();
+    le::ext::ExtensionContext ctx(handle, "data_test");
+    EXPECT_EQ(ctx.with_data<SharedCounter>([](const SharedCounter &counter) { return counter.value; }), kThreads * kIncrements);
+    // data<T>() is the same object.
+    EXPECT_EQ(ctx.data<SharedCounter>().value, kThreads * kIncrements);
+    le_destroy(handle);
+}
+
+TEST(ExtensionData, WithDataBlocksAnotherThreadUntilTheFirstReturns)
+{
+    LeHandle *handle = le_create();
+    std::promise<void> inside, release;
+    std::shared_future<void> released = release.get_future().share();
+    std::thread holder([&]
+                       {
+        le::ext::ExtensionContext ctx(handle, "data_test");
+        ctx.with_data<SharedCounter>([&](SharedCounter &counter) {
+            inside.set_value();
+            released.wait();
+            counter.value = 1;
+        }); });
+    inside.get_future().wait();
+
+    std::atomic<bool> second_entered = false;
+    std::thread second([&]
+                       {
+        le::ext::ExtensionContext ctx(handle, "data_test");
+        ctx.with_data<SharedCounter>([&](SharedCounter &counter) {
+            second_entered = true;
+            EXPECT_EQ(counter.value, 1); // ran after the holder's write
+        }); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_FALSE(second_entered.load());
+    release.set_value();
+    holder.join();
+    second.join();
+    EXPECT_TRUE(second_entered.load());
+
+    // Another extension's state of the same type is a separate slot.
+    le::ext::ExtensionContext other(handle, "other_ext");
+    EXPECT_EQ(other.with_data<SharedCounter>([](const SharedCounter &counter) { return counter.value; }), 0);
     le_destroy(handle);
 }
