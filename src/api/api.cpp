@@ -1631,7 +1631,11 @@ namespace
         options.axis_origin_dbu = display_origin_unlocked(handle);
         if (const le::AbstractId *abstract_id = std::get_if<le::AbstractId>(&options.top_level))
             if (const le::AbstractData *abstract = handle->root.get_abstract(*abstract_id))
-                options.abstract_origin_dbu = abstract->origin.value_or(le::Point{});
+            {
+                // Where the placement point lands in the macro: -ORIGIN.
+                const le::Point origin = abstract->origin.value_or(le::Point{});
+                options.abstract_origin_dbu = le::Point{-origin.x, -origin.y};
+            }
 
         return options;
     }

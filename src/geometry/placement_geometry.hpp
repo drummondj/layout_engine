@@ -48,14 +48,17 @@ namespace le
         return Rect{};
     }
 
-    // AbstractData.origin is deliberately NOT applied here - a known,
-    // accepted gap, no ORIGIN-bearing test data driving it yet (see
-    // Geometry::instance_transform's own doc comment).
+    // An Abstract's SIZE box in its own coordinates. LEF shifts a macro by
+    // its ORIGIN before aligning it with the placement point, so the box
+    // whose lower-left corner lands there is {-ORIGIN, SIZE - ORIGIN}.
     inline Rect abstract_declared_bbox(const Root &root, AbstractId abstract_id)
     {
         const AbstractData *abstract = root.get_abstract(abstract_id);
         if (abstract && abstract->size)
-            return Rect{.ll = Point{0, 0}, .ur = *abstract->size};
+        {
+            const Point origin = abstract->origin.value_or(Point{});
+            return Rect{.ll = Point{-origin.x, -origin.y}, .ur = Point{abstract->size->x - origin.x, abstract->size->y - origin.y}};
+        }
 
         if (const ShapeData *boundary = root.get_shape(root.get_abstract_boundary(abstract_id)))
             if (auto b = Geometry::bbox(*boundary))
