@@ -7192,6 +7192,8 @@ TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
             EXPECT_EQ(le_max_concurrency(other), 5);
             EXPECT_EQ(le_layer_color_rgb(other, "M1"), 0xff8000);
         }
+        // Older files have no undo_limit: the default.
+        EXPECT_EQ(le_undo_limit(other), std::string(name) == "v3.json" ? 50 : 200);
         // Migrated on load, so nothing is left over to keep as unknown.
         const std::string saved = le::test::scratch_path("le_settings_golden_resave.json");
         ASSERT_EQ(le_save_settings(other, saved.c_str()), 0);

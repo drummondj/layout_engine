@@ -1391,6 +1391,16 @@ void set_flightline_max_fanout_command(int max_fanout)
     le_set_flightline_max_fanout(session(), max_fanout);
 }
 
+int get_undo_limit_command()
+{
+    return le_undo_limit(session());
+}
+
+void set_undo_limit_command(int limit)
+{
+    le_set_undo_limit(session(), limit);
+}
+
 double get_grid_spacing_um_command(int major)
 {
     return le_grid_spacing_um(session(), major);

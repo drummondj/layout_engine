@@ -923,6 +923,7 @@ namespace
         j["label_min_size_px"] = handle->label_min_size_px();
         j["label_max_size_px"] = handle->label_max_size_px();
         j["flightline_max_fanout"] = handle->flightline_max_fanout();
+        j["undo_limit"] = handle->command_history.undo_limit();
         j["confirm_overwrite"] = handle->confirm_overwrite;
         j["max_concurrency"] = handle->max_concurrency_;
         j["placement_snap_mode"] = kPlacementSnapNames[static_cast<size_t>(handle->placement_snap_mode())];
@@ -1026,6 +1027,8 @@ namespace
             handle->set_label_max_size_px(*v);
         if (const auto v = number(j, "flightline_max_fanout"); v && *v >= 0)
             handle->set_flightline_max_fanout(static_cast<int>(*v));
+        if (const auto v = number(j, "undo_limit"); v && *v >= 0 && *v <= INT32_MAX)
+            handle->command_history.set_undo_limit(static_cast<size_t>(*v));
         if (const auto v = number(j, "max_concurrency"))
             set_max_concurrency_unlocked(handle, static_cast<int32_t>(*v));
         handle->unknown_extension_settings_json.clear();
@@ -4323,6 +4326,22 @@ extern "C"
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->command_history.can_redo() ? 1 : 0;
+    }
+
+    int32_t le_undo_limit(LeHandle *handle)
+    {
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return static_cast<int32_t>(std::min<size_t>(handle->command_history.undo_limit(), INT32_MAX));
+    }
+
+    void le_set_undo_limit(LeHandle *handle, int32_t limit)
+    {
+        if (!handle || limit < 0)
+            return;
+        HandleWriteLock lock(handle);
+        handle->command_history.set_undo_limit(static_cast<size_t>(limit));
     }
 
     int32_t le_command_history_count(LeHandle *handle)

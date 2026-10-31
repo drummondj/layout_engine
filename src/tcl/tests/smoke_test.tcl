@@ -211,6 +211,11 @@ puts "ok: arm_resize is a harmless no-op outside Edit mode"
 check "flightline fanout limit defaults to 10" 10 [get_flightline_max_fanout]
 set_flightline_max_fanout 25
 check "set_flightline_max_fanout round-trips" 25 [get_flightline_max_fanout]
+check "undo limit defaults to 200" 200 [get_undo_limit]
+set_undo_limit 30
+check "set_undo_limit round-trips" 30 [get_undo_limit]
+check "set_undo_limit rejects a negative value" 1 [catch {set_undo_limit -1}]
+set_undo_limit 200
 if {[catch {set_flightline_max_fanout -1} err]} {
     puts "ok: set_flightline_max_fanout rejects a negative value ($err)"
 } else {
