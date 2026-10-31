@@ -3196,6 +3196,9 @@ proc get_instances {args} {
             } else {
                 set count [get_instances_cmd $of_schematic $name_expr $filter]
             }
+            if {$count < 0} {
+                error "get_instances: invalid -filter expression - see the error above"
+            }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_instances_at $i]
             }
@@ -3228,6 +3231,9 @@ proc get_nets {args} {
             } else {
                 set count [get_nets_cmd $of_schematic $name_expr $filter]
             }
+            if {$count < 0} {
+                error "get_nets: invalid -filter expression - see the error above"
+            }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_nets_at $i]
             }
@@ -3259,6 +3265,9 @@ proc get_ports {args} {
                 set count [get_ports_by_path_cmd $of_schematic $name_expr $filter]
             } else {
                 set count [get_ports_cmd $of_schematic $name_expr $filter]
+            }
+            if {$count < 0} {
+                error "get_ports: invalid -filter expression - see the error above"
             }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_ports_at $i]
