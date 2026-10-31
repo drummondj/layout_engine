@@ -1370,6 +1370,7 @@ add_executable(backend_tests
     src/api/tests/le_handle_test.cpp
     src/api/tests/extension_test.cpp
     src/api/tests/native_db_api_test.cpp
+    src/api/tests/read_rollback_test.cpp
     src/api/tests/string_lifetime_test.cpp
     src/api/tests/selection_test.cpp
     src/api/tests/power_grid_port_markers_test.cpp
@@ -1545,6 +1546,14 @@ le_enable_coverage_instrumentation(selection_profile)
 add_executable(spatial_index_benchmark src/pipelines/benchmarks/spatial_index_benchmark.cpp)
 target_link_libraries(spatial_index_benchmark PRIVATE database geometry io)
 le_enable_coverage_instrumentation(spatial_index_benchmark)
+
+# --- delete_benchmark: dev-only benchmark - deleting many children of one
+# parent through the generated edit ops, and a delete_layout cascade.
+# Not run by ctest or the coverage target.
+add_executable(delete_benchmark src/api/benchmarks/delete_benchmark.cpp)
+target_link_libraries(delete_benchmark PRIVATE database geometry editing pipelines io api le::extension_sdk benchmark::benchmark)
+target_include_directories(delete_benchmark PRIVATE ${nlohmann_json_header_SOURCE_DIR})
+le_enable_coverage_instrumentation(delete_benchmark)
 
 # --- blend2d_smoke_test: throwaway build/link verification for the
 # Blend2D FetchContent chain above - see that block's own comment and

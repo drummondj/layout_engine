@@ -163,7 +163,9 @@ TEST(SessionHandle, GetShapesThroughTclDoesNotCrash)
     ASSERT_EQ(Tcl_Eval(interp, "get_terminal_ports"), TCL_OK) << Tcl_GetStringResult(interp);
     ASSERT_EQ(Tcl_Eval(interp, "get_shapes"), TCL_OK) << Tcl_GetStringResult(interp);
     EXPECT_STRNE(Tcl_GetStringResult(interp), "");
-    ASSERT_EQ(Tcl_Eval(interp, "get_shapes -filter {.layer_name == M1}"), TCL_OK) << Tcl_GetStringResult(interp);
+    ASSERT_EQ(Tcl_Eval(interp, "get_shapes -filter {.layer.name == M1}"), TCL_OK) << Tcl_GetStringResult(interp);
+    EXPECT_STRNE(Tcl_GetStringResult(interp), "");
+    EXPECT_EQ(Tcl_Eval(interp, "get_shapes -filter {.layer_name == M1}"), TCL_ERROR) << "an unknown field is an error";
     ASSERT_EQ(Tcl_Eval(interp, "get_properties shape:0"), TCL_OK) << Tcl_GetStringResult(interp);
 
     Tcl_DeleteInterp(interp);

@@ -2,10 +2,12 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string_view>
+#include <thread>
 #include <unistd.h>
 
 namespace
@@ -564,4 +566,36 @@ TEST(HelloExt, MarkersAreLabelledWithTheirNames)
     ASSERT_GE(hello_marker, 0);
     le_set_purpose_visible(h, hello_marker, 0);
     EXPECT_EQ(differing_pixels(), 0) << "hidden with the markers";
+}
+
+// The overlay reads show_origin on the render thread while the GUI's menu
+// item toggles it: both go through with_data<State>().
+TEST(HelloExt, TheOverlayReadsItsStateWhileAnotherThreadWritesIt)
+{
+    le::ext::register_all();
+    Session session;
+    LeHandle *h = session.handle;
+    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0,
+                                                         nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
+    ASSERT_EQ(le_set_current_technology(h, technology), 0);
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    le_create_layout(h, design);
+    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
+    le_set_viewport_size(h, 200, 100);
+    le_fit_scene(h, 10);
+
+    std::atomic<bool> done = false;
+    std::thread toggler([&] {
+        le::ext::ExtensionContext ctx(h, "hello_ext");
+        while (!done)
+            ctx.with_data<hello::State>([](hello::State &state) { state.show_origin = !state.show_origin; });
+    });
+    for (int i = 0; i < 200; ++i)
+    {
+        le_set_mouse_position(h, i % 200, 50); // recomposes, so the overlay runs
+        const LePixelBuffer buffer = le_render_pixel_buffer(h);
+        ASSERT_NE(buffer.data, nullptr);
+    }
+    done = true;
+    toggler.join();
 }

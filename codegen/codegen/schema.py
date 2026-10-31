@@ -1968,8 +1968,10 @@ class Klass:
         subtree becomes one flat loop collecting that level's children
         across every parent at the level above. Every id is collected
         before anything is deleted, since deleting a child edits its
-        parent's list. Deletion runs deepest level first, this object
-        last, each through le::editing::delete_object, which records it
+        parent's list. Deletion runs deepest level first and each level
+        newest first, so every child comes off the end of its parent's
+        list; this object goes last. Each goes through
+        le::editing::delete_object, which records it
         when a transaction is open; undo replays in reverse, so each
         parent is restored before its children, and each child goes back
         at its own id and list position.
@@ -2019,10 +2021,12 @@ class Klass:
         for fld in root_fields:
             plan_edge(self, fld, f"{snake}_id", True)
 
+        # Newest first within each level: each child is then its parent's
+        # last, so taking it off the parent's list is O(1).
         add()
         for level in levels:
-            add(f"for (const le::{level['type']}Id child_id : {level['ids_var']})")
-            add("    le::editing::delete_object(handle.root, txn, child_id);")
+            add(f"for (auto child = {level['ids_var']}.rbegin(); child != {level['ids_var']}.rend(); ++child)")
+            add("    le::editing::delete_object(handle.root, txn, *child);")
         add(f"const bool deleted = le::editing::delete_object(handle.root, txn, {snake}_id);")
         add("handle.root.bump_mutation_version();")
         add("if (!deleted)")

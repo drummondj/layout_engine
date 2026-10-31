@@ -497,6 +497,10 @@ void set_hierarchy_depth_command(int depth);
 int get_flightline_max_fanout_command();
 void set_flightline_max_fanout_command(int max_fanout);
 
+// Undo history length - mirror le_undo_limit/le_set_undo_limit.
+int get_undo_limit_command();
+void set_undo_limit_command(int limit);
+
 // Settings: le_grid_spacing_um/le_set_grid_spacing_um,
 // le_ruler_label_size/le_set_ruler_label_size, le_label_size/le_set_label_size,
 // le_save_settings/le_load_settings/le_default_settings_path. The settings

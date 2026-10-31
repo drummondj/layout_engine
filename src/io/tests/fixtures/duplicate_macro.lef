@@ -6,12 +6,48 @@ UNITS
    DATABASE MICRONS 1000 ;
 END UNITS
 
+LAYER M1
+   TYPE ROUTING ;
+   DIRECTION HORIZONTAL ;
+   PITCH 0.2 ;
+   WIDTH 0.1 ;
+END M1
+
 MACRO DUPTEST
    CLASS CORE ;
    SIZE 10 BY 10 ;
+   PIN A
+      DIRECTION INPUT ;
+      PORT
+         LAYER M1 ;
+            RECT 0 0 1 1 ;
+      END
+   END A
 END DUPTEST
 
 MACRO DUPTEST
    CLASS CORE ;
    SIZE 20 BY 20 ;
+   PIN B
+      DIRECTION OUTPUT ;
+      PORT
+         LAYER M1 ;
+            RECT 2 2 3 3 ;
+      END
+   END B
+   OBS
+      LAYER M1 ;
+         RECT 4 4 5 5 ;
+   END
+   DENSITY
+      LAYER M1 ;
+         RECT 0 0 10 10 50 ;
+   END
 END DUPTEST
+
+MACRO AFTER
+   CLASS CORE ;
+   SIZE 5 BY 5 ;
+END AFTER
+
+END LIBRARY

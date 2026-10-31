@@ -11,7 +11,7 @@ Every Tcl command le_shell provides. Objects are named by tokens such as `layer:
 - [Layout](#layout) (54 commands)
 - [Schematic](#schematic) (32 commands)
 - [GUI](#gui) (48 commands)
-- [Settings](#settings) (25 commands)
+- [Settings](#settings) (27 commands)
 - [General](#general) (40 commands)
 
 ## Technology
@@ -1617,7 +1617,7 @@ Returns the Terminal objects matching the given names and filters, as tokens. Te
 
 `read_lef -library <name> <path> [-help]`
 
-Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A design in the -library library that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed).
+Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A MACRO whose design in the -library library already has an abstract view, a repeated PIN within a MACRO, and a repeated LAYER, VIA, VIARULE, SITE or PROPERTYDEFINITIONS entry are skipped with a warning. Returns 0 on success, nonzero on an error (the details are printed).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3280,7 +3280,7 @@ Fits the view to the rectangle {{llx lly} {urx ury}}, in microns, keeping its as
 
 ## Settings
 
-[`get_confirm_overwrite`](#get_confirm_overwrite), [`get_flightline_max_fanout`](#get_flightline_max_fanout), [`get_grid_spacing`](#get_grid_spacing), [`get_label_max_size`](#get_label_max_size), [`get_label_min_size`](#get_label_min_size), [`get_layer_color`](#get_layer_color), [`get_max_concurrency`](#get_max_concurrency), [`get_placement_snap_mode`](#get_placement_snap_mode), [`get_ruler_label_size`](#get_ruler_label_size), [`get_shape_snap_mode`](#get_shape_snap_mode), [`load_settings`](#load_settings), [`placement_snap_mode_available`](#placement_snap_mode_available), [`reset_layer_color`](#reset_layer_color), [`save_settings`](#save_settings), [`set_confirm_overwrite`](#set_confirm_overwrite), [`set_flightline_max_fanout`](#set_flightline_max_fanout), [`set_grid_spacing`](#set_grid_spacing), [`set_label_max_size`](#set_label_max_size), [`set_label_min_size`](#set_label_min_size), [`set_layer_color`](#set_layer_color), [`set_max_concurrency`](#set_max_concurrency), [`set_placement_snap_mode`](#set_placement_snap_mode), [`set_ruler_label_size`](#set_ruler_label_size), [`set_shape_snap_mode`](#set_shape_snap_mode), [`shape_snap_mode_available`](#shape_snap_mode_available)
+[`get_confirm_overwrite`](#get_confirm_overwrite), [`get_flightline_max_fanout`](#get_flightline_max_fanout), [`get_grid_spacing`](#get_grid_spacing), [`get_label_max_size`](#get_label_max_size), [`get_label_min_size`](#get_label_min_size), [`get_layer_color`](#get_layer_color), [`get_max_concurrency`](#get_max_concurrency), [`get_placement_snap_mode`](#get_placement_snap_mode), [`get_ruler_label_size`](#get_ruler_label_size), [`get_shape_snap_mode`](#get_shape_snap_mode), [`get_undo_limit`](#get_undo_limit), [`load_settings`](#load_settings), [`placement_snap_mode_available`](#placement_snap_mode_available), [`reset_layer_color`](#reset_layer_color), [`save_settings`](#save_settings), [`set_confirm_overwrite`](#set_confirm_overwrite), [`set_flightline_max_fanout`](#set_flightline_max_fanout), [`set_grid_spacing`](#set_grid_spacing), [`set_label_max_size`](#set_label_max_size), [`set_label_min_size`](#set_label_min_size), [`set_layer_color`](#set_layer_color), [`set_max_concurrency`](#set_max_concurrency), [`set_placement_snap_mode`](#set_placement_snap_mode), [`set_ruler_label_size`](#set_ruler_label_size), [`set_shape_snap_mode`](#set_shape_snap_mode), [`set_undo_limit`](#set_undo_limit), [`shape_snap_mode_available`](#shape_snap_mode_available)
 
 ### get_confirm_overwrite
 
@@ -3353,6 +3353,12 @@ Returns the snap mode for <kind>: none, user, manufacturing, fin or tracks. See 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<kind>` | `str` | yes | rect, polygon, path or via |
+
+### get_undo_limit
+
+`get_undo_limit [-help]`
+
+Returns how many commands undo can step back through - see set_undo_limit.
 
 ### load_settings
 
@@ -3496,6 +3502,16 @@ Sets what a resized or moved shape of <kind> snaps to. Rects and polygons (Resiz
 | --- | --- | --- | --- |
 | `<kind>` | `str` | yes | rect, polygon, path or via |
 | `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path/via) |
+
+### set_undo_limit
+
+`set_undo_limit <limit> [-help]`
+
+Sets how many commands undo can step back through. Older steps are forgotten, now and as new commands run, so the memory each holds (a copy of everything it changed) is freed. 0 keeps none; 200 by default.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<limit>` | `int` | yes | The number of undo steps to keep |
 
 ### shape_snap_mode_available
 

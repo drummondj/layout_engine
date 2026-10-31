@@ -133,6 +133,8 @@ namespace le
                     pos_ += 2;
                     return Token{Token::Kind::Or, "||"};
                 }
+                if (c == '&' || c == '|')
+                    return std::unexpected(std::string("single '") + c + "' - use '" + c + c + "'");
                 if (c == '=' && peek(1) == '~')
                 {
                     pos_ += 2;
@@ -262,6 +264,10 @@ namespace le
             std::expected<FilterExpr, std::string> parse()
             {
                 auto expr = parse_or();
+                // A lexer error ends the token stream early, which can look
+                // like a complete expression; it is the real error.
+                if (had_error_)
+                    return std::unexpected(error_);
                 if (!expr)
                     return expr;
                 if (current_.kind != Token::Kind::End)
@@ -273,11 +279,8 @@ namespace le
             void advance()
             {
                 auto token = lexer_.next();
-                // A lexer error surfaces the next time it's consulted -
-                // parse() always checks current_.kind, and an error is
-                // reported as an End token paired with had_error_ set, so
-                // every call site's normal "unexpected token" handling
-                // reports it without duplicating error plumbing everywhere.
+                // A lexer error becomes an End token with had_error_ set,
+                // which parse() reports once parsing stops.
                 if (!token)
                 {
                     had_error_ = true;
@@ -286,13 +289,6 @@ namespace le
                     return;
                 }
                 current_ = *token;
-            }
-
-            std::expected<FilterExpr, std::string> fail_if_lexer_errored()
-            {
-                if (had_error_)
-                    return std::unexpected(error_);
-                return FilterExpr{};
             }
 
             std::expected<FilterExpr, std::string> parse_or()
@@ -383,9 +379,6 @@ namespace le
                     return std::unexpected("expected a value after operator");
                 std::string literal = current_.text;
                 advance();
-
-                if (had_error_)
-                    return std::unexpected(error_);
 
                 FilterExpr expr;
                 expr.kind = FilterExpr::Kind::Comparison;

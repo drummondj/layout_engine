@@ -391,3 +391,70 @@ TEST(CommandHistoryTest, UndoRedoRoundTripsThroughCommandHistory)
     EXPECT_TRUE(history.undo().replayed);
     EXPECT_FALSE(history.undo().replayed);
 }
+
+namespace
+{
+    // One transaction that creates a terminal named `name`.
+    TerminalId create_in_transaction(Cell &cell, CommandHistory &history, const std::string &name)
+    {
+        history.begin("create " + name);
+        const TerminalId id = cell.root.create_terminal(make_terminal_data(cell.abstract, name));
+        history.current()->record_create(id);
+        history.end(true);
+        return id;
+    }
+}
+
+TEST(CommandHistoryTest, TheUndoStackKeepsOnlyTheNewestUndoLimitTransactions)
+{
+    Cell cell;
+    CommandHistory history(cell.root);
+    EXPECT_EQ(history.undo_limit(), CommandHistory::kDefaultUndoLimit);
+    history.set_undo_limit(3);
+    for (int i = 0; i < 5; ++i)
+        create_in_transaction(cell, history, "T" + std::to_string(i));
+
+    std::vector<std::string> undone;
+    for (ReplayResult result = history.undo(); result.replayed; result = history.undo())
+        undone.push_back(result.label);
+    EXPECT_EQ(undone, (std::vector<std::string>{"create T4", "create T3", "create T2"}));
+    // The trimmed transactions' edits stand.
+    EXPECT_EQ(cell.terminal_names(), (std::vector<std::string>{"T0", "T1"}));
+
+    // Lowering the limit trims at once, newest kept.
+    for (int i = 0; i < 3; ++i)
+        history.redo();
+    history.set_undo_limit(1);
+    EXPECT_EQ(history.undo().label, "create T4");
+    EXPECT_FALSE(history.can_undo());
+}
+
+TEST(CommandHistoryTest, ATrimmedTransactionReleasesItsRetiredSlots)
+{
+    Cell cell;
+    CommandHistory history(cell.root);
+    history.set_undo_limit(1);
+    const TerminalId first = create_in_transaction(cell, history, "A");
+
+    history.begin("delete A");
+    ASSERT_TRUE(delete_object(cell.root, history.current(), first));
+    history.end(true);
+    // Retired: undo could still bring A back, so its slot isn't reused.
+    EXPECT_NE(create_in_transaction(cell, history, "B").index, first.index);
+    // That create trimmed "delete A" (limit 1), releasing A's slot.
+    EXPECT_EQ(create_in_transaction(cell, history, "C").index, first.index);
+}
+
+TEST(CommandHistoryTest, TheRecallLogKeepsTheNewestLines)
+{
+    Cell cell;
+    CommandHistory history(cell.root);
+    for (size_t i = 0; i < CommandHistory::kRecallLimit + 5; ++i)
+    {
+        history.begin("cmd " + std::to_string(i));
+        history.end(true);
+    }
+    ASSERT_EQ(history.recall_count(), CommandHistory::kRecallLimit);
+    EXPECT_EQ(history.recall_at(0), "cmd 5");
+    EXPECT_EQ(history.recall_at(CommandHistory::kRecallLimit - 1), "cmd " + std::to_string(CommandHistory::kRecallLimit + 4));
+}

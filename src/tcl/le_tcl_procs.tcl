@@ -140,7 +140,7 @@ foreach {_le_category _le_names} {
         load_settings save_settings get_confirm_overwrite set_confirm_overwrite
         get_grid_spacing set_grid_spacing get_label_min_size set_label_min_size get_label_max_size set_label_max_size
         get_ruler_label_size set_ruler_label_size get_max_concurrency set_max_concurrency
-        get_flightline_max_fanout set_flightline_max_fanout
+        get_flightline_max_fanout set_flightline_max_fanout get_undo_limit set_undo_limit
         get_placement_snap_mode set_placement_snap_mode placement_snap_mode_available
         get_shape_snap_mode set_shape_snap_mode shape_snap_mode_available
         get_layer_color set_layer_color reset_layer_color
@@ -1687,7 +1687,7 @@ proc read_lef {args} {
 }
 register_command_help read_lef \
     "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library" \
-    "Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A design in the -library library that already has an abstract view is an error. Returns 0 on success, nonzero on an error (the details are printed)." \
+    "Reads a LEF file - technology, cells, or both - into the session. Call it more than once to add a technology file and then cell libraries. Each MACRO becomes a design in the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no abstract (e.g. from read_def or read_verilog), that design gets the abstract instead. A MACRO whose design in the -library library already has an abstract view, a repeated PIN within a MACRO, and a repeated LAYER, VIA, VIARULE, SITE or PROPERTYDEFINITIONS entry are skipped with a warning. Returns 0 on success, nonzero on an error (the details are printed)." \
     {
         {-library {type str required 1 description {Library to read the LEF's macros into - created if it doesn't exist}}}
         {<path> {type file required 1 description {LEF file to read}}}
@@ -2859,6 +2859,37 @@ register_command_help get_flightline_max_fanout \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
+proc set_undo_limit { limit } {
+    if {$limit eq "-help"} {
+        return "set_undo_limit <limit> \[-help\] - Sets how many commands undo can step back through"
+    }
+    if {![string is integer -strict $limit] || $limit < 0} {
+        error "set_undo_limit: expected a non-negative integer, got \"$limit\""
+    }
+    set_undo_limit_command $limit
+    return ""
+}
+register_command_help set_undo_limit \
+    "set_undo_limit <limit> \[-help\]" \
+    "Sets how many commands undo can step back through. Older steps are forgotten, now and as new commands run, so the memory each holds (a copy of everything it changed) is freed. 0 keeps none; 200 by default." \
+    {
+        {<limit> {type int required 1 description {The number of undo steps to keep}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_undo_limit {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_undo_limit \[-help\] - Returns how many commands undo can step back through"
+    }
+    return [get_undo_limit_command]
+}
+register_command_help get_undo_limit \
+    "get_undo_limit \[-help\]" \
+    "Returns how many commands undo can step back through - see set_undo_limit." \
+    {
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
 # --- Settings (the Settings panel's own values, and the JSON file they
 # save to/load from) ---
 
@@ -3196,6 +3227,9 @@ proc get_instances {args} {
             } else {
                 set count [get_instances_cmd $of_schematic $name_expr $filter]
             }
+            if {$count < 0} {
+                error "get_instances: invalid -filter expression - see the error above"
+            }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_instances_at $i]
             }
@@ -3228,6 +3262,9 @@ proc get_nets {args} {
             } else {
                 set count [get_nets_cmd $of_schematic $name_expr $filter]
             }
+            if {$count < 0} {
+                error "get_nets: invalid -filter expression - see the error above"
+            }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_nets_at $i]
             }
@@ -3259,6 +3296,9 @@ proc get_ports {args} {
                 set count [get_ports_by_path_cmd $of_schematic $name_expr $filter]
             } else {
                 set count [get_ports_cmd $of_schematic $name_expr $filter]
+            }
+            if {$count < 0} {
+                error "get_ports: invalid -filter expression - see the error above"
             }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_ports_at $i]

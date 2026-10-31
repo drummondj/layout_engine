@@ -7,6 +7,9 @@
 namespace hello
 {
     /// @brief This extension's per-session state.
+    /// @brief hello_ext's per-session state. The overlay (render thread),
+    /// the GUI and Tcl commands all use it, so it's always reached through
+    /// with_data<State>().
     struct State
     {
         int libraries_added = 0;
