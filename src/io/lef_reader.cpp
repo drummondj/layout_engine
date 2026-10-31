@@ -1,6 +1,7 @@
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include "lef_reader.hpp"
+#include "lefdef_lock.hpp"
 #include "read_rollback.hpp"
 #include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
@@ -14,13 +15,9 @@ namespace
     // userData (see lefrReader.hpp), so there's no way to route a
     // message straight to the LEFReader instance that's mid-read_lef();
     // this file-local buffer bridges that gap instead, moved into the
-    // instance's own messages_ right after lefrRead returns. thread_local
-    // (not just a plain static) so two different LeHandles calling
-    // read_lef concurrently on different threads can't corrupt each
-    // other's capture - though the vendored parser's own global callback
-    // registration (lefrSetLogFunction et al., process-wide state) is
-    // inherently single-parse-at-a-time regardless, a pre-existing
-    // property of this vendored library, not something this fixes.
+    // instance's own messages_ right after lefrRead returns. thread_local,
+    // so it belongs to the thread whose read holds lefdef_mutex() (the
+    // vendored parser's own state is process-wide).
     //
     // log_warning/log_error below (this class's own internal
     // diagnostics, as opposed to the vendored parser's own text captured
@@ -92,6 +89,7 @@ namespace le
 
     int LEFReader::read_lef(std::string filename, Root &root, std::string library_name)
     {
+        const std::lock_guard<std::mutex> lefdef_lock(lefdef_mutex());
         ReadRollback rollback(root);
         const int result = read_lef_contents(std::move(filename), root, std::move(library_name));
         if (result == 0)
