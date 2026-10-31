@@ -1,6 +1,7 @@
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include "lef_reader.hpp"
+#include "read_rollback.hpp"
 #include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include <cmath>
@@ -90,6 +91,15 @@ namespace le
     }
 
     int LEFReader::read_lef(std::string filename, Root &root, std::string library_name)
+    {
+        ReadRollback rollback(root);
+        const int result = read_lef_contents(std::move(filename), root, std::move(library_name));
+        if (result == 0)
+            rollback.commit();
+        return result;
+    }
+
+    int LEFReader::read_lef_contents(std::string filename, Root &root, std::string library_name)
     {
         const SaturateChangeLogOnExit bulk_load{root}; // writes through mutable pointers too
         spdlog::info("read_lef: reading '{}'...", filename);

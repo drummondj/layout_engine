@@ -29,6 +29,8 @@ namespace le
         const std::vector<std::string> &messages() const { return messages_; }
 
     private:
+        // read_def without the rollback: may return an error with objects created.
+        int read_def_contents(std::string filename, Root &root, std::string library_name);
         static int defrDesignCbkFn(defrCallbackType_e typ, const char *name, void *user_data);
         static int defrVersionCbkFn(defrCallbackType_e typ, double version, void *user_data);
         static int defrUnitsCbkFn(defrCallbackType_e typ, double units, void *user_data);
