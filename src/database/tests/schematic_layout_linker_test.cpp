@@ -251,12 +251,32 @@ TEST(SchematicLayoutLinker, ARecursiveHierarchyIsReportedInsteadOfRecursingForev
     EXPECT_EQ(placement_names(root, layout), (std::vector<std::string>{"u_b", "u_b/u_a"}));
     EXPECT_TRUE(has_message_containing(result.messages, "ERROR: link: Instance 'u_b/u_a' instantiates a design above it"));
 
-    // Renaming u_b propagates down to where the hierarchy recurses.
+    // Renaming u_b renames what is named below it.
     const InstanceId u_b = root.get_instance_by_name(sa, "u_b");
     ASSERT_TRUE(root.update_instance(u_b, SchematicId{}, std::nullopt, std::optional<std::string>("v_b"), std::nullopt, std::nullopt,
                                      std::nullopt, std::nullopt, std::nullopt));
     const auto ignore = [](auto, const auto &, const auto &) {};
-    const RenamePropagationResult renamed = propagate_instance_rename(root, u_b, ignore, ignore, ignore);
+    const RenamePlan plan = plan_instance_rename(root, u_b, "v_b");
+    EXPECT_TRUE(plan.clashes.empty());
+    const RenamePropagationResult renamed = apply_rename_plan(root, plan, ignore, ignore, ignore);
     EXPECT_EQ(renamed.placements_renamed, 2u);
     EXPECT_EQ(placement_names(root, layout), (std::vector<std::string>{"v_b", "v_b/u_a"}));
+}
+
+// A default Placement's name escapes its segments, so it resolves back to
+// its Instance, and a re-run finds it by that name.
+TEST(SchematicLayoutLinker, ADefaultPlacementEscapesItsNameAndIsNotRepeated)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+    const DesignId leaf = root.create_design(DesignData{.library = library, .name = "LEAF"});
+    const DesignId top = root.create_design(DesignData{.library = library, .name = "TOP"});
+    const SchematicId top_schematic = root.create_schematic(SchematicData{.design = top});
+    root.create_instance(InstanceData{.schematic = top_schematic, .name = "a/b", .reference_design = leaf});
+    const LayoutId layout = root.create_layout(LayoutData{.design = top});
+
+    EXPECT_EQ(link_physical(root).default_placements_created, 1u);
+    EXPECT_EQ(placement_names(root, layout), (std::vector<std::string>{"a\\/b"}));
+    EXPECT_EQ(link_physical(root).default_placements_created, 0u);
+    EXPECT_EQ(root.get_layout_placements(layout).size(), 1u);
 }
