@@ -20,7 +20,7 @@ namespace hello
             view.fail();
             return false;
         }
-        ++ctx.data<State>().libraries_added;
+        ctx.with_data<State>([](State &state) { ++state.libraries_added; });
         return true;
     }
 
@@ -57,19 +57,19 @@ namespace
     // hello_ext's section of settings.json: {"version": 1, "library_name": "..."}.
     nlohmann::json save_settings(le::ext::ExtensionContext &ctx)
     {
-        return {{"library_name", ctx.data<hello::State>().library_name}};
+        return {{"library_name", ctx.with_data<hello::State>([](const hello::State &state) { return state.library_name; })}};
     }
 
     void load_settings(le::ext::ExtensionContext &ctx, const nlohmann::json &section, int /*version*/)
     {
         if (section.contains("library_name") && section["library_name"].is_string())
-            ctx.data<hello::State>().library_name = section["library_name"].get<std::string>();
+            ctx.with_data<hello::State>([&](hello::State &state) { state.library_name = section["library_name"].get<std::string>(); });
     }
 
     // Marks the design's origin (0, 0) with a ring, when it's in view.
     void draw_origin(le::ext::OverlayContext &ctx)
     {
-        if (!ctx.data<hello::State>().show_origin)
+        if (!ctx.with_data<hello::State>([](const hello::State &state) { return state.show_origin; }))
             return;
         const le::Rect area = ctx.visible_area();
         if (area.ll.x > 0 || area.ll.y > 0 || area.ur.x < 0 || area.ur.y < 0)
