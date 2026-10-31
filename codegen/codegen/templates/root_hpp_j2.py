@@ -144,6 +144,9 @@ namespace {{schema.namespace}} {
         /// @brief Every recent mutation (ChangeLog's own doc comment).
         const ChangeLog &change_log() const { return change_log_; }
 
+        /// @brief The lookup indexes (child lists, by-name maps), read-only.
+        const Index &index() const { return index_; }
+
         /// @brief Mark everything as changed - for a bulk mutation that
         /// bypasses the generated create_/update_/delete_ calls.
         void saturate_change_log() { change_log_.saturate(); }
@@ -571,6 +574,15 @@ namespace {{schema.namespace}} {
     {%- endfor %}
 
     private:
+        // `id`'s place in a child list, or end(): the last child checked
+        // first, then a scan from the front.
+        template <class IdT>
+        static typename std::vector<IdT>::iterator find_child_(std::vector<IdT>& list, IdT id) {
+            if (!list.empty() && list.back() == id)
+                return list.end() - 1;
+            return std::find(list.begin(), list.end(), id);
+        }
+
         // Inserts `id` into a child list at `position`, or appends it if
         // there's none or the list is shorter.
         template <class IdT>
@@ -593,11 +605,10 @@ namespace {{schema.namespace}} {
             {
                 auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(d.{{field.accessor}});
                 if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end()) {
-                    // From the back: the newest child is the likeliest to
-                    // go (an undone create, a rolled-back read).
-                    const auto from_back = std::find(it->second.rbegin(), it->second.rend(), id);
-                    if (from_back != it->second.rend()) {
-                        const auto found = std::prev(from_back.base());
+                    // A cascade or a rolled-back read removes the newest child,
+                    // a loop over the list the oldest: both are found at once.
+                    const auto found = find_child_(it->second, id);
+                    if (found != it->second.end()) {
                         if (positions)
                             (*positions)[{{list_parents.index(field)}}] = static_cast<uint32_t>(found - it->second.begin());
                         it->second.erase(found);
@@ -619,6 +630,18 @@ namespace {{schema.namespace}} {
             }
             {%- elif field.index %}
             index_.{{klass.to_snake_case()}}_by_{{field.name}}.erase(d.{{field.name}});
+            {%- endif %}
+        {%- endfor %}
+        {%- for field in klass.get_ordered_fields() %}
+            {%- if field.is_child and field.is_list %}
+            // A deleted parent's own list keys go once its children have.
+            if (auto own = index_.{{klass.to_snake_case()}}_{{field.name}}.find(id); own != index_.{{klass.to_snake_case()}}_{{field.name}}.end() && own->second.empty())
+                index_.{{klass.to_snake_case()}}_{{field.name}}.erase(own);
+                {%- set child = field._child_klass %}
+                {%- if child and child.get_unique_per_parent_fields() and child.get_parent_fields() | length == 1 and child.get_parent_field().type == klass.name %}
+            if (auto bucket = index_.{{child.to_snake_case()}}_by_{{child.get_unique_per_parent_fields()[0].name}}.find(id); bucket != index_.{{child.to_snake_case()}}_by_{{child.get_unique_per_parent_fields()[0].name}}.end() && bucket->second.empty())
+                index_.{{child.to_snake_case()}}_by_{{child.get_unique_per_parent_fields()[0].name}}.erase(bucket);
+                {%- endif %}
             {%- endif %}
         {%- endfor %}
         }

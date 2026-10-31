@@ -1958,3 +1958,27 @@ Resolve time is within noise (the resolver still builds a heap `Path` per
 wire run for its cache, as before); peak RSS falls 9-23%. Rasterize is
 unchanged. Reading a Wire directly in the render cache, instead of copying it
 into `Path`s, is the next step for the resolver's memory.
+
+## 2026-10-30 — Linear cascade deletes (#239)
+
+`delete_benchmark` (`src/api/benchmarks/delete_benchmark.cpp`, new): one
+Layout with N Routes (and N Placements), deleted through the generated
+edit ops inside one recording transaction. Release, WSL2 Linux, GCC,
+`--benchmark_repetitions=5 --benchmark_report_aggregates_only=true`, means.
+
+| Benchmark | N | Before | After |
+|---|---|---|---|
+| BM_DeleteLayoutCascade | 10k | 15.0 ms | 3.22 ms |
+| BM_DeleteLayoutCascade | 40k | 210 ms | 16.6 ms |
+| BM_DeleteEveryRoute (oldest first) | 10k | 7.43 ms | 7.29 ms |
+| BM_DeleteEveryRoute (oldest first) | 40k | 107 ms | 105 ms |
+| BM_DeleteEveryOtherRoute | 10k | 9.04 ms | 8.97 ms |
+| BM_DeleteEveryOtherRoute | 40k | 139 ms | 137 ms |
+
+A cascade now deletes each level newest first, and a child-list removal
+checks the last element before scanning, so each child comes off the end
+of its parent's list: 4× the objects now costs 5× the time, not 14×.
+Single deletes in list order still cost O(list) each: the vector erase
+shifts what's after the child. A first try that scanned only from the
+back made oldest-first deletes 3.5× slower (375 ms at 40k), hence
+"last element, then from the front".

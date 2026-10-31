@@ -72,13 +72,14 @@ class TestEditOps(unittest.TestCase):
             self.assertNotIn(-1, positions, needles)
             self.assertEqual(positions, sorted(positions), needles)
 
-        # Collected before anything is deleted, then deleted deepest first;
-        # undo replays in reverse, restoring parents before children.
+        # Collected before anything is deleted, then deleted deepest first
+        # and newest first within a level (each child is then its parent's
+        # last); undo replays in reverse, restoring parents before children.
         in_order(
             "casc0_modules_ids",
             "casc1_instances_ids.push_back(child_id);",
-            "for (const le::InstanceId child_id : casc1_instances_ids)",
-            "for (const le::ModuleId child_id : casc0_modules_ids)",
+            "for (auto child = casc1_instances_ids.rbegin(); child != casc1_instances_ids.rend(); ++child)",
+            "for (auto child = casc0_modules_ids.rbegin(); child != casc0_modules_ids.rend(); ++child)",
             "le::editing::delete_object(handle.root, txn, design_id);",
         )
         self.assertNotIn("delete_instance(", body)
