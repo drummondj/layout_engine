@@ -197,5 +197,10 @@ int le_delete_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}Id id)
 {
 {{klass.delete_api_body()}}
 }
+
+int le_delete_{{klass.to_snake_case()}}_batch(LeHandle *handle, const Le{{klass.name}}Id *ids, int32_t count)
+{
+{{klass.delete_batch_api_body()}}
+}
 {% endfor %}
 """

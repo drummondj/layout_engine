@@ -441,223 +441,223 @@ Returns the current Technology (empty if none is set); with <id>, selects it fir
 
 ### delete_antenna_model
 
-`delete_antenna_model <id> [-help]`
+`delete_antenna_model <ids> [-help]`
 
-Deletes a AntennaModel and everything it owns.
+Deletes a AntennaModel, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the AntennaModel to delete |
+| `<ids>` | `token` | yes | Token of the AntennaModel to delete, or a list of them |
 
 ### delete_array_spacing
 
-`delete_array_spacing <id> [-help]`
+`delete_array_spacing <ids> [-help]`
 
-Deletes a ArraySpacing and everything it owns.
+Deletes a ArraySpacing, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the ArraySpacing to delete |
+| `<ids>` | `token` | yes | Token of the ArraySpacing to delete, or a list of them |
 
 ### delete_enclosure_entry
 
-`delete_enclosure_entry <id> [-help]`
+`delete_enclosure_entry <ids> [-help]`
 
-Deletes a EnclosureEntry and everything it owns.
+Deletes a EnclosureEntry, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the EnclosureEntry to delete |
+| `<ids>` | `token` | yes | Token of the EnclosureEntry to delete, or a list of them |
 
 ### delete_influence_spacing_entry
 
-`delete_influence_spacing_entry <id> [-help]`
+`delete_influence_spacing_entry <ids> [-help]`
 
-Deletes a InfluenceSpacingEntry and everything it owns.
+Deletes a InfluenceSpacingEntry, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the InfluenceSpacingEntry to delete |
+| `<ids>` | `token` | yes | Token of the InfluenceSpacingEntry to delete, or a list of them |
 
 ### delete_layer
 
-`delete_layer <id> [-help]`
+`delete_layer <ids> [-help]`
 
-Deletes a Layer and everything it owns.
+Deletes a Layer, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Layer to delete |
+| `<ids>` | `token` | yes | Token of the Layer to delete, or a list of them |
 
 ### delete_layer_density_entry
 
-`delete_layer_density_entry <id> [-help]`
+`delete_layer_density_entry <ids> [-help]`
 
-Deletes a LayerDensityEntry and everything it owns.
+Deletes a LayerDensityEntry, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the LayerDensityEntry to delete |
+| `<ids>` | `token` | yes | Token of the LayerDensityEntry to delete, or a list of them |
 
 ### delete_min_step
 
-`delete_min_step <id> [-help]`
+`delete_min_step <ids> [-help]`
 
-Deletes a MinStep and everything it owns.
+Deletes a MinStep, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the MinStep to delete |
+| `<ids>` | `token` | yes | Token of the MinStep to delete, or a list of them |
 
 ### delete_minimum_cut
 
-`delete_minimum_cut <id> [-help]`
+`delete_minimum_cut <ids> [-help]`
 
-Deletes a MinimumCut and everything it owns.
+Deletes a MinimumCut, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the MinimumCut to delete |
+| `<ids>` | `token` | yes | Token of the MinimumCut to delete, or a list of them |
 
 ### delete_non_default_rule
 
-`delete_non_default_rule <id> [-help]`
+`delete_non_default_rule <ids> [-help]`
 
-Deletes a NonDefaultRule and everything it owns.
+Deletes a NonDefaultRule, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the NonDefaultRule to delete |
+| `<ids>` | `token` | yes | Token of the NonDefaultRule to delete, or a list of them |
 
 ### delete_non_default_rule_layer
 
-`delete_non_default_rule_layer <id> [-help]`
+`delete_non_default_rule_layer <ids> [-help]`
 
-Deletes a NonDefaultRuleLayer and everything it owns.
+Deletes a NonDefaultRuleLayer, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the NonDefaultRuleLayer to delete |
+| `<ids>` | `token` | yes | Token of the NonDefaultRuleLayer to delete, or a list of them |
 
 ### delete_non_default_rule_via
 
-`delete_non_default_rule_via <id> [-help]`
+`delete_non_default_rule_via <ids> [-help]`
 
-Deletes a NonDefaultRuleVia and everything it owns.
+Deletes a NonDefaultRuleVia, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the NonDefaultRuleVia to delete |
+| `<ids>` | `token` | yes | Token of the NonDefaultRuleVia to delete, or a list of them |
 
 ### delete_prefer_enclosure_entry
 
-`delete_prefer_enclosure_entry <id> [-help]`
+`delete_prefer_enclosure_entry <ids> [-help]`
 
-Deletes a PreferEnclosureEntry and everything it owns.
+Deletes a PreferEnclosureEntry, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PreferEnclosureEntry to delete |
+| `<ids>` | `token` | yes | Token of the PreferEnclosureEntry to delete, or a list of them |
 
 ### delete_property_definition
 
-`delete_property_definition <id> [-help]`
+`delete_property_definition <ids> [-help]`
 
-Deletes a PropertyDefinition and everything it owns.
+Deletes a PropertyDefinition, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PropertyDefinition to delete |
+| `<ids>` | `token` | yes | Token of the PropertyDefinition to delete, or a list of them |
 
 ### delete_site
 
-`delete_site <id> [-help]`
+`delete_site <ids> [-help]`
 
-Deletes a Site and everything it owns.
+Deletes a Site, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Site to delete |
+| `<ids>` | `token` | yes | Token of the Site to delete, or a list of them |
 
 ### delete_spacing_rule
 
-`delete_spacing_rule <id> [-help]`
+`delete_spacing_rule <ids> [-help]`
 
-Deletes a SpacingRule and everything it owns.
+Deletes a SpacingRule, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the SpacingRule to delete |
+| `<ids>` | `token` | yes | Token of the SpacingRule to delete, or a list of them |
 
 ### delete_technology
 
-`delete_technology <id> [-help]`
+`delete_technology <ids> [-help]`
 
-Deletes a Technology and everything it owns.
+Deletes a Technology, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Technology to delete |
+| `<ids>` | `token` | yes | Token of the Technology to delete, or a list of them |
 
 ### delete_two_widths_spacing_entry
 
-`delete_two_widths_spacing_entry <id> [-help]`
+`delete_two_widths_spacing_entry <ids> [-help]`
 
-Deletes a TwoWidthsSpacingEntry and everything it owns.
+Deletes a TwoWidthsSpacingEntry, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the TwoWidthsSpacingEntry to delete |
+| `<ids>` | `token` | yes | Token of the TwoWidthsSpacingEntry to delete, or a list of them |
 
 ### delete_via
 
-`delete_via <id> [-help]`
+`delete_via <ids> [-help]`
 
-Deletes a Via and everything it owns.
+Deletes a Via, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Via to delete |
+| `<ids>` | `token` | yes | Token of the Via to delete, or a list of them |
 
 ### delete_via_layer
 
-`delete_via_layer <id> [-help]`
+`delete_via_layer <ids> [-help]`
 
-Deletes a ViaLayer and everything it owns.
+Deletes a ViaLayer, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the ViaLayer to delete |
+| `<ids>` | `token` | yes | Token of the ViaLayer to delete, or a list of them |
 
 ### delete_via_rule
 
-`delete_via_rule <id> [-help]`
+`delete_via_rule <ids> [-help]`
 
-Deletes a ViaRule and everything it owns.
+Deletes a ViaRule, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the ViaRule to delete |
+| `<ids>` | `token` | yes | Token of the ViaRule to delete, or a list of them |
 
 ### delete_via_rule_layer
 
-`delete_via_rule_layer <id> [-help]`
+`delete_via_rule_layer <ids> [-help]`
 
-Deletes a ViaRuleLayer and everything it owns.
+Deletes a ViaRuleLayer, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the ViaRuleLayer to delete |
+| `<ids>` | `token` | yes | Token of the ViaRuleLayer to delete, or a list of them |
 
 ### delete_via_rule_reference
 
-`delete_via_rule_reference <id> [-help]`
+`delete_via_rule_reference <ids> [-help]`
 
-Deletes a ViaRuleReference and everything it owns.
+Deletes a ViaRuleReference, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the ViaRuleReference to delete |
+| `<ids>` | `token` | yes | Token of the ViaRuleReference to delete, or a list of them |
 
 ### get_antenna_models
 
@@ -1446,83 +1446,83 @@ Returns the current Abstract (empty if none is set); with <id>, selects it first
 
 ### delete_abstract
 
-`delete_abstract <id> [-help]`
+`delete_abstract <ids> [-help]`
 
-Deletes a Abstract and everything it owns.
+Deletes a Abstract, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Abstract to delete |
+| `<ids>` | `token` | yes | Token of the Abstract to delete, or a list of them |
 
 ### delete_foreign
 
-`delete_foreign <id> [-help]`
+`delete_foreign <ids> [-help]`
 
-Deletes a Foreign and everything it owns.
+Deletes a Foreign, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Foreign to delete |
+| `<ids>` | `token` | yes | Token of the Foreign to delete, or a list of them |
 
 ### delete_macro_density_layer
 
-`delete_macro_density_layer <id> [-help]`
+`delete_macro_density_layer <ids> [-help]`
 
-Deletes a MacroDensityLayer and everything it owns.
+Deletes a MacroDensityLayer, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the MacroDensityLayer to delete |
+| `<ids>` | `token` | yes | Token of the MacroDensityLayer to delete, or a list of them |
 
 ### delete_macro_site_placement
 
-`delete_macro_site_placement <id> [-help]`
+`delete_macro_site_placement <ids> [-help]`
 
-Deletes a MacroSitePlacement and everything it owns.
+Deletes a MacroSitePlacement, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the MacroSitePlacement to delete |
+| `<ids>` | `token` | yes | Token of the MacroSitePlacement to delete, or a list of them |
 
 ### delete_obstruction
 
-`delete_obstruction <id> [-help]`
+`delete_obstruction <ids> [-help]`
 
-Deletes a Obstruction and everything it owns.
+Deletes a Obstruction, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Obstruction to delete |
+| `<ids>` | `token` | yes | Token of the Obstruction to delete, or a list of them |
 
 ### delete_pin_antenna_model
 
-`delete_pin_antenna_model <id> [-help]`
+`delete_pin_antenna_model <ids> [-help]`
 
-Deletes a PinAntennaModel and everything it owns.
+Deletes a PinAntennaModel, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PinAntennaModel to delete |
+| `<ids>` | `token` | yes | Token of the PinAntennaModel to delete, or a list of them |
 
 ### delete_terminal
 
-`delete_terminal <id> [-help]`
+`delete_terminal <ids> [-help]`
 
-Deletes a Terminal and everything it owns.
+Deletes a Terminal, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Terminal to delete |
+| `<ids>` | `token` | yes | Token of the Terminal to delete, or a list of them |
 
 ### delete_terminal_port
 
-`delete_terminal_port <id> [-help]`
+`delete_terminal_port <ids> [-help]`
 
-Deletes a TerminalPort and everything it owns.
+Deletes a TerminalPort, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the TerminalPort to delete |
+| `<ids>` | `token` | yes | Token of the TerminalPort to delete, or a list of them |
 
 ### get_abstracts
 
@@ -1951,123 +1951,123 @@ Returns the current Layout (empty if none is set); with <id>, selects it first. 
 
 ### delete_blockage
 
-`delete_blockage <id> [-help]`
+`delete_blockage <ids> [-help]`
 
-Deletes a Blockage and everything it owns.
+Deletes a Blockage, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Blockage to delete |
+| `<ids>` | `token` | yes | Token of the Blockage to delete, or a list of them |
 
 ### delete_g_cell_grid
 
-`delete_g_cell_grid <id> [-help]`
+`delete_g_cell_grid <ids> [-help]`
 
-Deletes a GCellGrid and everything it owns.
+Deletes a GCellGrid, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the GCellGrid to delete |
+| `<ids>` | `token` | yes | Token of the GCellGrid to delete, or a list of them |
 
 ### delete_layout
 
-`delete_layout <id> [-help]`
+`delete_layout <ids> [-help]`
 
-Deletes a Layout and everything it owns.
+Deletes a Layout, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Layout to delete |
+| `<ids>` | `token` | yes | Token of the Layout to delete, or a list of them |
 
 ### delete_layout_via
 
-`delete_layout_via <id> [-help]`
+`delete_layout_via <ids> [-help]`
 
-Deletes a LayoutVia and everything it owns.
+Deletes a LayoutVia, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the LayoutVia to delete |
+| `<ids>` | `token` | yes | Token of the LayoutVia to delete, or a list of them |
 
 ### delete_physical_port
 
-`delete_physical_port <id> [-help]`
+`delete_physical_port <ids> [-help]`
 
-Deletes a PhysicalPort and everything it owns.
+Deletes a PhysicalPort, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PhysicalPort to delete |
+| `<ids>` | `token` | yes | Token of the PhysicalPort to delete, or a list of them |
 
 ### delete_physical_port_segment
 
-`delete_physical_port_segment <id> [-help]`
+`delete_physical_port_segment <ids> [-help]`
 
-Deletes a PhysicalPortSegment and everything it owns.
+Deletes a PhysicalPortSegment, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PhysicalPortSegment to delete |
+| `<ids>` | `token` | yes | Token of the PhysicalPortSegment to delete, or a list of them |
 
 ### delete_placement
 
-`delete_placement <id> [-help]`
+`delete_placement <ids> [-help]`
 
-Deletes a Placement and everything it owns.
+Deletes a Placement, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Placement to delete |
+| `<ids>` | `token` | yes | Token of the Placement to delete, or a list of them |
 
 ### delete_region
 
-`delete_region <id> [-help]`
+`delete_region <ids> [-help]`
 
-Deletes a Region and everything it owns.
+Deletes a Region, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Region to delete |
+| `<ids>` | `token` | yes | Token of the Region to delete, or a list of them |
 
 ### delete_route
 
-`delete_route <id> [-help]`
+`delete_route <ids> [-help]`
 
-Deletes a Route and everything it owns.
+Deletes a Route, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Route to delete |
+| `<ids>` | `token` | yes | Token of the Route to delete, or a list of them |
 
 ### delete_row
 
-`delete_row <id> [-help]`
+`delete_row <ids> [-help]`
 
-Deletes a Row and everything it owns.
+Deletes a Row, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Row to delete |
+| `<ids>` | `token` | yes | Token of the Row to delete, or a list of them |
 
 ### delete_track
 
-`delete_track <id> [-help]`
+`delete_track <ids> [-help]`
 
-Deletes a Track and everything it owns.
+Deletes a Track, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Track to delete |
+| `<ids>` | `token` | yes | Token of the Track to delete, or a list of them |
 
 ### delete_wire
 
-`delete_wire <id> [-help]`
+`delete_wire <ids> [-help]`
 
-Deletes a Wire and everything it owns.
+Deletes a Wire, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Wire to delete |
+| `<ids>` | `token` | yes | Token of the Wire to delete, or a list of them |
 
 ### flip_placement
 
@@ -2546,13 +2546,13 @@ Returns the current Schematic (empty if none is set); with <id>, selects it firs
 
 ### delete_instance
 
-`delete_instance <id> [-help]`
+`delete_instance <ids> [-help]`
 
-Deletes a Instance and everything it owns.
+Deletes a Instance, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Instance to delete |
+| `<ids>` | `token` | yes | Token of the Instance to delete, or a list of them |
 
 ### delete_net
 
@@ -2566,53 +2566,53 @@ Deletes a net.
 
 ### delete_net_bus
 
-`delete_net_bus <id> [-help]`
+`delete_net_bus <ids> [-help]`
 
-Deletes a NetBus and everything it owns.
+Deletes a NetBus, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the NetBus to delete |
+| `<ids>` | `token` | yes | Token of the NetBus to delete, or a list of them |
 
 ### delete_pin
 
-`delete_pin <id> [-help]`
+`delete_pin <ids> [-help]`
 
-Deletes a Pin and everything it owns.
+Deletes a Pin, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Pin to delete |
+| `<ids>` | `token` | yes | Token of the Pin to delete, or a list of them |
 
 ### delete_port
 
-`delete_port <id> [-help]`
+`delete_port <ids> [-help]`
 
-Deletes a Port and everything it owns.
+Deletes a Port, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Port to delete |
+| `<ids>` | `token` | yes | Token of the Port to delete, or a list of them |
 
 ### delete_port_bus
 
-`delete_port_bus <id> [-help]`
+`delete_port_bus <ids> [-help]`
 
-Deletes a PortBus and everything it owns.
+Deletes a PortBus, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the PortBus to delete |
+| `<ids>` | `token` | yes | Token of the PortBus to delete, or a list of them |
 
 ### delete_schematic
 
-`delete_schematic <id> [-help]`
+`delete_schematic <ids> [-help]`
 
-Deletes a Schematic and everything it owns.
+Deletes a Schematic, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Schematic to delete |
+| `<ids>` | `token` | yes | Token of the Schematic to delete, or a list of them |
 
 ### get_instances
 
@@ -3597,33 +3597,33 @@ Returns a description of a database file written by write_db: its schema version
 
 ### delete_design
 
-`delete_design <id> [-help]`
+`delete_design <ids> [-help]`
 
-Deletes a Design and everything it owns.
+Deletes a Design, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Design to delete |
+| `<ids>` | `token` | yes | Token of the Design to delete, or a list of them |
 
 ### delete_library
 
-`delete_library <id> [-help]`
+`delete_library <ids> [-help]`
 
-Deletes a Library and everything it owns.
+Deletes a Library, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Library to delete |
+| `<ids>` | `token` | yes | Token of the Library to delete, or a list of them |
 
 ### delete_shape
 
-`delete_shape <id> [-help]`
+`delete_shape <ids> [-help]`
 
-Deletes a Shape and everything it owns.
+Deletes a Shape, or a list of them, and everything they own.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `<id>` | `token` | yes | Token of the Shape to delete |
+| `<ids>` | `token` | yes | Token of the Shape to delete, or a list of them |
 
 ### get_designs
 

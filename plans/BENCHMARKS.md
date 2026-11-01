@@ -1982,3 +1982,24 @@ Single deletes in list order still cost O(list) each: the vector erase
 shifts what's after the child. A first try that scanned only from the
 back made oldest-first deletes 3.5× slower (375 ms at 40k), hence
 "last element, then from the front".
+
+## 2026-11-01 — Batch deletes (#239)
+
+`delete_benchmark` gains `delete_route_batch` cases (what `delete_route
+$list` and the GUI's selection delete now run): one pass per child list
+the batch leaves instead of one shift per object. Same setup as above.
+
+| Benchmark | N | Mean |
+|---|---|---|
+| BM_DeleteEveryRoute (one at a time) | 40k | 106 ms |
+| BM_DeleteEveryRouteBatch | 10k | 2.18 ms |
+| BM_DeleteEveryRouteBatch | 40k | 10.6 ms |
+| BM_DeleteEveryOtherRoute (one at a time) | 40k | 137 ms |
+| BM_DeleteEveryOtherRouteBatch | 10k | 1.24 ms |
+| BM_DeleteEveryOtherRouteBatch | 40k | 6.20 ms |
+| BM_UndoDeleteEveryOtherRouteBatch | 10k | 0.786 ms |
+| BM_UndoDeleteEveryOtherRouteBatch | 40k | 3.58 ms |
+
+4× the objects costs 5× the time (hash-set lookups leave cache), against
+14-15× one at a time. Undo restores each list with one merge.
+Single deletes and the cascade are unchanged (106 ms, 16.4 ms at 40k).

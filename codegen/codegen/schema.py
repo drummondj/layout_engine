@@ -1540,7 +1540,7 @@ class Klass:
         else:
             cascade_note = ""
         return (
-            f"delete_{self.to_snake_case()} <id> \\[-help\\] - "
+            f"delete_{self.to_snake_case()} <ids> \\[-help\\] - "
             f"{self.tcl_description_escaped()}.{cascade_note}"
         )
 
@@ -1552,8 +1552,8 @@ class Klass:
         usual `-help` entry itself, same as every other family's own
         registration call).
         """
-        desc = f"Token of the {self.name} to delete"
-        return f"{{<id> {{type token required 1 description {{{tcl_brace_escape(desc)}}}}}}}"
+        desc = f"Token of the {self.name} to delete, or a list of them"
+        return f"{{<ids> {{type token required 1 description {{{tcl_brace_escape(desc)}}}}}}}"
 
     def tcl_property_scalars(self) -> str:
         """
@@ -1955,6 +1955,27 @@ class Klass:
             ]
         )
 
+    def delete_batch_api_body(self) -> str:
+        """
+        The full statement-list body of le_delete_<type>_batch(LeHandle
+        *handle, const Le<Klass>Id *ids, int32_t count): locks and calls
+        le::edit::delete_<type>_batch (delete_batch_op_body()). Returns 1,
+        without logging, if any id is unknown.
+        """
+        snake = self.to_snake_case()
+        return "\n".join(
+            [
+                "        if (!handle || count < 0 || (count > 0 && !ids))",
+                "            return 1;",
+                f"        std::vector<le::{self.name}Id> native;",
+                "        native.reserve(static_cast<size_t>(count));",
+                "        for (int32_t i = 0; i < count; ++i)",
+                "            native.push_back(from_c(ids[i]));",
+                "        HandleWriteLock lock(handle);  // writer - mutates Root",
+                f"        return le::edit::delete_{snake}_batch(*handle, native) ? 0 : 1;",
+            ]
+        )
+
     def delete_op_body(self) -> str:
         """
         The statement-list body of le::edit::delete_<type>(LeHandle &handle,
@@ -1976,6 +1997,22 @@ class Klass:
         parent is restored before its children, and each child goes back
         at its own id and list position.
         """
+        return self._delete_body(batch=False)
+
+    def delete_batch_op_body(self) -> str:
+        """
+        The statement-list body of le::edit::delete_<type>_batch(LeHandle
+        &handle, std::span<const <Klass>Id> ids): delete_op_body()'s
+        cascade for many objects at once. Every id must exist (nothing is
+        deleted otherwise); repeats are ignored. Each level, and the ids
+        themselves, go through le::editing::delete_objects as one batch,
+        so each child list they leave is compacted once rather than
+        shifted per object - linear in the objects deleted plus the lists
+        they were in.
+        """
+        return self._delete_body(batch=True)
+
+    def _delete_body(self, batch: bool) -> str:
         indent = "        "
         lines: List[str] = []
 
@@ -1985,9 +2022,14 @@ class Klass:
         snake = self.to_snake_case()
         root_fields = self.tcl_child_list_fields()
 
-        add(f"const le::{self.name}Id {snake}_id = id;")
-        add(f"if (!handle.root.get_{snake}({snake}_id))")
-        add('    return std::unexpected("unknown id");')
+        if batch:
+            add(f"for (const le::{self.name}Id {snake}_id : ids)")
+            add(f"    if (!handle.root.get_{snake}({snake}_id))")
+            add('        return std::unexpected("unknown id");')
+        else:
+            add(f"const le::{self.name}Id {snake}_id = id;")
+            add(f"if (!handle.root.get_{snake}({snake}_id))")
+            add('    return std::unexpected("unknown id");')
         add("le::editing::Transaction *txn = handle.command_history.current();")
 
         # `levels` ends up deepest-first: plan_edge() recurses into a
@@ -2019,15 +2061,20 @@ class Klass:
             levels.append({"type": fld.type, "ids_var": ids_var})
 
         for fld in root_fields:
-            plan_edge(self, fld, f"{snake}_id", True)
+            plan_edge(self, fld, "ids" if batch else f"{snake}_id", not batch)
 
-        # Newest first within each level: each child is then its parent's
-        # last, so taking it off the parent's list is O(1).
         add()
-        for level in levels:
-            add(f"for (auto child = {level['ids_var']}.rbegin(); child != {level['ids_var']}.rend(); ++child)")
-            add("    le::editing::delete_object(handle.root, txn, *child);")
-        add(f"const bool deleted = le::editing::delete_object(handle.root, txn, {snake}_id);")
+        if batch:
+            for level in levels:
+                add(f"le::editing::delete_objects(handle.root, txn, std::span<const le::{level['type']}Id>({level['ids_var']}));")
+            add("const bool deleted = le::editing::delete_objects(handle.root, txn, ids) > 0 || ids.empty();")
+        else:
+            # Newest first within each level: each child is then its
+            # parent's last, so taking it off the parent's list is O(1).
+            for level in levels:
+                add(f"for (auto child = {level['ids_var']}.rbegin(); child != {level['ids_var']}.rend(); ++child)")
+                add("    le::editing::delete_object(handle.root, txn, *child);")
+            add(f"const bool deleted = le::editing::delete_object(handle.root, txn, {snake}_id);")
         add("handle.root.bump_mutation_version();")
         add("if (!deleted)")
         add('    return std::unexpected("delete failed");')

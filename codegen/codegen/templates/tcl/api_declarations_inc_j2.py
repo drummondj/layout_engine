@@ -156,8 +156,12 @@ int le_update_{{klass.to_snake_case()}}(LeHandle *handle, {{klass.update_api_par
 // undo/redo ordering it depends on) - a class with no such fields (most
 // of the ~35) gets a trivial, non-cascading delete instead. Returns 0 on
 // success, nonzero if handle is null or id doesn't name a live object of
-// this class on this handle. ---
+// this class on this handle. le_delete_<type>_batch deletes `count`
+// ids at once, all or nothing (nonzero, nothing deleted, if any is
+// unknown), in time linear in the objects and the child lists they
+// leave; one undo step. ---
 {% for klass in classes %}
 int le_delete_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}Id id);
+int le_delete_{{klass.to_snake_case()}}_batch(LeHandle *handle, const Le{{klass.name}}Id *ids, int32_t count);
 {% endfor %}
 """

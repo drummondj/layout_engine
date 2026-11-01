@@ -4,6 +4,9 @@
 //  - BM_DeleteEveryRoute: every Route of one Layout, oldest first.
 //  - BM_DeleteEveryOtherRoute: half of them, scattered through the list.
 //  - BM_DeleteLayoutCascade: delete_layout over N Routes and N Placements.
+//  - BM_Delete*Batch: the same Routes through one delete_route_batch, as
+//    `delete_route $list` does.
+//  - BM_UndoDeleteEveryOtherRouteBatch: undoing that batch.
 //
 // Each runs inside one recording transaction, as one typed command would.
 // The time per object should stay flat as N grows; a quadratic child-list
@@ -76,6 +79,46 @@ namespace
         });
     }
 
+    std::vector<RouteId> every_other(const Design &d)
+    {
+        std::vector<RouteId> ids;
+        for (size_t i = 0; i < d.routes.size(); i += 2)
+            ids.push_back(d.routes[i]);
+        return ids;
+    }
+
+    void BM_DeleteEveryRouteBatch(benchmark::State &state)
+    {
+        run(state, [](Design &d) { benchmark::DoNotOptimize(edit::delete_route_batch(*d.handle, d.routes)); });
+    }
+
+    void BM_DeleteEveryOtherRouteBatch(benchmark::State &state)
+    {
+        run(state, [](Design &d) {
+            const std::vector<RouteId> ids = every_other(d);
+            benchmark::DoNotOptimize(edit::delete_route_batch(*d.handle, ids));
+        });
+    }
+
+    void BM_UndoDeleteEveryOtherRouteBatch(benchmark::State &state)
+    {
+        for (auto _ : state)
+        {
+            state.PauseTiming();
+            auto design = std::make_unique<Design>(state.range(0));
+            design->handle->command_history.begin("delete");
+            const std::vector<RouteId> ids = every_other(*design);
+            benchmark::DoNotOptimize(edit::delete_route_batch(*design->handle, ids));
+            design->handle->command_history.end(true);
+            state.ResumeTiming();
+            benchmark::DoNotOptimize(design->handle->command_history.undo());
+            state.PauseTiming();
+            design.reset();
+            state.ResumeTiming();
+        }
+        state.SetItemsProcessed(state.iterations() * state.range(0));
+    }
+
     void BM_DeleteLayoutCascade(benchmark::State &state)
     {
         run(state, [](Design &d) { benchmark::DoNotOptimize(edit::delete_layout(*d.handle, d.layout)); });
@@ -84,6 +127,9 @@ namespace
 
 BENCHMARK(BM_DeleteEveryRoute)->Arg(10'000)->Arg(40'000)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_DeleteEveryOtherRoute)->Arg(10'000)->Arg(40'000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_DeleteEveryRouteBatch)->Arg(10'000)->Arg(40'000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_DeleteEveryOtherRouteBatch)->Arg(10'000)->Arg(40'000)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_UndoDeleteEveryOtherRouteBatch)->Arg(10'000)->Arg(40'000)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_DeleteLayoutCascade)->Arg(10'000)->Arg(40'000)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

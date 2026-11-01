@@ -1,9 +1,13 @@
-// The generated le::edit create and update ops: a refused edit changes
-// nothing and records nothing.
+// The generated le::edit create, update and delete ops: a refused edit
+// changes nothing and records nothing; deletes keep child lists in order
+// through undo and redo.
 
 #include "../edit_ops.hpp"
 #include "../le_handle.hpp"
 #include <gtest/gtest.h>
+
+#include <algorithm>
+#include <span>
 
 using namespace le;
 
@@ -194,4 +198,102 @@ TEST(EditOpsDelete, DeletingChildrenInAnyOrderMatchesTheCascade)
         EXPECT_EQ(d->root.index().route_wires.size(), cascade.root.index().route_wires.size());
     }
     EXPECT_TRUE(cascade.root.index().route_wires.empty());
+}
+
+TEST(EditOpsDelete, ABatchKeepsTheRestInOrderAndUndoAndRedoRoundTrip)
+{
+    BigLayout d(30);
+    const std::vector<RouteId> all = d.root.get_layout_routes(d.layout);
+    const std::vector<std::string> names = d.route_names();
+    // Unsorted, with a repeat: every third route.
+    std::vector<RouteId> doomed;
+    for (size_t i = 0; i < all.size(); i += 3)
+        doomed.insert(doomed.begin(), all[i]);
+    doomed.push_back(all[3]);
+    std::vector<RouteId> kept;
+    for (size_t i = 0; i < all.size(); ++i)
+        if (i % 3 != 0)
+            kept.push_back(all[i]);
+
+    d.handle.command_history.begin("delete routes");
+    ASSERT_TRUE(edit::delete_route_batch(d.handle, doomed));
+    d.handle.command_history.end(true);
+    EXPECT_EQ(d.root.get_layout_routes(d.layout), kept);
+    EXPECT_EQ(d.root.get_wire_ids().size(), kept.size()); // each route's wire went with it
+    EXPECT_FALSE(d.root.get_route(all[0]));
+    EXPECT_FALSE(d.root.index().route_wires.contains(all[0]));
+    EXPECT_FALSE(d.root.get_route_by_name(d.layout, "n3").valid());
+
+    ASSERT_TRUE(d.handle.command_history.undo().replayed);
+    EXPECT_EQ(d.root.get_layout_routes(d.layout), all); // same ids, same order
+    EXPECT_EQ(d.route_names(), names);
+    EXPECT_EQ(d.root.get_route_by_name(d.layout, "n3"), all[3]);
+    EXPECT_EQ(d.root.get_route_wires(all[0]).size(), 1u);
+
+    ASSERT_TRUE(d.handle.command_history.redo().replayed);
+    EXPECT_EQ(d.root.get_layout_routes(d.layout), kept);
+    ASSERT_TRUE(d.handle.command_history.undo().replayed);
+    EXPECT_EQ(d.root.get_layout_routes(d.layout), all);
+}
+
+TEST(EditOpsDelete, ABatchWithAnUnknownIdDeletesNothing)
+{
+    BigLayout d(5);
+    const std::vector<RouteId> all = d.root.get_layout_routes(d.layout);
+    const std::vector<RouteId> doomed{all[1], RouteId{999, 0}};
+    EXPECT_FALSE(edit::delete_route_batch(d.handle, doomed));
+    EXPECT_EQ(d.root.get_layout_routes(d.layout), all);
+}
+
+TEST(EditOpsDelete, ABatchRetiresItsIdsUntilTheStepLeavesTheHistory)
+{
+    BigLayout d(4);
+    const std::vector<RouteId> all = d.root.get_layout_routes(d.layout);
+    d.handle.command_history.begin("delete routes");
+    ASSERT_TRUE(edit::delete_route_batch(d.handle, all));
+    d.handle.command_history.end(true);
+
+    // A create can't take a slot undo still needs.
+    const RouteId fresh = d.root.create_route(RouteData{.layout = d.layout, .name = "fresh"});
+    for (const RouteId id : all)
+        EXPECT_NE(fresh.index, id.index);
+    ASSERT_TRUE(d.root.delete_route(fresh));
+
+    d.handle.command_history.clear_undo_redo();
+    const RouteId reused = d.root.create_route(RouteData{.layout = d.layout, .name = "reused"});
+    EXPECT_TRUE(std::ranges::any_of(all, [&](RouteId id) { return id.index == reused.index; }));
+}
+
+TEST(RootBatch, RestoresEachOwnerKindsListInPlace)
+{
+    BigLayout d(3);
+    // Shapes interleaved between two owner kinds.
+    std::vector<ShapeId> route_shapes, free_shapes;
+    for (int i = 0; i < 6; ++i)
+    {
+        route_shapes.push_back(d.root.create_shape(ShapeData{.owner = ShapeOwner::route(d.routes[0])}));
+        free_shapes.push_back(d.root.create_shape(ShapeData{.owner = ShapeOwner::in_layout(d.layout)}));
+    }
+    const std::vector<ShapeId> doomed{free_shapes[4], route_shapes[1], free_shapes[0], route_shapes[5], route_shapes[2]};
+
+    auto retired = d.root.retire_batch(std::span<const ShapeId>(doomed));
+    ASSERT_EQ(retired.size(), doomed.size());
+    EXPECT_EQ(d.root.get_route_shapes(d.routes[0]), (std::vector<ShapeId>{route_shapes[0], route_shapes[3], route_shapes[4]}));
+    EXPECT_EQ(d.root.get_layout_free_shapes(d.layout), (std::vector<ShapeId>{free_shapes[1], free_shapes[2], free_shapes[3], free_shapes[5]}));
+
+    ASSERT_TRUE(d.root.restore_batch(retired));
+    EXPECT_EQ(d.root.get_route_shapes(d.routes[0]), route_shapes);
+    EXPECT_EQ(d.root.get_layout_free_shapes(d.layout), free_shapes);
+}
+
+TEST(RootBatch, ARestoreThatWouldClashChangesNothing)
+{
+    BigLayout d(3);
+    const std::vector<RouteId> all = d.root.get_layout_routes(d.layout);
+    auto retired = d.root.retire_batch(std::span<const RouteId>(all));
+    const RouteId taken = d.root.create_route(RouteData{.layout = d.layout, .name = "n2"});
+
+    EXPECT_FALSE(d.root.restore_batch(retired));
+    EXPECT_EQ(d.root.get_layout_routes(d.layout), std::vector<RouteId>{taken});
+    EXPECT_FALSE(d.root.get_route(all[0]));
 }

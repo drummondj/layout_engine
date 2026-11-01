@@ -2,6 +2,7 @@
 #include "command.hpp"
 #include "../database/database.hpp"
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,6 +42,13 @@ namespace le::editing
         void record_delete(IdT id, RetiredOf<IdT> retired)
         {
             steps_.push_back(std::make_unique<DeleteCommand<IdT>>(id, std::move(retired)));
+        }
+
+        /// @brief Record a Root::retire_batch result as one step.
+        template <typename IdT>
+        void record_batch_delete(RetiredBatchOf<IdT> retired)
+        {
+            steps_.push_back(std::make_unique<BatchDeleteCommand<IdT>>(std::move(retired)));
         }
 
         /// @brief Undo every step, last first. Returns how many failed.
@@ -87,5 +95,20 @@ namespace le::editing
             return false;
         txn->record_delete(id, std::move(*retired));
         return true;
+    }
+
+    /// @brief delete_object for many objects of one class, linear in the
+    /// objects and the child lists they leave; recorded as one step.
+    /// Skips ids that don't exist or repeat. Returns how many were deleted.
+    template <typename IdT>
+    size_t delete_objects(Root &root, Transaction *txn, std::span<const IdT> ids)
+    {
+        if (!txn)
+            return root.erase_batch(ids);
+        auto retired = root.retire_batch(ids);
+        const size_t deleted = retired.size();
+        if (deleted)
+            txn->record_batch_delete<IdT>(std::move(retired));
+        return deleted;
     }
 }

@@ -2,7 +2,9 @@
 #include "../database/database.hpp"
 #include <functional>
 #include <optional>
+#include <span>
 #include <utility>
+#include <vector>
 
 /// @brief Undo/redo command primitives. An object keeps its id across
 /// undo and redo: a recorded delete retires the object (Root::retire, its
@@ -14,6 +16,10 @@ namespace le::editing
     /// @brief What Root::retire returns for `IdT`'s class.
     template <typename IdT>
     using RetiredOf = typename decltype(std::declval<Root &>().retire(std::declval<IdT>()))::value_type;
+
+    /// @brief What Root::retire_batch returns for `IdT`'s class.
+    template <typename IdT>
+    using RetiredBatchOf = decltype(std::declval<Root &>().retire_batch(std::declval<std::span<const IdT>>()));
 
     class ICommand
     {
@@ -111,5 +117,51 @@ namespace le::editing
     private:
         IdT id_;
         std::optional<RetiredOf<IdT>> retired_; // set while done
+    };
+
+    /// @brief DeleteCommand for many objects of one class, retired and
+    /// restored together (Root::retire_batch/restore_batch) so undo and
+    /// redo stay linear in the objects and the child lists they leave.
+    template <typename IdT>
+    class BatchDeleteCommand : public ICommand
+    {
+    public:
+        explicit BatchDeleteCommand(RetiredBatchOf<IdT> retired) : retired_(std::move(retired))
+        {
+            ids_.reserve(retired_.size());
+            for (const auto &entry : retired_)
+                ids_.push_back(entry.first);
+        }
+
+        bool undo(Root &root) override
+        {
+            if (!done_ || !root.restore_batch(retired_))
+                return false;
+            retired_.clear();
+            done_ = false;
+            return true;
+        }
+
+        bool redo(Root &root) override
+        {
+            if (done_)
+                return false;
+            retired_ = root.retire_batch(std::span<const IdT>(ids_));
+            done_ = true;
+            return retired_.size() == ids_.size();
+        }
+
+        void release(Root &root) override
+        {
+            if (!done_)
+                return;
+            for (const auto &entry : retired_)
+                root.release(entry.first);
+        }
+
+    private:
+        std::vector<IdT> ids_;
+        RetiredBatchOf<IdT> retired_; // filled while done
+        bool done_ = true;
     };
 }
