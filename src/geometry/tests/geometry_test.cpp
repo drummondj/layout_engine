@@ -1,4 +1,5 @@
 #include "../geometry.hpp"
+#include "../placement_geometry.hpp"
 #include <gtest/gtest.h>
 #include <tuple>
 
@@ -1552,4 +1553,42 @@ TEST(GeometryExpandIterates, SkipsAnIterateWhoseElementCountExceedsTheCap)
     const ShapeData expanded = Geometry::expand_iterates(shape);
     EXPECT_EQ(expanded.rects.size(), 6u);
     EXPECT_TRUE(expanded.rect_iterates.empty());
+}
+
+// LEF MACRO ORIGIN: the macro is shifted by ORIGIN before its box's
+// lower-left corner is aligned with the placement point.
+TEST(PlacementGeometry, AMacroOriginShiftsThePlacedContent)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "lib"});
+    const DesignId cell = root.create_design(DesignData{.library = library, .name = "CELL"});
+    // ORIGIN (1000, 2000), SIZE 10000 x 10000: the box spans
+    // (-1000, -2000)..(9000, 8000) in the macro's own coordinates.
+    const AbstractId abstract =
+        root.create_abstract(AbstractData{.design = cell, .size = Point{10000, 10000}, .origin = Point{1000, 2000}});
+    const Rect box = abstract_declared_bbox(root, abstract);
+    EXPECT_EQ(box.ll.x, -1000);
+    EXPECT_EQ(box.ll.y, -2000);
+    EXPECT_EQ(box.ur.x, 9000);
+    EXPECT_EQ(box.ur.y, 8000);
+
+    const DesignId top = root.create_design(DesignData{.library = library, .name = "TOP"});
+    const LayoutId layout = root.create_layout(LayoutData{.design = top});
+    for (const Orientation orientation : {Orientation::N, Orientation::S, Orientation::FS, Orientation::E})
+    {
+        SCOPED_TRACE(static_cast<int>(orientation));
+        const PlacementId placement = root.create_placement(PlacementData{.layout = layout, .name = "u" + std::to_string(static_cast<int>(orientation)),
+                                                                          .reference_design = cell, .location = Point{50000, 50000}, .orientation = orientation});
+        const std::optional<Rect> world = placement_world_bbox(root, placement, 0);
+        ASSERT_TRUE(world.has_value());
+        EXPECT_EQ(world->ll.x, 50000);
+        EXPECT_EQ(world->ll.y, 50000);
+    }
+
+    // Unrotated, a pin at the macro's own (-1000, -2000) corner lands on
+    // the placement point.
+    const Geometry::InstanceTransform transform = Geometry::instance_transform(Orientation::N, box, Point{50000, 50000});
+    const Point corner = Geometry::apply_linear(transform.linear, Point{-1000, -2000});
+    EXPECT_EQ(corner.x + transform.translation.x, 50000);
+    EXPECT_EQ(corner.y + transform.translation.y, 50000);
 }

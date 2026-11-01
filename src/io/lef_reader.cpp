@@ -288,17 +288,12 @@ namespace le
         }
         if (!did_use_overlap)
         {
-            // Use size and origin to determine boundary - value_or(Point{})
-            // since both are now optional (unset if the LEF file never had
-            // a MACRO ORIGIN/SIZE statement), same zero-point fallback this
-            // computation already used implicitly before they were optional.
+            // The SIZE box in the macro's own coordinates: LEF shifts a
+            // macro by ORIGIN before placing it, so it spans {-ORIGIN,
+            // SIZE - ORIGIN} (abstract_declared_bbox). Either may be unset.
             const Point origin = reader->abstract_data_.origin.value_or(Point{});
             const Point size = reader->abstract_data_.size.value_or(Point{});
-            Rect bbox;
-            bbox.ll.x = origin.x;
-            bbox.ll.y = origin.y;
-            bbox.ur.x = origin.x + size.x;
-            bbox.ur.y = origin.y + size.y;
+            const Rect bbox{.ll = Point{-origin.x, -origin.y}, .ur = Point{size.x - origin.x, size.y - origin.y}};
             boundary_polygons.push_back(Geometry::rect_to_polygon(bbox));
         }
 

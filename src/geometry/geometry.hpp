@@ -381,12 +381,10 @@ namespace le
         /// orientation is applied").
         ///
         /// `local_bbox` is the instance's own untransformed content bbox
-        /// in its own raw dbu coordinates - AbstractData.size-derived
-        /// {ll=(0,0), ur=size} for an Abstract-backed Design
-        /// (AbstractData.origin is deliberately NOT applied here - a
-        /// known, accepted gap, no ORIGIN-bearing test data driving it
-        /// yet), or Geometry::bbox(the Layout's own diearea Shape) for a
-        /// Layout-backed Design (which can have a non-zero ll).
+        /// in its own raw dbu coordinates - abstract_declared_bbox's
+        /// {-origin, size - origin} for an Abstract-backed Design (LEF
+        /// MACRO ORIGIN), or Geometry::bbox(the Layout's own diearea
+        /// Shape) for a Layout-backed Design. Either can have a non-zero ll.
         struct InstanceTransform
         {
             LinearTransform2D linear;

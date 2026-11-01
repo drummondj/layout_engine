@@ -1,5 +1,6 @@
 #include "../../database/library_helpers.hpp"
 #include "../lef_reader.hpp"
+#include "../../geometry/geometry.hpp"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -220,6 +221,27 @@ TEST_F(LEFReaderCompleteFixture, ConvertsMacroSizeAndOriginToDbu)
     EXPECT_EQ(boundary.points[0].y, 0);
     EXPECT_EQ(boundary.points[2].x, 1344000);
     EXPECT_EQ(boundary.points[2].y, 480000);
+}
+
+TEST_F(LEFReaderCompleteFixture, AMacroOriginShiftsItsSizeBoundary)
+{
+    // MACRO CHK3A: ORIGIN 0.9 0.9, SIZE 10.8 BY 28.8, no OVERLAP; 20000
+    // dbu/um. LEF shifts the macro by ORIGIN before placing it, so its box
+    // spans -ORIGIN .. SIZE - ORIGIN in its own coordinates.
+    const AbstractId abstract_id = root.get_design_abstract(find_design_by_name(root, "CHK3A"));
+    const AbstractData *abstract = root.get_abstract(abstract_id);
+    ASSERT_NE(abstract, nullptr);
+    ASSERT_TRUE(abstract->origin.has_value());
+    EXPECT_EQ(abstract->origin->x, 18000);
+    EXPECT_EQ(abstract->origin->y, 18000);
+    const ShapeData *boundary = root.get_shape(root.get_abstract_boundary(abstract_id));
+    ASSERT_NE(boundary, nullptr);
+    const std::optional<Rect> box = Geometry::bbox(*boundary);
+    ASSERT_TRUE(box.has_value());
+    EXPECT_EQ(box->ll.x, -18000);
+    EXPECT_EQ(box->ll.y, -18000);
+    EXPECT_EQ(box->ur.x, 216000 - 18000);
+    EXPECT_EQ(box->ur.y, 576000 - 18000);
 }
 
 TEST_F(LEFReaderCompleteFixture, CreatesPinsWithPortShapes)

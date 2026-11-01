@@ -136,11 +136,9 @@ namespace le
     ///   - `location`/`orientation` are the placement's own raw DEF-level
     ///     placement point and orientation - still meaningful in their own
     ///     right (e.g. a Hot-tier inspector showing a placement's nominal
-    ///     origin) independent of the derived `bbox`/`transform`, and
-    ///     `location`/`bbox.ll` only coincide today because
-    ///     AbstractData.origin isn't applied yet (geometry/placement_geometry.hpp's
-    ///     own resolved_local_bbox comment) - once it is, they can
-    ///     genuinely differ.
+    ///     origin) independent of the derived `bbox`/`transform`.
+    ///     `location` is `bbox.ll`: the placed box's lower-left corner,
+    ///     after a LEF MACRO ORIGIN shift.
     struct ViewPlacementData
     {
         HierarchyId id;
