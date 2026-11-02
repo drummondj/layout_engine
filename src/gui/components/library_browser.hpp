@@ -1,8 +1,15 @@
 #pragma once
 
+#include "api.hpp"
+
 namespace le::gui
 {
     class GuiProvider;
+
+    /// @brief Whether the Browser lists `design` under `filter`: a design
+    /// with neither an Abstract nor a Layout only when
+    /// `show_designs_without_views`.
+    bool design_shown_in_browser(const LeDesignInfo &design, const char *filter, bool show_designs_without_views);
 
     // A filterable Library -> Design -> {Abstract, Layout} tree, backing
     // the "Browser" dock panel (le_gui.cpp). Clicking a Design row only

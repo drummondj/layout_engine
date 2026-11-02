@@ -112,9 +112,23 @@ namespace le::gui
         }
     }
 
+    bool design_shown_in_browser(const LeDesignInfo &design, const char *filter, bool show_designs_without_views)
+    {
+        const bool has_abstract = design.abstract_id.index != UINT32_MAX;
+        const bool has_layout = design.layout_id.index != UINT32_MAX;
+        if (!has_abstract && !has_layout && !show_designs_without_views)
+            return false;
+        return design_matches_filter(design, filter, has_abstract, has_layout);
+    }
+
     void draw_library_browser(GuiProvider &provider)
     {
         static char filter_buf[256] = "";
+        // Off by default: a netlist read leaves a Design per module, most
+        // with only a Schematic, which would bury the ones that can open.
+        static bool show_designs_without_views = false;
+        ImGui::Checkbox("Show designs without physical views", &show_designs_without_views);
+        ImGui::SetItemTooltip("Designs with neither an Abstract nor a Layout, e.g. modules read only from a netlist");
         ImGui::SetNextItemWidth(-1.0f);
         // Libraries start collapsed.
         // Editing the filter opens every library still shown (so its
@@ -154,9 +168,7 @@ namespace le::gui
                     {
                         continue;
                     }
-                    const bool has_abstract = design.abstract_id.index != UINT32_MAX;
-                    const bool has_layout = design.layout_id.index != UINT32_MAX;
-                    if (design_matches_filter(design, filter_buf, has_abstract, has_layout))
+                    if (design_shown_in_browser(design, filter_buf, show_designs_without_views))
                     {
                         library_visible = true;
                         break;
@@ -188,6 +200,10 @@ namespace le::gui
                 // designs unfiltered - only a library shown *because* a
                 // descendant matched needs its own designs individually
                 // filtered.
+                if (!has_abstract && !has_layout && !show_designs_without_views)
+                {
+                    continue;
+                }
                 if (!library_name_matches && !design_matches_filter(design, filter_buf, has_abstract, has_layout))
                 {
                     continue;
