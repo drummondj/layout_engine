@@ -62,8 +62,7 @@ namespace le
         }
     };
 
-    /// @brief Options shared by every stage of ViewRenderPipeline (see
-    /// plans/PIPELINE_REFACTOR.md's "Structure" section) - Cold, Warm, and
+    /// @brief Options shared by every stage of ViewRenderPipeline - Cold, Warm, and
     /// Hot alike. Every stage wired into the same
     /// oneapi::tbb::flow::graph must share this exact type (tbb_core.hpp's
     /// MemoizingStage is templated on one PipelineOptions type per graph),

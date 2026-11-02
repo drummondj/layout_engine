@@ -145,7 +145,6 @@ namespace le
         lefrSetAntennaInputCbk(lefrAntennaInputCbkFn);
         lefrSetAntennaInoutCbk(lefrAntennaInoutCbkFn);
         lefrSetAntennaOutputCbk(lefrAntennaOutputCbkFn);
-        // lefrSetRegisterUnusedCallbacks();
         lefrSetLogFunction(&LEFReader::lefrLogFn);
         lefrSetWarningLogFunction(&LEFReader::lefrLogFn);
 
@@ -193,7 +192,6 @@ namespace le
             spdlog::error("Could not parse LEF file {}.", filename);
             return 2;
         }
-        // lefrPrintUnusedCallbacks(stdout);
 
         // Checked once here, same not-aborted-mid-parse convention as
         // used_dbu_before_units_declared_ below - this project only
@@ -201,8 +199,7 @@ namespace le
         // that is a real error, not a silent downgrade to reading it
         // partially (the vendored parser itself would already be
         // discarding several PIN-level statements at >= 5.4 that it
-        // wouldn't at, say, 5.3 - see plans/LEFDEF_BUGS.md's "Reader-side:
-        // intentional version-obsolescence" - accepting < 5.4 input would
+        // wouldn't at, say, 5.3 - accepting < 5.4 input would
         // just mean this project's own database silently disagrees with
         // what a real 5.3-reading tool would see).
         if (version_ > 0.0 && version_ < 5.4)
@@ -704,7 +701,7 @@ namespace le
         if (lef_layer->hasEdgeCap())
             layer.edge_cap = lef_layer->edgeCap();
         // hasAntennaArea()/antennaArea() are dead code in the vendored
-        // parser - confirmed by reading lefiLayer.cpp and lef.y: setAntennaArea()
+        // parser - per lefiLayer.cpp and lef.y: setAntennaArea()
         // is defined but no grammar rule ever calls it (only
         // ANTENNAAREARATIO/ANTENNAAREAFACTOR exist as real LEF statements,
         // not a bare ANTENNAAREA), so this field is never populated by any
@@ -1683,8 +1680,7 @@ namespace le
         // calls the matching setter when versionNum < 5.4; this project
         // only supports LEF >= 5.4 (see read_lef's own version check), so
         // the vendored reader itself would always discard these before
-        // this callback ever runs. See plans/LEFDEF_BUGS.md's "Reader-side:
-        // intentional version-obsolescence".
+        // this callback ever runs.
         if (lef_pin->hasMaxdelay())
             terminal.max_delay = lef_pin->maxdelay();
 
@@ -1704,7 +1700,7 @@ namespace le
         // Flat pre-5.5 (value, layer) antenna fields directly on lefiPin -
         // AntennaGateArea has no such flat form, only the oxide-scoped one
         // below (lefiPin has no numAntennaGateArea()/antennaGateArea()).
-        // LAYER is optional on these statements (confirmed in
+        // LAYER is optional on these statements (per
         // complete.5.8.lef, e.g. "ANTENNAGATEAREA 2 ;") - the vendored
         // parser leaves the matching *Layer(i) entry as a NULL char* (not
         // an empty string) when omitted (lefiMacro.cpp's own

@@ -462,9 +462,8 @@ namespace le
 
     int DEFReader::defrVersionCbkFn(defrCallbackType_e /*typ*/, double /*version*/, void * /*user_data*/)
     {
-        // Not yet validated against a minimum supported DEF version (no
-        // known version-obsolescence gap like LEF's own >= 5.4 requirement
-        // has surfaced for DEF yet) - revisit if plans/LEFDEF_BUGS.md gains one.
+        // No minimum DEF version is enforced: unlike LEF's >= 5.4, no DEF
+        // version is known to make the vendored parser drop statements.
         return 0;
     }
 
@@ -476,13 +475,11 @@ namespace le
         // against this project's own complete.5.8.def fixture: UNITS
         // DISTANCE MICRONS 1000, yet ROW/TRACKS coordinates are plain
         // integers like 1000/8400, not 1.0/8.4). NONDEFAULTRULES LAYER
-        // WIDTH/SPACING/WIREEXT/DIAGWIDTH are the one construct so far
-        // that's the exception - written in real microns (e.g. "WIDTH
+        // WIDTH/SPACING/WIREEXT/DIAGWIDTH are the exception - written in real microns (e.g. "WIDTH
         // 10.1"), needing this same UNITS-derived factor LEF uses
         // everywhere - defiNonDefault's own "Val"-suffixed accessors
-        // (layerWidthVal() etc.) turned out to just truncate the raw
-        // micron double to an int, *not* convert using UNITS (found by
-        // testing against real fixture values: 10.1 came back as 10, not
+        // (layerWidthVal() etc.) just truncate the raw micron double to an
+        // int, *not* convert using UNITS (10.1 comes back as 10, not
         // 10100) - real conversion needs the plain (non-Val) micron
         // accessor multiplied by this factor instead, same as LEF.
         auto reader = static_cast<DEFReader *>(user_data);
@@ -503,9 +500,7 @@ namespace le
             // raw database-unit values (see unit_scale_'s own comment) get
             // rescaled onto it via unit_scale_, so they land at the same
             // real-world position rather than being silently misread at
-            // the wrong grid resolution (the previous behavior here -
-            // logging and using the DEF's raw values unconverted - was a
-            // real bug, not just a missed conversion).
+            // the wrong grid resolution.
             reader->unit_scale_ = technology->database_units_microns / units;
             if (units < technology->database_units_microns)
             {
@@ -659,13 +654,12 @@ namespace le
         // IdAndName() from the base "- compId macroName" grammar - def.y's
         // comp_id_and_name rule) - macroName() is a separate, unrelated
         // field only ever populated by a "+ GENERATE genName [pattern]"
-        // attribute (setGenerate()), never by the base parse. Confirmed
-        // empirically against complete.5.8.def: macroName() was empty for
-        // every component, GENERATE or not.
+        // attribute (setGenerate()), never by the base parse: in
+        // complete.5.8.def macroName() is empty for every component,
+        // GENERATE or not.
         //
         // reference_design must resolve to an already-read Design (e.g.
-        // its LEF read earlier into this same Root) - unlike the former
-        // reference_name string this replaces, there's no fallback "store
+        // its LEF read earlier into this same Root) - there's no fallback "store
         // the name, resolve later" path, so the real Technology/Library
         // LEF(s) must be read before the DEF that references them (the
         // normal real-world flow anyway - a router/placer always has the
@@ -693,10 +687,10 @@ namespace le
         // macro ;`, common before a placer has run) is neither placed nor
         // "unplaced" by this accessor's own definition, so only read
         // location/orientation when one of the genuinely-placed flags is
-        // true (found the hard way: !isUnplaced() silently dropped every
-        // no-placement-statement component below, since their empty
-        // placementOrientStr() then failed orientation_from_string and hit
-        // the early return before create_placement ever ran).
+        // true (testing !isUnplaced() instead would drop every
+        // no-placement-statement component: its empty
+        // placementOrientStr() fails orientation_from_string and hits the
+        // early return before create_placement runs).
         if (component->isPlaced() || component->isFixed() || component->isCover() || component->isSoftfixed())
         {
             data.location = Point{.x = scale_dbu(component->placementX(), reader->unit_scale_), .y = scale_dbu(component->placementY(), reader->unit_scale_)};
@@ -1230,8 +1224,8 @@ namespace le
         // LAYER WIDTH/SPACING/WIREEXT/DIAGWIDTH are written in real
         // microns (e.g. "WIDTH 10.1") - layerWidthVal() et al (the
         // "Val"-suffixed accessors) just truncate that double to an int,
-        // they don't convert using UNITS (found empirically: 10.1 came
-        // back as 10, not 10100 at UNITS DISTANCE MICRONS 1000) - real
+        // they don't convert using UNITS (10.1 comes back as 10, not
+        // 10100 at UNITS DISTANCE MICRONS 1000) - real
         // conversion needs the plain micron accessor multiplied by the
         // shared Technology's own database_units_microns, same as every
         // LEF microns_to_dbu() conversion.

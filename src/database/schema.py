@@ -326,7 +326,7 @@ schema = Schema(
                     description="Orthogonal cut spacing table entries (LEF SPACINGTABLE ORTHOGONAL, CUT layers)",
                     type="OrthogonalSpacingEntry",
                     is_list=True,
-                    create_excluded=True,  # structurally list_compound-eligible but deferred - this round scoped to Shape.rects/polygons/paths only
+                    create_excluded=True,  # list_compound-eligible, but only Shape.rects/polygons/paths take a create flag so far
                 ),
                 Field(
                     name="spacing_table_influence",
@@ -454,7 +454,7 @@ schema = Schema(
                     description="LEF MINSIZE (width, length) pairs, in database units",
                     type="MinSizeEntry",
                     is_list=True,
-                    create_excluded=True,  # structurally list_compound-eligible but deferred - this round scoped to Shape.rects/polygons/paths only
+                    create_excluded=True,  # list_compound-eligible, but only Shape.rects/polygons/paths take a create flag so far
                 ),
                 Field(
                     name="min_enclosed_areas",
@@ -475,7 +475,7 @@ schema = Schema(
                     description="LEF ARRAYCUTS entries (CUT layers)",
                     type="ArrayCutsEntry",
                     is_list=True,
-                    create_excluded=True,  # structurally list_compound-eligible but deferred - this round scoped to Shape.rects/polygons/paths only
+                    create_excluded=True,  # list_compound-eligible, but only Shape.rects/polygons/paths take a create flag so far
                 ),
                 Field(
                     name="array_spacing",
@@ -569,7 +569,7 @@ schema = Schema(
                 Field(name="diff_side_area_ratio_pwl", description="LEF ANTENNADIFFSIDEAREARATIO PWL (list form)", type="AntennaPWLEntry", is_list=True, create_excluded=True),
                 Field(name="cum_diff_side_area_ratio", description="LEF ANTENNACUMDIFFSIDEAREARATIO (scalar form)", type="double", example=100.0, is_optional=True),
                 Field(name="cum_diff_side_area_ratio_pwl", description="LEF ANTENNACUMDIFFSIDEAREARATIO PWL (list form)", type="AntennaPWLEntry", is_list=True, create_excluded=True),
-                # All four *_pwl fields above are structurally list_compound-eligible but deferred - this round scoped to Shape.rects/polygons/paths only.
+                # All four *_pwl fields above are list_compound-eligible, but only Shape.rects/polygons/paths take a create flag so far.
             ],
         ),
         Klass(
@@ -916,7 +916,7 @@ schema = Schema(
                     description="A list of rects",
                     type="Rect",
                     is_list=True,
-                    create_excluded=True,  # structurally list_compound-eligible but deferred - this round scoped to Shape.rects/polygons/paths only
+                    create_excluded=True,  # list_compound-eligible, but only Shape.rects/polygons/paths take a create flag so far
                 ),
                 Field(
                     name="polygons",
@@ -2039,7 +2039,7 @@ schema = Schema(
             fields=[
                 Field(name="abstract", description="Parent abstract", type="Abstract", parent="densities"),
                 Field(name="layer_name", description="The name of the layer", type="str", example="M1"),
-                Field(name="rects", description="The rects this layer's density values apply to", type="Rect", is_list=True, create_excluded=True),  # structurally list_compound-eligible but deferred - this round scoped to Shape.rects/polygons/paths only
+                Field(name="rects", description="The rects this layer's density values apply to", type="Rect", is_list=True, create_excluded=True),  # list_compound-eligible, but only Shape.rects/polygons/paths take a create flag so far
                 Field(name="values", description="The density percentage per rect (parallel to rects)", type="double", example=45.0, is_list=True),
             ],
         ),

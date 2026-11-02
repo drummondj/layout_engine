@@ -358,7 +358,7 @@ extern "C"
     int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id);
 
     /// @brief Saves the whole database to a native Layout Engine database
-    /// file (.led - see plans/NATIVE_FILE_FORMAT_RESEARCH.md). Written via a
+    /// file (.led). Written via a
     /// temporary file and a rename, so a failed save never damages an
     /// existing file. On success the database counts as saved (the exit
     /// dialog's unsaved-changes check). With `with_session` nonzero the
@@ -686,7 +686,7 @@ extern "C"
     /// le_end_command(), le_wait_for_render_needed() doesn't return (only
     /// le_cancel_render_wait() wakes it), so the command's mutations
     /// render once, when it ends. Calling this while a transaction is
-    /// already recording is a no-op (no nesting supported this round) - a
+    /// already recording is a no-op (transactions don't nest) - a
     /// no-op if handle or label is null.
     void le_begin_command(LeHandle *handle, const char *label);
 

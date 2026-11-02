@@ -1,8 +1,7 @@
 # le: the Layout Engine package manager
 
 `le` builds a Layout Engine **project**: Layout Engine plus the extensions a
-project lists, installed into the project's `.le/` directory. Design:
-[plans/PACKAGE_MANAGER_RESEARCH.md](../../plans/PACKAGE_MANAGER_RESEARCH.md).
+project lists, installed into the project's `.le/` directory.
 Writing an extension: [docs/EXTENSION_SDK.md](../../docs/EXTENSION_SDK.md).
 
 It needs git 2.34+ and `tar`. Signatures are checked with `ssh-keygen -Y`

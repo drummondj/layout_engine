@@ -221,7 +221,7 @@ namespace le
             // checks `!lefwIsRouting` and rejects CUT layers outright
             // (LEFW_BAD_DATA) - unlike AntennaModel/AreaRatio/DiffAreaRatio/
             // CumAreaRatio/AreaFactor above, which all accept
-            // `!lefwIsRouting && !lefwIsCut` (confirmed by reading
+            // `!lefwIsRouting && !lefwIsCut` (per
             // lefwWriter.cpp's own state checks function by function). Some
             // of these functions' own doc comments in lefwWriter.hpp even
             // claim "valid... if the layer type is either ROUTING or CUT",
@@ -386,7 +386,7 @@ namespace le
             return status;
 
         // lefwUnits skips writing a sub-statement for any falsy (0.0)
-        // argument (confirmed in lefwWriter.cpp) - value_or(0.0) is
+        // argument (per lefwWriter.cpp) - value_or(0.0) is
         // therefore exactly "omit this one if never read", not a lossy
         // sentinel, for every field here except (in principle) a real
         // value of exactly 0.0, which none of these units ever legitimately
@@ -485,7 +485,7 @@ namespace le
                 // lefwLayerMask only accepts LEFW_LAYERROUTING_START (not
                 // LEFW_LAYERROUTING) - must be written before the
                 // lefwLayerRouting() call below transitions state away
-                // from _START (confirmed in lefwWriter.cpp; matches the
+                // from _START (per lefwWriter.cpp; matches the
                 // fixture's own MASK-right-after-TYPE ordering).
                 if (layer->default_mask)
                 {
@@ -503,7 +503,7 @@ namespace le
                 //
                 // KNOWN VENDORED-WRITER GAP: pitch_xy/offset_xy/diag_pitch/
                 // diag_pitch_xy/diag_spacing/diag_width all require
-                // lefwIsRouting (confirmed in lefwWriter.cpp) - unwritable
+                // lefwIsRouting (per lefwWriter.cpp) - unwritable
                 // on a CUT layer even though the reader can populate them
                 // there (e.g. complete.5.8.lef's LAYER CUT01, TYPE CUT,
                 // uses DIAGPITCH/two-value PITCH/two-value OFFSET). Still
@@ -644,7 +644,7 @@ namespace le
                     // statement - but lef.y's own grammar only ever
                     // accepts K_ENDOFLINE nested inside a SPACING
                     // statement's own layer_spacing_cut_routing option (one
-                    // grammar occurrence, confirmed by grep), so the
+                    // grammar occurrence), so the
                     // written file is unparseable on re-read. Not fixed
                     // (vendored code). ENDOFLINE/PARALLELEDGE/TWOEDGES are
                     // still fully read (see lefrLayerCbkFn) - just never
@@ -746,7 +746,7 @@ namespace le
                     // skipping this call would silently break every
                     // statement written after a SPACINGTABLE (found via
                     // lefwWriter.cpp's own state-constant checks, then
-                    // confirmed against the vendored sample driver
+                    // per the vendored sample driver
                     // src/lefdef/lef/lefwrite/lefwrite.cpp's own usage,
                     // which is the only place this misspelled function name
                     // turns up).
@@ -777,7 +777,7 @@ namespace le
                 {
                     // lefwLayerRoutingStartSpacingtableTwoWidths is
                     // ROUTING-only (LEFW_LAYERROUTING_START/LEFW_LAYERROUTING
-                    // - confirmed in lefwWriter.cpp) despite TWOWIDTHS
+                    // - per lefwWriter.cpp) despite TWOWIDTHS
                     // appearing on layers named "cutNN" in complete.5.8.lef
                     // (e.g. cut25) - those are actually TYPE ROUTING, not
                     // CUT, per the fixture's own TYPE statement.
@@ -1051,7 +1051,7 @@ namespace le
                 }
 
                 // KNOWN VENDORED-WRITER GAP: lefwLayerArraySpacing requires
-                // lefwIsCut (confirmed in lefwWriter.cpp) - unwritable on a
+                // lefwIsCut (per lefwWriter.cpp) - unwritable on a
                 // layer whose TYPE is ROUTING even though the reader can
                 // populate it there (e.g. complete.5.8.lef's LAYER cut24,
                 // TYPE ROUTING, uses ARRAYSPACING). Still fully read; just
@@ -1179,7 +1179,7 @@ namespace le
             // above). Not called here - ViaLayer.polygons is read-only
             // for VIA geometry with this vendored writer version, same
             // "skip the call, mark read-only" treatment as this file's
-            // other unparseable-output bugs (see plans/LEFDEF_BUGS.md).
+            // other unparseable-output bugs.
             // ViaLayer.polygon_masks is read (see via_layers_from_parser)
             // for the same reason rects/rect_masks both are - the database
             // shouldn't lose information the reader can hand it just
@@ -1411,7 +1411,7 @@ namespace le
             }
             else
             {
-                // KNOWN VENDORED-LIBRARY DEAD END (see plans/LEFDEF_BUGS.md): a
+                // Vendored-library dead end: a
                 // non-GENERATE VIARULE's LAYER requires exactly 2 LAYER
                 // sub-statements (lef.y's own grammar - an empty VIARULE is
                 // a fatal LEFPARS-1), each requiring a DIRECTION construct
@@ -1420,8 +1420,7 @@ namespace le
                 // LEFW_OBSOLETE at this writer's fixed VERSION 5.8. There
                 // is no version this writer can pick that satisfies both
                 // sides, and no alternate API. Writing the LAYER
-                // sub-statements without DIRECTION anyway (the previous
-                // behavior) doesn't just lose this VIARULE's own data - a
+                // sub-statements without DIRECTION anyway wouldn't just lose this VIARULE's own data - a
                 // real LEFPARS-1705 re-parsing it also silently truncates
                 // lefdiff's own comparison for everything written after it
                 // in the same file (confirmed: NONDEFAULTRULE/SITE, which
@@ -1486,7 +1485,7 @@ namespace le
             // writer's lefwStringProperty/lefwRealProperty/lefwIntProperty
             // only accept lefwState values LEFW_VIA/LAYER/VIARULE/MACRO(_START)/
             // VIA_START/VIARULE_START/LAYER_START/BEGINEXT/VIAVIARULE/
-            // LAYERROUTING(_START) (confirmed in lefwWriter.cpp) - LEFW_SITE
+            // LAYERROUTING(_START) (per lefwWriter.cpp) - LEFW_SITE
             // is not among them, so SITE properties are readable but not
             // writable via this API. Same gap for NONDEFAULTRULE, see
             // write_non_default_rules below.
@@ -1539,7 +1538,7 @@ namespace le
             for (const NonDefaultRuleLayerData &layer : layers)
             {
                 // diag_width has no writer parameter in this vendored
-                // version's lefwNonDefaultRuleLayer (confirmed against
+                // version's lefwNonDefaultRuleLayer (per
                 // lefwWriter.hpp - width/minSpacing/wireExtension/
                 // resistance/capacitance/edgeCap only) - read-only, same
                 // "vendored writer gap" pattern as this phase's other
@@ -1647,7 +1646,7 @@ namespace le
         if (shape.except_pg_net && !is_pin_port)
         {
             // KNOWN VENDORED-WRITER GAP: lefwMacroExceptPGNet only
-            // accepts !lefwIsMacroObs (confirmed in lefwWriter.cpp) - it
+            // accepts !lefwIsMacroObs (per lefwWriter.cpp) - it
             // cannot be called from a PIN PORT context at all, even
             // though lef.y's own layer_exceptpgnet grammar rule is shared
             // by both PORT and OBS geometry. It also guards on an
@@ -1663,8 +1662,8 @@ namespace le
         }
         else if (shape.design_rule_width)
         {
-            // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): even though
-            // Shape.design_rule_width now correctly distinguishes "unset"
+            // Vendored-writer gap: even though
+            // Shape.design_rule_width distinguishes "unset"
             // from "explicitly 0" (0 is a real,
             // meaningful DESIGNRULEWIDTH, not a sentinel - complete.5.8.lef
             // has one: "LAYER a1sig DESIGNRULEWIDTH 0"), the vendored
@@ -1884,7 +1883,7 @@ namespace le
         // terminal->rise_slew_limit/fall_slew_limit/max_load are
         // deliberately never written - lefwWriter.hpp/.cpp contain zero
         // lefwMacroPin* functions for RISESLEWLIMIT/FALLSLEWLIMIT/MAXLOAD
-        // (confirmed by grep) even though lefiPin fully reads all three -
+        // even though lefiPin fully reads all three -
         // no vendored writer entry point exists at all, same class of gap
         // as split_wire_width.
         // terminal doesn't have power/leakage/pin_capacitance/
@@ -1895,11 +1894,10 @@ namespace le
         // version check), and lef.y's own grammar action for every one of
         // those only calls its setter when versionNum < 5.4, so the
         // vendored reader itself can never populate them for a file this
-        // project would accept. See plans/LEFDEF_BUGS.md's "Reader-side:
-        // intentional version-obsolescence".
+        // project would accept.
         // terminal->max_delay (MAXDELAY) is deliberately never written -
-        // no lefwMacroPinMaxdelay exists in lefwWriter.hpp/.cpp at all
-        // (confirmed by grep), same "fully readable, no vendored writer
+        // no lefwMacroPinMaxdelay exists in lefwWriter.hpp/.cpp at all,
+        // the same "fully readable, no vendored writer
         // entry point" gap as rise_slew_limit/fall_slew_limit/max_load
         // just above.
 
@@ -2024,7 +2022,7 @@ namespace le
         if (abstract->type)
         {
             // abstract->type stores LEF's `CLASS <base> [<subtype>] ;`
-            // verbatim as ONE space-joined string (confirmed by reading
+            // verbatim as ONE space-joined string (per
             // lef.y's own class_type grammar rule - e.g. "CORE WELLTAP",
             // "BLOCK BLACKBOX" are single strings from lef_macro->
             // macroClass(), not two separate fields), but lefwMacroClass

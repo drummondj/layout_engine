@@ -13,7 +13,7 @@ using namespace le;
 TEST(OrientationFromParser, MapsEachLefOrientationCode)
 {
     // This is lef.y's `orientation` rule (R0=N, R90=W, R180=S, R270=E,
-    // MY=FN, MYR90=FW, MX=FS, MXR90=FE), confirmed against the vendored
+    // MY=FN, MYR90=FW, MX=FS, MXR90=FE), per the vendored
     // grammar - NOT the naive 0=N,1=S,2=E,3=W ordering it's easy to assume.
     // Also does not match le::Orientation's own underlying enum values (see
     // orientation.hpp), so the mapping must be checked by name, not by

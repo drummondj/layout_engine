@@ -38,11 +38,8 @@
 #include "IconsLucide.h"
 // Declares every GL function this file calls (glGenTextures/glTexImage2D/
 // etc - all part of OpenGL 1.1's core spec, so no external loader library
-// is needed) via its own bundled minimal loader on platforms that need
-// one (Linux) or the system GL headers directly (macOS) - no separate
-// <OpenGL/gl3.h>/<GL/gl.h> include of our own needed (and actively wrong
-// to add one: it collides with this header's own, tripping a real
-// "gl.h and gl3.h both included" warning on macOS).
+// is needed) via its own bundled minimal loader - no separate <GL/gl.h>
+// include of our own needed (one would collide with the loader's).
 #include "imgui_impl_opengl3.h"
 
 #include <GLFW/glfw3.h>
@@ -1098,7 +1095,7 @@ namespace le::gui
             glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
             glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
             glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-            glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE); // required on macOS
+            glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
             GLFWwindow *window = glfwCreateWindow(1280, 800, "Layout Engine", nullptr, nullptr);
             if (!window)
             {
@@ -1864,8 +1861,8 @@ namespace le::gui
             // render thread's last in-flight le_render_pixel_buffer()
             // call can take several seconds for a large design; joining
             // first would leave a live window on screen that stops
-            // responding to window-server events for that whole duration
-            // (macOS's "Application Not Responding"). Destroying
+            // responding to window-system events for that whole duration.
+            // Destroying
             // the window first makes it disappear immediately regardless
             // of how long the trailing render still has left to run.
             glDeleteTextures(1, &texture_id);

@@ -2,8 +2,7 @@
 // The Layout Engine extension SDK: everything an extension's C++ may use.
 // Anything reachable from here is public API, versioned by
 // LE_EXTENSION_API_VERSION (set by the le::extension_sdk CMake target); an
-// extension states the version it targets with a static_assert. Design:
-// plans/EXTENSION_MECHANISM_RESEARCH.md §3, §5.
+// extension states the version it targets with a static_assert.
 
 #include "api.hpp"
 #include "database.hpp"

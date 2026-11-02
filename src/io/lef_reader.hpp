@@ -23,8 +23,7 @@ namespace le
         // messages for the cases the parser callbacks never fire for.
         // Cleared and repopulated at the start of every read_lef() call -
         // reflects only the most recent call, not an accumulation across
-        // calls (api.cpp's le_read_lef is what accumulates these into a
-        // persistent, ever-growing handle-owned queue for the GUI).
+        // calls. Tools and tests read it; le_read_lef relies on spdlog.
         const std::vector<std::string> &messages() const { return messages_; }
 
         // Pure LEF-enum -> database-enum conversions. Public (and static, with
