@@ -287,6 +287,54 @@ TEST_F(ComposeStageFixture, ExtensionOverlaysDrawAfterTheCoreOnesAndRedrawOnRequ
     EXPECT_EQ(calls, 2);
 }
 
+// A vertical ruler's "total" label goes on the other side of the line from
+// its distance label, as a horizontal ruler's does.
+TEST_F(ComposeStageFixture, AVerticalRulersTotalLabelIsOppositeItsDistanceLabel)
+{
+    build_fixture(Orientation::N);
+    // Upward from TOP-local (100,50) to (100,150): pixels (400,600) -> (400,200).
+    options.ruler_polylines_dbu = {{Point{100, 50}, Point{100, 150}}};
+    options.ruler_dbu_per_um = 1000.0;
+    ++options.ruler_version;
+    const RasterizedFrame &drawn = compose_runner.run(rasterize_runner.last_handle(), 0, options);
+    // Anti-aliased 11px glyphs: few pixels hit the exact color.
+    EXPECT_TRUE(region_contains_color_near(drawn, 405, 185, 480, 204, kRulerColor, 40)) << "distance label, right of the end";
+    EXPECT_TRUE(region_contains_color_near(drawn, 300, 185, 395, 204, kRulerColor, 40)) << "total label, left of the end";
+}
+
+TEST(RulerLabels, SideIsThePixelSpacePerpendicular)
+{
+    EXPECT_EQ(ruler_label_side(BLPoint(10, 100), BLPoint(10, 0)).x, 1.0) << "upward: right";
+    EXPECT_EQ(ruler_label_side(BLPoint(10, 0), BLPoint(10, 100)).x, -1.0) << "downward: left";
+    EXPECT_EQ(ruler_label_side(BLPoint(0, 10), BLPoint(100, 10)).y, 1.0) << "rightward: below";
+    EXPECT_EQ(ruler_label_side(BLPoint(5, 5), BLPoint(5, 5)).y, 1.0) << "degenerate: below";
+}
+
+TEST(RulerLabels, BoxGrowsAwayFromTheLine)
+{
+    const BLBox right = ruler_label_box(BLPoint(100, 50), BLPoint(1, 0), 8.0, 40.0, 9.0, 3.0);
+    EXPECT_DOUBLE_EQ(right.x0, 108.0);
+    EXPECT_DOUBLE_EQ(right.x1, 148.0);
+    EXPECT_DOUBLE_EQ(right.y0, 41.0);
+    EXPECT_DOUBLE_EQ(right.y1, 53.0);
+    const BLBox left = ruler_label_box(BLPoint(100, 50), BLPoint(-1, 0), 8.0, 40.0, 9.0, 3.0);
+    EXPECT_DOUBLE_EQ(left.x0, 52.0);
+    EXPECT_DOUBLE_EQ(left.x1, 92.0);
+    EXPECT_FALSE(ruler_label_boxes_overlap(left, right));
+}
+
+// A major tick at the ruler's end puts its label where the distance label
+// goes; one a few label heights back doesn't.
+TEST(RulerLabels, ATickLabelAtTheEndOverlapsTheDistanceLabel)
+{
+    const BLPoint side(1, 0);
+    const BLBox distance = ruler_label_box(BLPoint(100, 50), side, kRulerMajorTickLengthPx, 54.0, 9.0, 3.0);
+    const double major_half = kRulerMajorTickLengthPx / 2.0;
+    EXPECT_TRUE(ruler_label_boxes_overlap(ruler_label_box(BLPoint(100, 50), side, major_half + 4.0, 30.0, 9.0, 3.0), distance));
+    EXPECT_TRUE(ruler_label_boxes_overlap(ruler_label_box(BLPoint(100, 55), side, major_half + 4.0, 30.0, 9.0, 3.0), distance));
+    EXPECT_FALSE(ruler_label_boxes_overlap(ruler_label_box(BLPoint(100, 90), side, major_half + 4.0, 30.0, 9.0, 3.0), distance));
+}
+
 namespace
 {
     // TOP places BLOCK at the origin and BLOCK places LEAF there too. LEAF's

@@ -54,6 +54,35 @@ namespace le
         bool empty = true;
     };
 
+    /// @brief The unit perpendicular, in pixel space, that a ruler segment's
+    /// labels are offset along: (-uy, ux) of `p0_px` -> `p1_px`, or straight
+    /// down for a zero-length segment. Pixel space, not dbu: the view's
+    /// y-flip would put a dbu-derived side on the wrong side of a vertical
+    /// segment.
+    inline BLPoint ruler_label_side(BLPoint p0_px, BLPoint p1_px)
+    {
+        const double dx = p1_px.x - p0_px.x;
+        const double dy = p1_px.y - p0_px.y;
+        const double length = std::sqrt(dx * dx + dy * dy);
+        return length > 0.0 ? BLPoint(-dy / length, dx / length) : BLPoint(0.0, 1.0);
+    }
+
+    /// @brief The pixel box of a ruler label `offset_px` along `side` from
+    /// `anchor_px`; its baseline is `offset_px` along `side`, and it extends
+    /// left when `side` points left so the text grows away from the line.
+    inline BLBox ruler_label_box(BLPoint anchor_px, BLPoint side, double offset_px, double text_width, double ascent, double descent)
+    {
+        const double x0 = anchor_px.x + side.x * offset_px + (side.x < 0.0 ? -text_width : 0.0);
+        const double baseline = anchor_px.y + side.y * offset_px;
+        return BLBox(x0, baseline - ascent, x0 + text_width, baseline + descent);
+    }
+
+    /// @brief True if two label boxes share any area.
+    inline bool ruler_label_boxes_overlap(const BLBox &a, const BLBox &b)
+    {
+        return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+    }
+
     /// @brief Warm-tier stage 3 (plans/PIPELINE_REFACTOR.md): composites every
     /// surviving node's own RasterizeBlend2DStage image into one final
     /// image, walking the same placement_data ViewportCullStage already
@@ -451,7 +480,9 @@ namespace le
         /// screen regardless of the segment's own angle - a free-form
         /// (non-orthogonal) segment gets the exact same treatment as an
         /// orthogonal one, no special-casing needed. No-op if the segment
-        /// is degenerate (zero on-screen length).
+        /// is degenerate (zero on-screen length). A tick label that would
+        /// overlap the distance label is skipped: a ruler snapped to the
+        /// grid often ends exactly on a major tick.
         ///
         /// Every label (tick values, this segment's own distance, and -
         /// via a separate call from draw_ruler_overlay below - a ruler's
@@ -472,10 +503,9 @@ namespace le
             const double seg_len = std::sqrt(seg_dx * seg_dx + seg_dy * seg_dy);
             if (seg_len <= 0.0)
                 return;
-            const double ux = seg_dx / seg_len;
-            const double uy = seg_dy / seg_len;
-            const double perp_x = -uy;
-            const double perp_y = ux;
+            const BLPoint side = ruler_label_side(p0_px, p1_px);
+            const double perp_x = side.x;
+            const double perp_y = side.y;
 
             const BLRgba32 line_color = to_bl_color(is_ghost ? kRulerGhostColor : kRulerColor);
 
@@ -492,15 +522,21 @@ namespace le
             const double dy_dbu = static_cast<double>(p1_dbu.y - p0_dbu.y);
             const double length_um = std::sqrt(dx_dbu * dx_dbu + dy_dbu * dy_dbu) / dbu_per_um;
 
-            auto draw_label = [&](BLPoint anchor_px, double offset_px, const std::string &text)
+            const bool has_font = font_entry.font.is_valid() && font_entry.cell_width > 0.0;
+            const double ascent = has_font ? font_entry.font.metrics().ascent : 0.0;
+            const double descent = has_font ? font_entry.font.metrics().descent : 0.0;
+            auto label_box = [&](BLPoint anchor_px, double offset_px, const std::string &text)
             {
-                if (!font_entry.font.is_valid() || font_entry.cell_width <= 0.0 || text.empty())
-                    return;
-                const double text_width = font_entry.cell_width * static_cast<double>(text.size());
-                const double x0 = perp_x < 0.0 ? -text_width : 0.0;
-                const BLPoint origin(anchor_px.x + perp_x * offset_px + x0, anchor_px.y + perp_y * offset_px);
-                draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache_, text, to_bl_color(kRulerColor), origin);
+                return ruler_label_box(anchor_px, side, offset_px, font_entry.cell_width * static_cast<double>(text.size()), ascent, descent);
             };
+            auto draw_label = [&](const BLBox &box, const std::string &text)
+            {
+                if (!has_font || text.empty())
+                    return;
+                draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache_, text, to_bl_color(kRulerColor), BLPoint(box.x0, box.y0 + ascent));
+            };
+            const std::string length_text = fmt::format("{:.3f} um", length_um);
+            const BLBox length_box = label_box(p1_px, kRulerMajorTickLengthPx, length_text);
 
             const double pixels_per_um = seg_len / (length_um > 0.0 ? length_um : 1.0);
             const double major_um = ruler_major_tick_spacing_um(pixels_per_um);
@@ -530,12 +566,15 @@ namespace le
                     if (is_major)
                     {
                         const int decimals = std::max(0, -static_cast<int>(std::floor(std::log10(minor_um))));
-                        draw_label(tick_center, half_len + 4.0, fmt::format("{:.{}f}", static_cast<double>(k) * minor_um, decimals));
+                        const std::string text = fmt::format("{:.{}f}", static_cast<double>(k) * minor_um, decimals);
+                        const BLBox box = label_box(tick_center, half_len + 4.0, text);
+                        if (!ruler_label_boxes_overlap(box, length_box))
+                            draw_label(box, text);
                     }
                 }
             }
 
-            draw_label(p1_px, kRulerMajorTickLengthPx, fmt::format("{:.3f} um", length_um));
+            draw_label(length_box, length_text);
         }
 
         /// @brief Draws every ruler (`ViewRenderOptions::ruler_polylines_dbu`)
@@ -597,31 +636,19 @@ namespace le
                 for (std::size_t i = 0; i + 1 < polyline.size(); ++i)
                     draw_ruler_segment(ctx, to_pixel, options.ruler_dbu_per_um, polyline[i], polyline[i + 1], /*is_ghost=*/false, font_entry, font_key);
 
-                const Point &last = polyline.back();
-                const Point &second_last = polyline[polyline.size() - 2];
-                const BLPoint last_px = to_pixel(last);
+                const BLPoint last_px = to_pixel(polyline.back());
+                const BLPoint side = ruler_label_side(to_pixel(polyline[polyline.size() - 2]), last_px);
 
-                const double seg_dx = static_cast<double>(last.x - second_last.x);
-                const double seg_dy = static_cast<double>(last.y - second_last.y);
-                const double seg_len = std::sqrt(seg_dx * seg_dx + seg_dy * seg_dy);
-                const double perp_x = seg_len > 0.0 ? -(seg_dy / seg_len) : 0.0;
-                const double perp_y = seg_len > 0.0 ? (seg_dx / seg_len) : 1.0;
-
-                // Opposite side from the last segment's own point-to-point
-                // distance label (drawn inside draw_ruler_segment, offset
-                // along +perp) - two labels sharing the same side and a
-                // small offset gap can overlap once text width is
-                // accounted for; opposite sides never compete for the
-                // same space.
+                // Opposite side from the last segment's distance label
+                // (drawn by draw_ruler_segment along `side`), so the two
+                // never compete for the same space.
                 if (font_entry.font.is_valid() && font_entry.cell_width > 0.0)
                 {
                     const std::string text = fmt::format("total: {:.3f} um", total_um);
-                    const double text_width = font_entry.cell_width * static_cast<double>(text.size());
-                    const double x0 = (-perp_x) < 0.0 ? -text_width : 0.0;
-                    const BLPoint origin(
-                        last_px.x + (-perp_x) * kRulerMajorTickLengthPx + x0,
-                        last_px.y + (-perp_y) * kRulerMajorTickLengthPx);
-                    draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache_, text, to_bl_color(kRulerColor), origin);
+                    const double ascent = font_entry.font.metrics().ascent;
+                    const BLBox box = ruler_label_box(last_px, BLPoint(-side.x, -side.y), kRulerMajorTickLengthPx,
+                                                      font_entry.cell_width * static_cast<double>(text.size()), ascent, font_entry.font.metrics().descent);
+                    draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache_, text, to_bl_color(kRulerColor), BLPoint(box.x0, box.y0 + ascent));
                 }
             }
 
