@@ -3,6 +3,7 @@
 #include "lef_reader.hpp"
 #include "lefdef_lock.hpp"
 #include "read_rollback.hpp"
+#include "reader_messages.hpp"
 #include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include <cmath>
@@ -10,81 +11,16 @@
 
 namespace
 {
-    // Staging buffer for LEFReader::lefrLogFn - the vendored parser's
-    // LEFI_LOG_FUNCTION/LEFI_WARNING_LOG_FUNCTION callbacks carry no
-    // userData (see lefrReader.hpp), so there's no way to route a
-    // message straight to the LEFReader instance that's mid-read_lef();
-    // this file-local buffer bridges that gap instead, moved into the
-    // instance's own messages_ right after lefrRead returns. thread_local,
-    // so it belongs to the thread whose read holds lefdef_mutex() (the
-    // vendored parser's own state is process-wide).
-    //
-    // log_warning/log_error below (this class's own internal
-    // diagnostics, as opposed to the vendored parser's own text captured
-    // by lefrLogFn) append here too, not directly to LEFReader::messages_
-    // - both this class's own callbacks (lefrLayerCbkFn etc.) and the
-    // vendored parser's own log function run *during* lefrRead(), and
-    // read_lef unconditionally does `messages_ =
-    // std::move(g_pending_lef_messages)` right after lefrRead() returns
-    // - if log_warning/log_error wrote straight to messages_ instead,
-    // that move-assignment would silently wipe out anything they'd
-    // already added. Routing everything through this one staging buffer
-    // keeps every diagnostic from a single read_lef() call in one place,
-    // in true chronological order, with no separate merge step needed.
-    thread_local std::vector<std::string> g_pending_lef_messages;
-
-    // See the comment above for why these target g_pending_lef_messages,
-    // not a LEFReader instance - free functions (not LEFReader methods)
-    // since they need no instance state, only this file-local buffer.
-    // Templated to mirror spdlog::warn/error's own format-string+args
-    // signature, so call sites need only a name change. Formats once
-    // and logs the *already-formatted* text via a safe "{}" passthrough,
-    // not the raw template a second time - reformatting dynamic,
-    // file-controlled content (e.g. a LEF layer/design name) a second
-    // time would misinterpret any literal `{`/`}` it happens to contain
-    // as a format placeholder.
-    template <typename... Args>
-    void log_warning(fmt::format_string<Args...> fmt_str, Args &&...args)
-    {
-        std::string msg = fmt::format(fmt_str, std::forward<Args>(args)...);
-        spdlog::warn("{}", msg);
-        g_pending_lef_messages.push_back("WARNING: " + msg);
-    }
-
-    template <typename... Args>
-    void log_error(fmt::format_string<Args...> fmt_str, Args &&...args)
-    {
-        std::string msg = fmt::format(fmt_str, std::forward<Args>(args)...);
-        spdlog::error("{}", msg);
-        g_pending_lef_messages.push_back("ERROR: " + msg);
-    }
-
-    // The vendored reader splits a VIA/VIA ITERATE placement's MASK digits
-    // into three separate lefiGeomVia(Iter)::topMaskNum/cutMaskNum/
-    // bottomMaskNum fields (see lefiMisc.cpp's own `topMaskNum = viaMask /
-    // 100` etc.), but the vendored writer (lefwMacroObsVia/
-    // lefwMacroPinPortVia) only ever accepts the combined 3-digit number
-    // back, not the three digits separately - this recombines them the
-    // same way the reader split them, so ShapeVia/ShapeViaIterate.mask can
-    // stay the single value the writer needs. 0 for any digit means that
-    // digit wasn't set (per-cut-layer masking is itself optional).
-    int combine_via_mask(int top, int cut, int bottom)
-    {
-        return top * 100 + cut * 10 + bottom;
-    }
+    using le::reader_messages::combine_via_mask;
+    using le::reader_messages::log_error;
+    using le::reader_messages::log_warning;
 }
 
 namespace le
 {
     void LEFReader::lefrLogFn(const char *msg)
     {
-        if (!msg)
-            return;
-        std::string s(msg);
-        while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
-            s.pop_back();
-        if (!s.empty())
-            g_pending_lef_messages.push_back(std::move(s));
+        le::reader_messages::stage_parser_message(msg);
     }
 
     int LEFReader::read_lef(std::string filename, Root &root, std::string library_name)
@@ -117,7 +53,7 @@ namespace le
         lefrInit();
         skipping_macro_ = false;
         messages_.clear();
-        g_pending_lef_messages.clear();
+        le::reader_messages::pending().clear();
         used_dbu_before_units_declared_ = false;
         version_ = 0.0;
 
@@ -150,7 +86,7 @@ namespace le
         lefrSetWarningLogFunction(&LEFReader::lefrLogFn);
 
         // If there is no technology, create a new one. Otherwise get the first technology.
-        TechnologyId technology_id = root.is_technology_empty() ? root.create_technology(TechnologyData{}) : root.get_technology_ids().front();
+        TechnologyId technology_id = get_or_create_technology(root);
 
         // Initialize
         root_ = &root;
@@ -163,12 +99,12 @@ namespace le
         if (!file)
         {
             // Happens before lefrRead() ever runs, so the usual
-            // post-lefrRead `messages_ = std::move(g_pending_lef_messages)`
+            // post-lefrRead `messages_ = std::move(le::reader_messages::pending())`
             // (see read_lef's own comment further down) never executes on
             // this path - flush explicitly here instead, or this message
-            // would sit in g_pending_lef_messages forever unseen.
+            // would sit in le::reader_messages::pending() forever unseen.
             log_error("Could not open LEF file {}.", filename);
-            messages_ = std::move(g_pending_lef_messages);
+            messages_ = std::move(le::reader_messages::pending());
             return 1;
         }
 
@@ -185,7 +121,7 @@ namespace le
             log_error("Reading LEF file {} failed: {}", filename, error.what());
             result = -1;
         }
-        messages_ = std::move(g_pending_lef_messages);
+        messages_ = std::move(le::reader_messages::pending());
         if (result != 0)
         {
             if (messages_.empty())
@@ -220,7 +156,7 @@ namespace le
         // earlier one sharing the same Root/Technology), so every
         // coordinate it touched is silently wrong (multiplied by the 0
         // sentinel). Pushed directly to messages_, not via log_error/
-        // g_pending_lef_messages - that staging buffer was already moved
+        // le::reader_messages::pending() - that staging buffer was already moved
         // into messages_ above.
         if (used_dbu_before_units_declared_)
         {

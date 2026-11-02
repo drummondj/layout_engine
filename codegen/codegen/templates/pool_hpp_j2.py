@@ -132,8 +132,9 @@ namespace {{schema.namespace}}
             return alive_count() == 0;
         }
 
-        uint64_t size() {
-            return slots_.size();
+        /// @brief Number of live objects, as alive_count().
+        uint64_t size() const noexcept {
+            return alive_count();
         }
 
         // Also drops the free list - it holds slot indices, and create()
@@ -170,7 +171,7 @@ namespace {{schema.namespace}}
                 slot.alive = true;
         }
 
-        /// @brief Number of live objects (size() counts every slot).
+        /// @brief Number of live objects: every slot but free and retired ones.
         size_t alive_count() const noexcept {
             return slots_.size() - free_.size() - retired_count_;
         }

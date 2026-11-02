@@ -647,6 +647,17 @@ TEST(Pool, IsEmptyCountsOnlyLiveObjects)
     EXPECT_TRUE(pool.is_empty()); // the slot stays, but nothing lives in it
 }
 
+// size() is the live count: a deleted object's slot stays but isn't counted.
+TEST(Pool, SizeCountsOnlyLiveObjects)
+{
+    Root root;
+    const LibraryId kept = root.create_library(LibraryData{.name = "KEPT"});
+    const LibraryId gone = root.create_library(LibraryData{.name = "GONE"});
+    ASSERT_TRUE(root.delete_library(gone));
+    EXPECT_EQ(root.get_library_size(), 1u);
+    EXPECT_EQ(root.get_library_ids(), std::vector<LibraryId>{kept});
+}
+
 TEST(Database, PortNetInstancePinRelationshipsRoundTrip)
 {
     Root root;

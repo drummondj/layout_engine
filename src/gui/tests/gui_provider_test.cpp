@@ -144,11 +144,11 @@ TEST_F(GuiProviderFixture, LayerManagerListsStatusesAndShapesAndQueuesTheirComma
         return command ? std::string(command) : std::string();
     };
     provider.set_object_filter_visible(LE_OBJECT_FILTER_PLACEMENT_STATUS, "FIXED", false);
-    EXPECT_EQ(queued(), "set_placement_status_visible {FIXED} false");
+    EXPECT_EQ(queued(), "set_placement_status_visible \"FIXED\" false");
     provider.set_object_filter_selectable(LE_OBJECT_FILTER_ROUTING_STATUS, "COVER", true);
-    EXPECT_EQ(queued(), "set_routing_status_selectable {COVER} true");
+    EXPECT_EQ(queued(), "set_routing_status_selectable \"COVER\" true");
     provider.set_object_filter_visible(LE_OBJECT_FILTER_ROUTE_SHAPE, "RING", false);
-    EXPECT_EQ(queued(), "set_route_shape_visible {RING} false");
+    EXPECT_EQ(queued(), "set_route_shape_visible \"RING\" false");
 }
 
 // The Lock/Unlock button queues set_placement_status, so it shows in the

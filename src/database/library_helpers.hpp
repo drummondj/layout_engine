@@ -17,6 +17,13 @@ namespace le
         return root.create_library(LibraryData{.name = name});
     }
 
+    /// @brief The Technology every reader shares: the first one, or a new
+    /// empty one when there's none yet.
+    inline TechnologyId get_or_create_technology(Root &root)
+    {
+        return root.is_technology_empty() ? root.create_technology(TechnologyData{}) : root.get_technology_ids().front();
+    }
+
     /// @brief Every Design named `name`, in any Library (a Design's name
     /// is only unique within its Library).
     inline std::vector<DesignId> designs_named(const Root &root, const std::string &name)

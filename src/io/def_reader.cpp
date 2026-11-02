@@ -2,6 +2,7 @@
 #include "def_reader.hpp"
 #include "lefdef_lock.hpp"
 #include "read_rollback.hpp"
+#include "reader_messages.hpp"
 #include "../database/library_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include <algorithm>
@@ -13,27 +14,9 @@
 
 namespace
 {
-    // See LEFReader's own g_pending_lef_messages/log_warning/log_error -
-    // identical bridging need and reasoning, just for the DEF parser's own
-    // no-userData log callbacks.
-    thread_local std::vector<std::string> g_pending_def_messages;
-
-    template <typename... Args>
-    void log_error(fmt::format_string<Args...> fmt_str, Args &&...args)
-    {
-        std::string msg = fmt::format(fmt_str, std::forward<Args>(args)...);
-        spdlog::error("{}", msg);
-        g_pending_def_messages.push_back("ERROR: " + msg);
-    }
-
-    // See LEFReader's own log_warning - same reasoning, just for DEF.
-    template <typename... Args>
-    void log_warning(fmt::format_string<Args...> fmt_str, Args &&...args)
-    {
-        std::string msg = fmt::format(fmt_str, std::forward<Args>(args)...);
-        spdlog::warn("{}", msg);
-        g_pending_def_messages.push_back("WARNING: " + msg);
-    }
+    using le::reader_messages::combine_via_mask;
+    using le::reader_messages::log_error;
+    using le::reader_messages::log_warning;
 
     // Rescales one raw DEF database-unit value from this file's own UNITS
     // scale onto the shared Technology's actual scale - see
@@ -159,14 +142,6 @@ namespace
             shape->polygons.push_back(std::move(polygon));
         }
         return shapes;
-    }
-
-    // Same combined-mask convention as LEFReader::combine_via_mask
-    // (lef_reader.cpp) - kept as its own copy since that one is scoped to
-    // its own anonymous namespace, not shared/exported.
-    int combine_via_mask(int top, int cut, int bottom)
-    {
-        return top * 100 + cut * 10 + bottom;
     }
 
     // What a net's wiring is beyond its geometry: its routing status,
@@ -413,13 +388,7 @@ namespace le
 {
     void DEFReader::defrLogFn(const char *msg)
     {
-        if (!msg)
-            return;
-        std::string s(msg);
-        while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
-            s.pop_back();
-        if (!s.empty())
-            g_pending_def_messages.push_back(std::move(s));
+        le::reader_messages::stage_parser_message(msg);
     }
 
     Polygon DEFReader::polygon_from_die_area(defiBox *box, double unit_scale)
@@ -783,7 +752,7 @@ namespace le
                 const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
                 for (ShapeData &shape : shapes_from_pin_like(*reader->root_, port, reader->unit_scale_))
                 {
-                    shape = Geometry::transform(shape, to_design);
+                    shape = Geometry::transform_geometry_and_vias(shape, to_design);
                     shape.owner = le::ShapeOwner::physical_port_segment(segment_id);
                     reader->root_->create_shape(std::move(shape));
                 }
@@ -798,7 +767,7 @@ namespace le
             const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(PhysicalPortSegmentData{.physical_port = physical_port_id});
             for (ShapeData &shape : shapes_from_pin_like(*reader->root_, pin, reader->unit_scale_))
             {
-                shape = Geometry::transform(shape, to_design);
+                shape = Geometry::transform_geometry_and_vias(shape, to_design);
                 shape.owner = le::ShapeOwner::physical_port_segment(segment_id);
                 reader->root_->create_shape(std::move(shape));
             }
@@ -1301,7 +1270,7 @@ namespace le
 
         defrInit();
         messages_.clear();
-        g_pending_def_messages.clear();
+        le::reader_messages::pending().clear();
 
         defrSetDesignCbk(defrDesignCbkFn);
         defrSetVersionCbk(defrVersionCbkFn);
@@ -1326,7 +1295,7 @@ namespace le
         library_id_ = LibraryId{};
         design_id_ = DesignId{};
         layout_id_ = LayoutId{};
-        technology_id_ = root.is_technology_empty() ? root.create_technology(TechnologyData{}) : root.get_technology_ids().front();
+        technology_id_ = get_or_create_technology(root);
         // Reset per read_def() call, same as the ids above - re-derived by
         // defrUnitsCbkFn (which always fires before any geometry callback)
         // once this file's own UNITS statement is seen; 1.0 is the correct
@@ -1343,7 +1312,7 @@ namespace le
         if (!file)
         {
             log_error("Could not open DEF file {}.", filename);
-            messages_ = std::move(g_pending_def_messages);
+            messages_ = std::move(le::reader_messages::pending());
             return 1;
         }
 
@@ -1359,7 +1328,7 @@ namespace le
             log_error("Reading DEF file {} failed: {}", filename, error.what());
             result = -1;
         }
-        messages_ = std::move(g_pending_def_messages);
+        messages_ = std::move(le::reader_messages::pending());
         if (result != 0)
         {
             if (messages_.empty())

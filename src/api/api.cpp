@@ -1581,7 +1581,7 @@ namespace
                 const std::vector<le::ShapeData> &geometry = handle->move().moving_geometry;
                 for (size_t i = 0; i < geometry.size(); ++i)
                     if (!geometry[i].rects.empty() || !geometry[i].polygons.empty() || !geometry[i].paths.empty())
-                        options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(geometry[i], deltas && i < deltas->size() ? (*deltas)[i] : le::Point{}));
+                        options.move_ghost_pieces_dbu.push_back(le::Geometry::translate_rects_polygons_paths(geometry[i], deltas && i < deltas->size() ? (*deltas)[i] : le::Point{}));
                 for (const le::PlacementMoveTarget &target : plan_moving_placements_unlocked(handle, placements, *raw_delta))
                     options.move_ghost_pieces_dbu.push_back(le::placement_move_ghost(target));
             }
@@ -1604,7 +1604,7 @@ namespace
             }
             else
                 for (size_t i = 0; i < geometry.size() && i < deltas->size(); ++i)
-                    options.move_ghost_pieces_dbu.push_back(le::Geometry::transform(geometry[i], (*deltas)[i]));
+                    options.move_ghost_pieces_dbu.push_back(le::Geometry::translate_rects_polygons_paths(geometry[i], (*deltas)[i]));
         }
 
         // Extensions' overlays, each drawn with an OverlayContext over this
