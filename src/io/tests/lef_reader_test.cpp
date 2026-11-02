@@ -560,8 +560,8 @@ TEST(LEFReaderErrors, GeometryBeforeDatabaseMicronsEverDeclaredIsAnError)
 {
     // Every microns_to_dbu()/microns_squared_to_dbu() call silently
     // multiplies by 0 (the "unset" sentinel database_units_microns
-    // defaults to) if DATABASE MICRONS was never declared - previously
-    // undetected, producing silently-wrong all-zero coordinates. Caught
+    // defaults to) if DATABASE MICRONS was never declared, producing
+    // silently-wrong all-zero coordinates. Caught
     // once at the end of read_lef (not mid-parse) via
     // used_dbu_before_units_declared_.
     Root root;
@@ -578,8 +578,7 @@ TEST(LEFReaderErrors, VersionBelow5_4IsAnError)
 {
     // This project only supports LEF >= 5.4 - several
     // PIN-level statements (POWER/LEAKAGE/CAPACITANCE/etc., not modeled at
-    // all - see plans/LEFDEF_BUGS.md's "Reader-side: intentional version-
-    // obsolescence") are silently discarded by the vendored reader itself
+    // all) are silently discarded by the vendored reader itself
     // at >= 5.4, so accepting an older file would mean this project's own
     // database silently disagrees with what a real pre-5.4-reading tool
     // would see for those fields. Caught once at the end of read_lef (not

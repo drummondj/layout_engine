@@ -171,7 +171,7 @@ fails on a temp path that isn't unique to its process.
   every readable class (see TCL codegen). `le_repl_eval` is the bracket
   point that makes a typed command undoable and recallable. `le_shell.cpp`
   is the shell: readline console on a spawned thread, the GUI loop on the
-  main thread (GLFW requires it on macOS), one shared `LeHandle` injected
+  main thread (where GLFW wants it), one shared `LeHandle` injected
   via `set_session_handle`.
 - `src/gui/` — the Dear ImGui GUI (`le_gui.cpp`, `gui_provider.*`,
   `panels.*`, `components/`). `GuiProvider` is its only contact with the C
@@ -426,6 +426,10 @@ Gotchas:
 - `ENABLE_COVERAGE` is a cached option and forces `-O0`; pass
   `-DENABLE_COVERAGE=OFF` explicitly (or use a fresh tree) for real
   numbers.
+
+Sanitizers: `-DLE_SANITIZER=thread|address|undefined` (e.g. a `build_tsan`
+tree); a thread tree builds oneTBB from source with TSan, since an
+uninstrumented libtbb makes every flow-graph hand-off a false race.
 
 Coverage: `-DENABLE_COVERAGE=ON`, then `cmake --build build --target
 coverage` (Clang source-based; report in `build/coverage/`).

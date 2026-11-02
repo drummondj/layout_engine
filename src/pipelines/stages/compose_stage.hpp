@@ -85,7 +85,7 @@ namespace le
         return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
     }
 
-    /// @brief Warm-tier stage 3 (plans/PIPELINE_REFACTOR.md): composites every
+    /// @brief Warm-tier stage 3: composites every
     /// surviving node's own RasterizeBlend2DStage image into one final
     /// image, walking the same placement_data ViewportCullStage already
     /// pruned to what's visible. A node with no placements just IS its
@@ -202,13 +202,9 @@ namespace le
             ctx.end();
 
             // Blend2D's own BL_FORMAT_PRGB32 is premultiplied BGRA in
-            // memory on this little-endian target (confirmed against
-            // RasterizeBlend2DStage's own earlier finding, before this
-            // format-conversion step existed at all), while the external
-            // LePixelBuffer contract (api.hpp's own doc comment, and
-            // independently le_tcl_shim.cpp's dump_png_cmd, which tags
-            // this exact buffer kRGBA_8888_SkColorType) requires literal
-            // RGBA order - so an explicit per-pixel channel swap is
+            // memory on this little-endian target, while the external
+            // LePixelBuffer contract (api.hpp's own doc comment) requires
+            // literal RGBA order - so an explicit per-pixel channel swap is
             // unavoidable here; there's no BLFormat that natively yields
             // RGBA order to sidestep it with a format choice alone.
             BLImageData image_data;

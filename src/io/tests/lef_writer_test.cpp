@@ -13,7 +13,7 @@ using namespace le;
 
 // Deliberately does NOT use the generated to_string()/to_properties() free
 // functions for comparison here - they call std::optional::value()
-// unconditionally on every is_optional field (confirmed by reading
+// unconditionally on every is_optional field (per
 // generated/layer.hpp), so they'd throw on any layer that leaves one of
 // the optional LAYER properties unset (e.g. V1 below, which has
 // no PITCH/OFFSET/AREA/RESISTANCE/...). Direct field comparisons avoid
@@ -1269,7 +1269,7 @@ TEST(LEFWriterErrorHandling, WritesJustTheEndLibraryLineForAnEmptyRoot)
 namespace
 {
     // lefdiff itself doesn't diff anything (despite the name) - its real
-    // main() (differLef.cpp, confirmed by reading it) takes
+    // main() (differLef.cpp, per it) takes
     // `fileName1 fileName2 lefOut1 lefOut2` and dumps a normalized text
     // representation of each input to lefOut1/lefOut2; the caller is
     // expected to sort and compare those two dumps itself (see that

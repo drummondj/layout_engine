@@ -16,8 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
-// Value encoding for the native file format (plans/NATIVE_FILE_FORMAT_RESEARCH.md
-// §3 "Value encoding"). One column per stored field; within a column, one
+// Value encoding for the native file format. One column per stored field; within a column, one
 // value per row, each encoded as:
 //
 //   reference (parent or plain)  varint: dense row index + 1, 0 = unset
