@@ -485,3 +485,83 @@ TEST(SVReaderLibraries, LeafModulesAttachToAnotherLibrarysCellsOnce)
         EXPECT_EQ(resolved, netlist ? 4u : 2u); // read_rtl leaves the generate loop unexpanded
     }
 }
+
+// A module elaborated with non-default parameters gets its own Design, named
+// the Design Compiler way and linked to the module's by base_design.
+TEST(SVReader, ParameterVariantsGetTheirOwnDesigns)
+{
+    Root root;
+    SVReader reader;
+    ASSERT_EQ(reader.read_netlist({fixture_path("param_variants.v")}, root, "test_lib"), 0);
+
+    const DesignId fifo = find_design_by_name(root, "fifo");
+    const DesignId w8 = find_design_by_name(root, "fifo_WIDTH8");
+    const DesignId w16 = find_design_by_name(root, "fifo_WIDTH16_DEPTH4");
+    ASSERT_TRUE(fifo.valid());
+    ASSERT_TRUE(w8.valid());
+    ASSERT_TRUE(w16.valid());
+    EXPECT_FALSE(find_design_by_name(root, "fifo_WIDTH4").valid()) << "an explicit default value is the default body";
+    EXPECT_FALSE(root.get_design(fifo)->base_design.valid());
+    EXPECT_EQ(root.get_design(w8)->base_design, fifo);
+    EXPECT_EQ(root.get_design(w16)->base_design, fifo);
+
+    const auto bus_msb = [&](DesignId design)
+    {
+        const PortBusId bus = root.get_port_bus_by_name(root.get_design_schematic(design), "d");
+        return bus.valid() ? root.get_port_bus(bus)->msb : -1;
+    };
+    EXPECT_EQ(bus_msb(fifo), 3);
+    EXPECT_EQ(bus_msb(w8), 7);
+    EXPECT_EQ(bus_msb(w16), 15);
+
+    const SchematicId top = root.get_design_schematic(find_design_by_name(root, "top"));
+    const auto reference = [&](const char *instance) -> std::pair<std::string, DesignId>
+    {
+        const InstanceData *data = root.get_instance(root.get_instance_by_name(top, instance));
+        return data ? std::pair{data->reference_name.value_or(""), data->reference_design} : std::pair{std::string(), DesignId{}};
+    };
+    EXPECT_EQ(reference("u_default"), (std::pair{std::string("fifo"), fifo}));
+    EXPECT_EQ(reference("u_explicit_default"), (std::pair{std::string("fifo"), fifo}));
+    EXPECT_EQ(reference("u_w8"), (std::pair{std::string("fifo_WIDTH8"), w8}));
+    EXPECT_EQ(reference("u_w8_again"), (std::pair{std::string("fifo_WIDTH8"), w8})) << "8'd8 is the same value as 8";
+    EXPECT_EQ(reference("u_w16"), (std::pair{std::string("fifo_WIDTH16_DEPTH4"), w16}));
+
+    // A string value can't go in a name: the variant is named by a hash.
+    const auto [tag_name, tag_variant] = reference("u_tag");
+    EXPECT_TRUE(tag_name.starts_with("tag_")) << tag_name;
+    EXPECT_EQ(tag_name.size(), std::string("tag_").size() + 16) << tag_name;
+    ASSERT_TRUE(tag_variant.valid());
+    EXPECT_EQ(root.get_design(tag_variant)->base_design, find_design_by_name(root, "tag"));
+}
+
+TEST(SVReader, AParameterVariantNeverTakesADeclaredModulesName)
+{
+    Root root;
+    SVReader reader;
+    ASSERT_EQ(reader.read_netlist({fixture_path("param_variant_name_clash.v")}, root, "test_lib"), 0);
+
+    const SchematicId top = root.get_design_schematic(find_design_by_name(root, "top"));
+    const InstanceData *variant = root.get_instance(root.get_instance_by_name(top, "u_w8"));
+    const InstanceData *real = root.get_instance(root.get_instance_by_name(top, "u_real"));
+    ASSERT_NE(variant, nullptr);
+    ASSERT_NE(real, nullptr);
+    EXPECT_EQ(variant->reference_name, "fifo_WIDTH8_1");
+    EXPECT_EQ(real->reference_name, "fifo_WIDTH8");
+    EXPECT_NE(variant->reference_design, real->reference_design);
+    EXPECT_FALSE(root.get_design(real->reference_design)->base_design.valid());
+}
+
+// A variant whose Design already exists without a Schematic (e.g. its
+// hardened macro, read from LEF) gets the Schematic there.
+TEST(SVReader, AParameterVariantFillsInAnExistingDesignOfItsName)
+{
+    Root root;
+    const LibraryId library = root.create_library(LibraryData{.name = "test_lib"});
+    const DesignId macro = root.create_design(DesignData{.library = library, .name = "fifo_WIDTH8"});
+    SVReader reader;
+    ASSERT_EQ(reader.read_netlist({fixture_path("param_variants.v")}, root, "test_lib"), 0);
+
+    EXPECT_EQ(find_design_by_name(root, "fifo_WIDTH8"), macro);
+    EXPECT_TRUE(root.get_design_schematic(macro).valid());
+    EXPECT_EQ(root.get_design(macro)->base_design, find_design_by_name(root, "fifo"));
+}

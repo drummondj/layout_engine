@@ -19,6 +19,7 @@
 #include "slang/ast/symbols/BlockSymbols.h"
 #include "slang/ast/symbols/CompilationUnitSymbols.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
+#include "slang/ast/symbols/ParameterSymbols.h"
 #include "slang/ast/symbols/PortSymbols.h"
 #include "slang/ast/types/Type.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
@@ -90,6 +91,93 @@ namespace le
             if (!id.valid())
                 id = root.create_schematic(SchematicData{.design = design_id});
             return id;
+        }
+
+        // Every module declared in `trees`, the names a parameter variant
+        // must not take.
+        std::unordered_set<std::string> declared_module_names(const std::vector<std::shared_ptr<slang::syntax::SyntaxTree>> &trees)
+        {
+            std::unordered_set<std::string> names;
+            for (const auto &tree : trees)
+            {
+                auto visitor = slang::syntax::makeSyntaxVisitor(
+                    [&](auto &self, const slang::syntax::ModuleDeclarationSyntax &node)
+                    {
+                        names.emplace(node.header->name.valueText());
+                        self.visitDefault(node);
+                    });
+                tree->root().visit(visitor);
+            }
+            return names;
+        }
+
+        // One overridable (non-local) parameter of an elaborated module
+        // body. `value` is decimal for a known non-negative integer, so
+        // `8` and `8'd8` compare equal and can appear in a name.
+        struct BodyParameter
+        {
+            std::string name;
+            std::string value;
+            bool decimal = false;
+        };
+
+        std::vector<BodyParameter> overridable_parameters(const slang::ast::InstanceBodySymbol &body)
+        {
+            std::vector<BodyParameter> parameters;
+            for (const slang::ast::ParameterSymbolBase *parameter : body.getParameters())
+            {
+                if (parameter->isLocalParam())
+                    continue;
+                BodyParameter entry{.name = std::string(parameter->symbol.name)};
+                if (parameter->symbol.kind == slang::ast::SymbolKind::TypeParameter)
+                {
+                    entry.value = "type " + parameter->symbol.as<slang::ast::TypeParameterSymbol>().getTypeAlias().getCanonicalType().toString();
+                }
+                else
+                {
+                    const slang::ConstantValue &value = parameter->symbol.as<slang::ast::ParameterSymbol>().getValue();
+                    entry.decimal = value.isInteger() && !value.integer().hasUnknown() &&
+                                    !(value.integer().isSigned() && value.integer().isNegative());
+                    entry.value = entry.decimal ? value.integer().toString(slang::LiteralBase::Decimal, false) : value.toString();
+                }
+                parameters.push_back(std::move(entry));
+            }
+            return parameters;
+        }
+
+        // The overridable parameters of `definition` with their default
+        // values, or nullopt if one has no default (then no body has the
+        // defaults, and a default body would only add diagnostics).
+        std::optional<std::vector<BodyParameter>> default_parameters(slang::ast::Compilation &compilation, const slang::ast::DefinitionSymbol &definition)
+        {
+            for (const auto &parameter : definition.parameters)
+                if (!parameter.isLocalParam && !parameter.hasDefault())
+                    return std::nullopt;
+            return overridable_parameters(slang::ast::InstanceSymbol::createDefault(compilation, definition).body);
+        }
+
+        // Design Compiler's name for a module elaborated with non-default
+        // parameters: the module name plus `_<PARAM><value>` per differing
+        // parameter, in declaration order. A value that isn't a
+        // non-negative integer, or a name past kMaxVariantNameLength, gives
+        // `<module>_<hash of the differing parameters>` instead.
+        std::string variant_name(const std::string &module, const std::vector<BodyParameter> &differing)
+        {
+            constexpr std::size_t kMaxVariantNameLength = 255;
+            std::string name = module;
+            bool all_decimal = true;
+            for (const BodyParameter &parameter : differing)
+            {
+                all_decimal = all_decimal && parameter.decimal;
+                name += "_" + parameter.name + parameter.value;
+            }
+            if (all_decimal && name.size() <= kMaxVariantNameLength)
+                return name;
+            uint64_t hash = 14695981039346656037ull; // FNV-1a: stable across runs and builds
+            for (const BodyParameter &parameter : differing)
+                for (const char c : parameter.name + "=" + parameter.value + ";")
+                    hash = (hash ^ static_cast<unsigned char>(c)) * 1099511628211ull;
+            return fmt::format("{}_{:016x}", module, hash);
         }
 
         // Plain (non-bus) get-or-create by name - the form every scalar
@@ -779,26 +867,76 @@ namespace le
         const auto &source_manager = slang::syntax::SyntaxTree::getDefaultSourceManager();
         const auto &design_root = compilation.getRoot();
 
-        std::unordered_set<std::string> processed_definitions;
+        std::unordered_set<std::string> processed_designs;
+
+        // A module's bodies with different parameter values get their own
+        // Designs (variant_name), each linked to the module's Design by
+        // base_design; a body with the default values keeps the module's.
+        std::unordered_map<const slang::ast::DefinitionSymbol *, std::optional<std::vector<BodyParameter>>> defaults;
+        std::unordered_map<std::string, std::string> variant_designs; // module + differing values -> Design name
+        std::unordered_set<std::string> taken_names = declared_module_names(trees);
+        const auto design_name_for = [&](const slang::ast::InstanceSymbol &instance)
+        {
+            const slang::ast::DefinitionSymbol &definition = instance.getDefinition();
+            const std::string module(definition.name);
+            auto defaults_it = defaults.find(&definition);
+            if (defaults_it == defaults.end())
+                defaults_it = defaults.emplace(&definition, default_parameters(compilation, definition)).first;
+
+            std::vector<BodyParameter> differing = overridable_parameters(instance.body);
+            if (defaults_it->second)
+                std::erase_if(differing, [&](const BodyParameter &parameter)
+                              { return std::ranges::any_of(*defaults_it->second, [&](const BodyParameter &d)
+                                                           { return d.name == parameter.name && d.value == parameter.value; }); });
+            if (differing.empty())
+                return module;
+
+            std::string key = module;
+            for (const BodyParameter &parameter : differing)
+                key += fmt::format("\n{}={}", parameter.name, parameter.value);
+            const auto [it, inserted] = variant_designs.try_emplace(key);
+            if (inserted)
+            {
+                // A name that's a declared module, another variant, or a
+                // Design that already has a Schematic gets a numeric suffix;
+                // an existing Design without one (e.g. this variant's LEF
+                // macro) takes the Schematic.
+                const std::string base_name = variant_name(module, differing);
+                const auto taken = [&](const std::string &name)
+                {
+                    const DesignId existing = root.get_design_by_name(library_id_, name);
+                    return taken_names.contains(name) || (existing.valid() && root.get_design_schematic(existing).valid());
+                };
+                std::string name = base_name;
+                for (int suffix = 1; taken(name); ++suffix)
+                    name = fmt::format("{}_{}", base_name, suffix);
+                taken_names.insert(name);
+                it->second = name;
+            }
+            return it->second;
+        };
 
         // A recursive walk over the elaborated hierarchy: an Instance
         // record is created under `parent_schematic_id` for every
         // InstanceSymbol *except* the synthetic top-level call (an
         // invalid parent_schematic_id - nothing instantiates a real
         // top-level module in our own data model, it's just a Design
-        // with its own populated Schematic). A module definition's own
-        // ports/children are populated exactly once regardless of how
-        // many times it's instantiated - our schema has one Schematic
-        // per Design, not one per elaborated (possibly parameter-
-        // varying) instantiation; the first body encountered for a given
-        // definition name is treated as canonical. This is a deliberate
-        // v1 simplification, not an oversight.
+        // with its own populated Schematic). A Design's ports/children
+        // are populated once, from the first body with its parameter
+        // values (design_name_for).
         std::function<void(const slang::ast::InstanceSymbol &, const std::string &, SchematicId)> visit_instance =
             [&](const slang::ast::InstanceSymbol &instance, const std::string &qualified_name,
                 SchematicId parent_schematic_id)
         {
             const std::string definition_name(instance.getDefinition().name);
-            const DesignId design_id = design_for(root, definition_name);
+            const std::string design_name = design_name_for(instance);
+            const DesignId design_id = design_for(root, design_name);
+            if (design_name != definition_name)
+            {
+                DesignData *design = root.get_design(design_id);
+                if (design && !design->base_design.valid())
+                    design->base_design = design_for(root, definition_name);
+            }
             const SchematicId own_schematic_id = get_or_create_schematic(root, design_id);
 
             if (parent_schematic_id.valid())
@@ -809,13 +947,13 @@ namespace le
                 const InstanceId instance_id = root.create_instance(InstanceData{
                     .schematic = parent_schematic_id,
                     .name = qualified_name,
-                    .reference_name = definition_name,
+                    .reference_name = design_name,
                     .reference_design = design_id,
                 });
                 populate_pins(root, instance_id, parent_schematic_id, instance, source_manager);
             }
 
-            if (processed_definitions.insert(definition_name).second)
+            if (processed_designs.insert(design_name).second)
             {
                 populate_ports(root, own_schematic_id, instance.body);
 

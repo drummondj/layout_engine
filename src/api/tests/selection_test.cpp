@@ -20,7 +20,7 @@ namespace
             ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
             const LeDesignInfo testcell = le_library_design_at(handle, 0, 0);
             const LeLibraryId library = le_create_library(handle, "TOPLIB");
-            top_design = le_create_design(handle, library, "TOP");
+            top_design = le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "TOP");
             const LeLayoutId layout = le_create_layout(handle, top_design);
 
             // A 2x2 um route shape at the origin, and TESTCELL placed at (10,10) um.

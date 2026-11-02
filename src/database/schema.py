@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.54.0",
+    version="0.55.0",
     classes=[
         Klass(
             name="Technology",
@@ -1876,6 +1876,12 @@ schema = Schema(
                     description="The physical layout view (DEF)",
                     type="Layout",
                     is_child=True,
+                ),
+                Field(
+                    name="base_design",
+                    description="For a parameterized module elaborated with non-default parameter values, the Design of its module definition",
+                    type="Design",
+                    is_optional=True,
                 ),
             ],
         ),

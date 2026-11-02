@@ -40,7 +40,7 @@ namespace
 
     LeLayoutId add_layout(LeHandle *handle)
     {
-        return le_create_layout(handle, le_create_design(handle, le_create_library(handle, "lib"), "top"));
+        return le_create_layout(handle, le_create_design(handle, le_create_library(handle, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
     }
 
     le::AbstractId add_abstract(le::ext::WriteView &view)
@@ -81,7 +81,7 @@ TEST(ExtensionContext, CurrentObjectsMatchWhatWasSet)
 {
     LeHandle *handle = le_create();
     const LeLayoutId layout = add_layout(handle);
-    const LeSchematicId schematic = le_create_schematic(handle, le_create_design(handle, le_create_library(handle, "logic"), "top"));
+    const LeSchematicId schematic = le_create_schematic(handle, le_create_design(handle, le_create_library(handle, "logic"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
     ASSERT_EQ(le_set_current_layout(handle, layout), 0);
     ASSERT_EQ(le_set_current_schematic(handle, schematic), 0);
 
@@ -639,7 +639,7 @@ TEST(MutationListeners, EachCApiEditIsOneEventListingWhatChanged)
     EXPECT_EQ(listener_log().changes[0][0].index, library.index);
     EXPECT_EQ(listener_log().thread, std::this_thread::get_id());
 
-    le_create_design(handle, library, "top");
+    le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
     ASSERT_EQ(listener_log().events.size(), 2u);
     EXPECT_TRUE(has_change(listener_log().changes[1], le::ChangeKlass::Design, le::ChangeOp::CREATE));
     le_destroy(handle);
@@ -660,7 +660,7 @@ TEST(MutationListeners, ATypedCommandIsOneEventWhenItEnds)
     LeHandle *handle = watched_handle();
     le_begin_command(handle, "two edits");
     const LeLibraryId library = le_create_library(handle, "lib");
-    le_create_design(handle, library, "top");
+    le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
     EXPECT_TRUE(listener_log().events.empty());
     le_end_command(handle, 1);
     ASSERT_EQ(listener_log().events.size(), 1u);
