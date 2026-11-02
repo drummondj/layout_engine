@@ -68,12 +68,14 @@ namespace le
     }
 
     /// @brief The pixel box of a ruler label `offset_px` along `side` from
-    /// `anchor_px`; its baseline is `offset_px` along `side`, and it extends
-    /// left when `side` points left so the text grows away from the line.
+    /// `anchor_px`. The text grows away from the line: left when `side`
+    /// points left, down by its ascent when `side` points down, up by its
+    /// descent when it points up, so the edge nearest the line stays
+    /// `offset_px` from it.
     inline BLBox ruler_label_box(BLPoint anchor_px, BLPoint side, double offset_px, double text_width, double ascent, double descent)
     {
         const double x0 = anchor_px.x + side.x * offset_px + (side.x < 0.0 ? -text_width : 0.0);
-        const double baseline = anchor_px.y + side.y * offset_px;
+        const double baseline = anchor_px.y + side.y * offset_px + (side.y > 0.0 ? ascent : side.y < 0.0 ? -descent : 0.0);
         return BLBox(x0, baseline - ascent, x0 + text_width, baseline + descent);
     }
 

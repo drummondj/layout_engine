@@ -321,6 +321,28 @@ TEST(RulerLabels, BoxGrowsAwayFromTheLine)
     EXPECT_DOUBLE_EQ(left.x0, 52.0);
     EXPECT_DOUBLE_EQ(left.x1, 92.0);
     EXPECT_FALSE(ruler_label_boxes_overlap(left, right));
+
+    const BLBox below = ruler_label_box(BLPoint(100, 50), BLPoint(0, 1), 8.0, 40.0, 9.0, 3.0);
+    EXPECT_DOUBLE_EQ(below.y0, 58.0) << "hangs below the offset, not across the line";
+    EXPECT_DOUBLE_EQ(below.y1, 70.0);
+    const BLBox above = ruler_label_box(BLPoint(100, 50), BLPoint(0, -1), 8.0, 40.0, 9.0, 3.0);
+    EXPECT_DOUBLE_EQ(above.y0, 30.0);
+    EXPECT_DOUBLE_EQ(above.y1, 42.0);
+}
+
+// A leftward horizontal ruler's total label hangs below the line, clear of it.
+TEST_F(ComposeStageFixture, ALabelBelowAHorizontalRulerClearsTheLine)
+{
+    build_fixture(Orientation::N);
+    // Leftward from TOP-local (150,150) to (100,150): pixels (600,200) -> (400,200).
+    // The distance label goes above, the total below.
+    options.ruler_polylines_dbu = {{Point{150, 150}, Point{100, 150}}};
+    options.ruler_dbu_per_um = 1000.0;
+    ++options.ruler_version;
+    const RasterizedFrame &drawn = compose_runner.run(rasterize_runner.last_handle(), 0, options);
+    // The label grows right from x 400; tick marks reach about y 205.
+    EXPECT_TRUE(region_contains_color_near(drawn, 400, 209, 480, 224, kRulerColor, 40)) << "total label, below the line";
+    EXPECT_FALSE(region_contains_color_near(drawn, 400, 206, 480, 208, kRulerColor, 40)) << "nothing between the ticks and the label";
 }
 
 // A major tick at the ruler's end puts its label where the distance label
