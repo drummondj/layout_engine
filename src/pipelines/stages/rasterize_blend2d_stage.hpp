@@ -402,7 +402,7 @@ namespace le
     /// `measureText`-style search needed.
     ///
     /// Truncates from the BEGINNING (keeps the label's own trailing
-    /// characters) and prepends "..." - per explicit direction: a real
+    /// characters) and prepends "...": a real
     /// instance name's own most identifying part (e.g. a numeric suffix or leaf
     /// cell name in a hierarchical path like "top/sub_block/cell_042") is
     /// usually at the end, so keeping the tail and dropping the head
@@ -905,9 +905,9 @@ namespace le
         explicit RasterizeBlend2DStage(oneapi::tbb::flow::graph &g, std::string label = "RasterizeBlend2D")
             : MemoizingStage(g, std::move(label)) {}
 
-        /// @brief 0 (the default) means synchronous, single-threaded
-        /// rendering (Blend2D's own BLContextCreateInfo::thread_count
-        /// convention - "no defaults or heuristics ... users must
+        /// @brief Blend2D's render thread count (8 unless set); 0 means
+        /// synchronous, single-threaded rendering (Blend2D's own
+        /// BLContextCreateInfo::thread_count convention - "no defaults or heuristics ... users must
         /// carefully use a value that makes sense for their workloads",
         /// Blend2D's own multithreaded-rendering docs) - 2 to 4 is that
         /// same documentation's own general guidance for most workloads.
