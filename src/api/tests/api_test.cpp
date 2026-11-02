@@ -5336,6 +5336,12 @@ TEST_F(ApiFixture, ALockedPlacementsLocationAndOrientationCannotBeUpdated)
     EXPECT_EQ(update(nullptr, 1, 2.0, "N"), 0) << "unchanged values are fine";
     EXPECT_EQ(update("PLACED", 1, 5.0, nullptr), 0) << "unlocking in the same update";
     EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{5 0}");
+
+    set_status(handle, placement_id, "UNPLACED");
+    EXPECT_EQ(update("FIXED", 1, 2.0, "FS"), 0) << "placing and locking in the same update";
+    EXPECT_EQ(placement_property(handle, placement_id, ".placement_status"), "FIXED");
+    EXPECT_EQ(placement_property(handle, placement_id, ".location"), "{2 0}");
+    EXPECT_EQ(placement_property(handle, placement_id, ".orientation"), "FS");
 }
 
 TEST_F(ApiFixture, APlacementLockedDuringAMoveIsLeftWhereItIs)

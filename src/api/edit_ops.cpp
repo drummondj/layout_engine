@@ -13,7 +13,9 @@ namespace le::edit
 {
     std::optional<std::string> check_placement_update(const Root &, const PlacementData &before, const PlacementChanges &changes)
     {
-        if (!placement_is_locked(changes.placement_status.value_or(before.placement_status)))
+        // Locked means locked both before and after: one update may unlock and
+        // move, or move and lock.
+        if (!placement_is_locked(before.placement_status) || !placement_is_locked(changes.placement_status.value_or(before.placement_status)))
             return std::nullopt;
         const bool moves = changes.location &&
                            (!before.location || changes.location->x != before.location->x || changes.location->y != before.location->y);
@@ -21,7 +23,7 @@ namespace le::edit
         if (!moves && !turns)
             return std::nullopt;
         return fmt::format("placement '{}' is {} - unlock it (placement_status PLACED) before changing its {}", before.name,
-                           to_string(changes.placement_status.value_or(before.placement_status)), moves ? "location" : "orientation");
+                           to_string(before.placement_status), moves ? "location" : "orientation");
     }
 
 namespace
