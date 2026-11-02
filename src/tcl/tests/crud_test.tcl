@@ -688,6 +688,25 @@ check "delete_terminal via le_repl_eval removed the terminal" {} [get_terminals 
 check "undo recreates the deleted terminal" 1 [undo]
 check "get_terminals sees the recreated terminal" $delete_target [get_terminals DELETETEST]
 
+# delete_<type> takes a list: all deleted together, one undo step, all or
+# nothing.
+set batch_targets {}
+foreach name {BATCH0 BATCH1 BATCH2} {
+    lappend batch_targets [le_repl_eval "create_terminal -name $name -direction INPUT"]
+}
+set terminals_before [get_terminals]
+if {![catch {delete_terminal [list [lindex $batch_targets 0] terminal:NO_SUCH_TERMINAL]} err]} {
+    puts stderr "FAIL: delete_terminal with an unknown id in its list did not raise a Tcl error"
+    exit 1
+}
+check "a list with an unknown id deletes nothing" $terminals_before [get_terminals]
+le_repl_eval "delete_terminal {[lrange $batch_targets 0 1]}"
+check "delete_terminal of a list removes each" {} [get_terminals BATCH0 BATCH1]
+check "delete_terminal of a list leaves the rest" [lindex $batch_targets 2] [get_terminals BATCH2]
+check "one undo brings the whole list back" 1 [undo]
+check "the list is back, in its order" $terminals_before [get_terminals]
+le_repl_eval "delete_terminal {$batch_targets}"
+
 # --- Error messages name the real user-facing command, not the raw le_
 # C API function (read_lef, not le_read_lef). A generated create_<type>
 # raises a

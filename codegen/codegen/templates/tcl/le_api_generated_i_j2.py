@@ -49,6 +49,6 @@ const char *update_{{klass.to_snake_case()}}_cmd({{klass.update_shim_params()}})
 {% endfor %}
 
 {% for klass in classes %}
-int delete_{{klass.to_snake_case()}}_cmd(const char *id);
+int delete_{{klass.to_snake_case()}}_cmd(const char *ids);
 {% endfor %}
 """

@@ -290,34 +290,28 @@ proc update_{{snake}} {id args} {
 register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "Changes the given fields of a {{klass.name}}; omitted flags leave a field unchanged." {{'{'}}{{klass.update_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
 {% endfor %}
 
-# --- delete_<type> - `delete_<type> <id> [-help]` - deletes an existing
-# object, cascading to every owned pool-backed child reachable through
-# Klass.tcl_child_list_fields() (however many schema-graph levels deep
-# that goes for this class - see Klass.delete_api_body()'s own docstring
-# for the full mechanism). Unlike create_<type>/update_<type>, there are
-# no flags at all here - delete_<type> takes exactly one positional `<id>`
-# argument, nothing else to specify - so, unlike those two families'
-# `array set opts {...}`/`foreach {flag value} $args` flag parsing, this
-# is just an argument-count check. `-help` is checked the same way
-# create_<type>'s own is (before the argument-count check, so
-# `delete_<type> -help` works with no real id supplied at all). Returns 0
-# on success (raises a Tcl error otherwise), so callers can check
-# `delete_X $id == 0`. A real Tcl proc rather than a bare SWIG binding,
-# since -help/register_command_help need one. ---
+# --- delete_<type> - `delete_<type> <ids> [-help]` - deletes one object,
+# or a list of them of one class, and everything each owns
+# (Klass.tcl_child_list_fields(), however deep). A list goes to C in one
+# call, so it costs one pass per child list it leaves instead of one per
+# object; all or nothing, one undo step. `-help` is checked before the
+# argument count so it works with no id. Returns 0 on success, raises a
+# Tcl error otherwise. A real proc, since -help/register_command_help
+# need one. ---
 {% for klass in classes %}
 {%- set snake = klass.to_snake_case() %}
 proc delete_{{snake}} {args} {
     if {[lsearch -exact $args "-help"] >= 0} {
         return "{{klass.delete_tcl_usage()}}"
     }
-    if {[llength $args] != 1} {
-        error "delete_{{snake}}: exactly one argument (a {{klass.name}} id) is required"
+    if {[llength $args] != 1 || [llength [lindex $args 0]] == 0} {
+        error "delete_{{snake}}: exactly one argument (a {{klass.name}} id, or a list of them) is required"
     }
-    if {[delete_{{snake}}_cmd [lindex $args 0]] != 0} {
+    if {[delete_{{snake}}_cmd [join [lindex $args 0]]] != 0} {
         error "delete_{{snake}}: failed to delete \\"[lindex $args 0]\\""
     }
     return 0
 }
-register_command_help delete_{{snake}} "{{klass.delete_tcl_usage()}}" "Deletes a {{klass.name}} and everything it owns." {{'{'}}{{klass.delete_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
+register_command_help delete_{{snake}} "{{klass.delete_tcl_usage()}}" "Deletes a {{klass.name}}, or a list of them, and everything they own." {{'{'}}{{klass.delete_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
 {% endfor %}
 """

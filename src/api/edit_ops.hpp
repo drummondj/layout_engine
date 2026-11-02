@@ -14,6 +14,7 @@
 
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 

@@ -10,8 +10,12 @@ TEMPLATE = """
 #include <array>
 #include <cassert>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace {{schema.namespace}} {
@@ -329,25 +333,7 @@ namespace {{schema.namespace}} {
         /// (nothing changed, `retired` intact) if `id` isn't retired or
         /// create_{{klass.to_snake_case()}}()'s uniqueness checks fail.
         bool restore({{klass.name}}Id id, {{klass.name}}Retired& retired) {
-            if (!{{klass.to_snake_case()}}_.is_retired(id)) return false;
-            [[maybe_unused]] const {{klass.name}}Data& data = retired.data;
-        {%- for field in klass.get_ordered_fields() %}
-            {%- if field.unique_per_parent %}
-            if (data.{{klass.get_parent_field().name}}.valid()) {
-                auto it = index_.{{klass.to_snake_case()}}_by_{{field.name}}.find(data.{{klass.get_parent_field().name}});
-                if (it != index_.{{klass.to_snake_case()}}_by_{{field.name}}.end() && it->second.contains(data.{{field.name}}))
-                    return false;
-            }
-            {%- endif %}
-        {%- endfor %}
-        {%- for field in klass.get_singular_parent_fields() %}
-            if (data.{{field.accessor}}.valid() && index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.contains(data.{{field.accessor}}))
-                return false;
-        {%- endfor %}
-        {%- for field in klass.get_global_unique_fields() %}
-            if (index_.{{klass.to_snake_case()}}_by_{{field.name}}.contains(data.{{field.name}}))
-                return false;
-        {%- endfor %}
+            if (!restorable_{{klass.to_snake_case()}}_(id, retired.data)) return false;
             {{klass.to_snake_case()}}_.restore(id, std::move(retired.data));
             const auto& restored = *{{klass.to_snake_case()}}_.get(id);
             log_change_(ChangeKlass::{{klass.name}}, ChangeOp::CREATE, id, change_parent_(id, restored));
@@ -358,6 +344,72 @@ namespace {{schema.namespace}} {
         /// @brief Give a retire()d id's slot back for reuse - when no undo
         /// step can restore it any more. A no-op if `id` isn't retired.
         void release({{klass.name}}Id id) { {{klass.to_snake_case()}}_.release(id); }
+        {%- set list_parents = klass.list_parent_fields() %}
+
+        /// @brief retire() for many {{klass.name}}s at once, in time linear
+        /// in the ids plus the child lists they leave: each list is
+        /// compacted in one pass. Skips ids that don't exist or repeat.
+        /// Returns what restore_batch() needs, in `ids`' order.
+        std::vector<std::pair<{{klass.name}}Id, {{klass.name}}Retired>> retire_batch(std::span<const {{klass.name}}Id> ids) {
+            std::vector<std::pair<{{klass.name}}Id, {{klass.name}}Retired>> retired;
+            retired.reserve(ids.size());
+            std::unordered_map<{{klass.name}}Id, size_t> entry; // id -> its place in `retired`
+            entry.reserve(ids.size());
+        {%- for field in list_parents %}
+            std::vector<{{field.type}}Id> parents{{loop.index0}};
+        {%- endfor %}
+            for (const {{klass.name}}Id id : ids) {
+                const auto* existing = {{klass.to_snake_case()}}_.get(id);
+                if (!existing || !entry.emplace(id, retired.size()).second) continue;
+                log_change_(ChangeKlass::{{klass.name}}, ChangeOp::DELETE, id, change_parent_(id, *existing));
+        {%- for field in list_parents %}
+                if (existing->{{field.accessor}}.valid())
+                    parents{{loop.index0}}.push_back(existing->{{field.accessor}});
+        {%- endfor %}
+                retired.emplace_back(id, {{klass.name}}Retired{}).second.positions.fill({{klass.name}}Retired::kNotListed);
+                unindex_{{klass.to_snake_case()}}_(id, *existing, nullptr, /*lists=*/false);
+            }
+        {%- for field in list_parents %}
+            unlist_batch_(index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}, parents{{loop.index0}}, entry, retired, {{loop.index0}});
+        {%- endfor %}
+            for (auto& [id, r] : retired)
+                r.data = std::move(*{{klass.to_snake_case()}}_.retire(id));
+            return retired;
+        }
+
+        /// @brief restore() for a retire_batch() result, each child list
+        /// rebuilt in one pass. All or nothing: false (nothing changed) if
+        /// any id isn't retired or restore()'s uniqueness checks fail.
+        bool restore_batch(std::vector<std::pair<{{klass.name}}Id, {{klass.name}}Retired>>& retired) {
+            for (const auto& [id, r] : retired)
+                if (!restorable_{{klass.to_snake_case()}}_(id, r.data)) return false;
+        {%- for field in list_parents %}
+            std::vector<std::tuple<{{field.type}}Id, uint32_t, {{klass.name}}Id>> inserts{{loop.index0}};
+        {%- endfor %}
+            for (auto& [id, r] : retired) {
+                {{klass.to_snake_case()}}_.restore(id, std::move(r.data));
+                const auto& restored = *{{klass.to_snake_case()}}_.get(id);
+                log_change_(ChangeKlass::{{klass.name}}, ChangeOp::CREATE, id, change_parent_(id, restored));
+                index_insert_{{klass.to_snake_case()}}_(id, restored, nullptr, /*lists=*/false);
+        {%- for field in list_parents %}
+                if (restored.{{field.accessor}}.valid())
+                    inserts{{loop.index0}}.emplace_back(restored.{{field.accessor}}, r.positions[{{loop.index0}}], id);
+        {%- endfor %}
+            }
+        {%- for field in list_parents %}
+            relist_batch_(index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}, inserts{{loop.index0}});
+        {%- endfor %}
+            return true;
+        }
+
+        /// @brief delete_{{klass.to_snake_case()}}() for many ids, linear
+        /// like retire_batch(). Returns how many were deleted.
+        size_t erase_batch(std::span<const {{klass.name}}Id> ids) {
+            const auto retired = retire_batch(ids);
+            for (const auto& entry : retired)
+                {{klass.to_snake_case()}}_.release(entry.first);
+            return retired.size();
+        }
 
         /// @brief delete_{{klass.to_snake_case()}}(), overloaded on the id type for generic callers.
         bool erase({{klass.name}}Id id) { return delete_{{klass.to_snake_case()}}(id); }
@@ -400,7 +452,7 @@ namespace {{schema.namespace}} {
                 break;
             }
             existing->owner = value;
-            index_insert_{{klass.to_snake_case()}}_owner_(id, *existing, nullptr);
+            index_insert_{{klass.to_snake_case()}}_owner_(id, *existing, nullptr, /*lists=*/true);
             const ChangeParent parent_after = change_parent_(id, *existing);
             if (!(parent_after == parent_before))
                 log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, parent_after);
@@ -593,16 +645,94 @@ namespace {{schema.namespace}} {
                 list.push_back(id);
         }
 
+        // Drops every child named in `entry` from each of `parents`' lists,
+        // one pass per list, recording where it was as position
+        // `position_index` of its `retired` entry.
+        template <class ParentIdT, class IdT, class RetiredT>
+        static void unlist_batch_(std::unordered_map<ParentIdT, std::vector<IdT>>& lists, std::vector<ParentIdT>& parents,
+                                  const std::unordered_map<IdT, size_t>& entry, std::vector<std::pair<IdT, RetiredT>>& retired,
+                                  size_t position_index) {
+            std::ranges::sort(parents);
+            parents.erase(std::unique(parents.begin(), parents.end()), parents.end());
+            for (const ParentIdT parent : parents) {
+                auto it = lists.find(parent);
+                if (it == lists.end()) continue;
+                std::vector<IdT>& list = it->second;
+                size_t kept = 0;
+                for (size_t i = 0; i < list.size(); ++i) {
+                    const auto found = entry.find(list[i]);
+                    if (found == entry.end())
+                        list[kept++] = list[i];
+                    else
+                        retired[found->second].second.positions[position_index] = static_cast<uint32_t>(i);
+                }
+                list.resize(kept);
+            }
+        }
+
+        // Puts each (parent, position, child) back into its parent's list,
+        // one merge per list. Positions are indices in the list as it was
+        // before the batch left it, so ascending order restores it exactly;
+        // one past the end appends, like insert_child_.
+        template <class ParentIdT, class IdT>
+        static void relist_batch_(std::unordered_map<ParentIdT, std::vector<IdT>>& lists,
+                                  std::vector<std::tuple<ParentIdT, uint32_t, IdT>>& inserts) {
+            std::ranges::sort(inserts, {}, [](const auto& t) { return std::pair(std::get<0>(t), std::get<1>(t)); });
+            for (size_t begin = 0; begin < inserts.size();) {
+                const ParentIdT parent = std::get<0>(inserts[begin]);
+                size_t end = begin;
+                while (end < inserts.size() && std::get<0>(inserts[end]) == parent)
+                    ++end;
+                std::vector<IdT>& list = lists[parent];
+                std::vector<IdT> merged;
+                merged.reserve(list.size() + (end - begin));
+                size_t from = 0;
+                for (size_t k = begin; k < end; ++k) {
+                    while (merged.size() < std::get<1>(inserts[k]) && from < list.size())
+                        merged.push_back(list[from++]);
+                    merged.push_back(std::get<2>(inserts[k]));
+                }
+                merged.insert(merged.end(), list.begin() + static_cast<std::ptrdiff_t>(from), list.end());
+                list = std::move(merged);
+                begin = end;
+            }
+        }
+
     {%- for klass in schema.get_pool_classes() %}
         {%- set list_parents = klass.list_parent_fields() %}
         {%- set positions_type = "std::array<uint32_t, " ~ (list_parents | length) ~ ">" %}
+        // Whether a retired `id` can come back holding `data`: create's
+        // uniqueness checks.
+        bool restorable_{{klass.to_snake_case()}}_({{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& data) const {
+            if (!{{klass.to_snake_case()}}_.is_retired(id)) return false;
+        {%- for field in klass.get_ordered_fields() %}
+            {%- if field.unique_per_parent %}
+            if (data.{{klass.get_parent_field().name}}.valid()) {
+                auto it = index_.{{klass.to_snake_case()}}_by_{{field.name}}.find(data.{{klass.get_parent_field().name}});
+                if (it != index_.{{klass.to_snake_case()}}_by_{{field.name}}.end() && it->second.contains(data.{{field.name}}))
+                    return false;
+            }
+            {%- endif %}
+        {%- endfor %}
+        {%- for field in klass.get_singular_parent_fields() %}
+            if (data.{{field.accessor}}.valid() && index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.contains(data.{{field.accessor}}))
+                return false;
+        {%- endfor %}
+        {%- for field in klass.get_global_unique_fields() %}
+            if (index_.{{klass.to_snake_case()}}_by_{{field.name}}.contains(data.{{field.name}}))
+                return false;
+        {%- endfor %}
+            return true;
+        }
+
         // Drops `id` from every index; with `positions`, records where it
-        // was in each parent's child list.
-        void unindex_{{klass.to_snake_case()}}_([[maybe_unused]] {{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& d, [[maybe_unused]] {{positions_type}}* positions) {
+        // was in each parent's child list. Without `lists` the parents'
+        // child lists are left to the caller.
+        void unindex_{{klass.to_snake_case()}}_([[maybe_unused]] {{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& d, [[maybe_unused]] {{positions_type}}* positions, [[maybe_unused]] bool lists = true) {
         {%- for field in klass.get_ordered_fields() %}
             {%- if field.parent %}
                 {%- if field._parent_field.is_list %}
-            {
+            if (lists) {
                 auto it = index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.find(d.{{field.accessor}});
                 if (it != index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}.end()) {
                     // A cascade or a rolled-back read removes the newest child,
@@ -646,13 +776,14 @@ namespace {{schema.namespace}} {
         {%- endfor %}
         }
         {%- if klass.get_owner_fields() %}
-        void index_insert_{{klass.to_snake_case()}}_owner_({{klass.name}}Id id, const {{klass.name}}Data& d, [[maybe_unused]] const {{positions_type}}* positions) {
+        void index_insert_{{klass.to_snake_case()}}_owner_({{klass.name}}Id id, const {{klass.name}}Data& d, [[maybe_unused]] const {{positions_type}}* positions, [[maybe_unused]] bool lists) {
             switch (d.owner.kind)
             {
             {%- for field in klass.get_owner_fields() %}
             case {{klass.name}}OwnerKind::{{field.owner_kind()}}:
                 {%- if field._parent_field.is_list %}
-                insert_child_(index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}], id, positions ? (*positions)[{{list_parents.index(field)}}] : UINT32_MAX);
+                if (lists)
+                    insert_child_(index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}], id, positions ? (*positions)[{{list_parents.index(field)}}] : UINT32_MAX);
                 {%- else %}
                 index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}] = id;
                 {%- endif %}
@@ -664,15 +795,16 @@ namespace {{schema.namespace}} {
         }
         {%- endif %}
         // With `positions` (from retire()), puts `id` back where it was in
-        // each parent's child list; otherwise appends it.
-        void index_insert_{{klass.to_snake_case()}}_([[maybe_unused]] {{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& d, [[maybe_unused]] const {{positions_type}}* positions = nullptr) {
+        // each parent's child list; otherwise appends it. Without `lists`
+        // the parents' child lists are left to the caller.
+        void index_insert_{{klass.to_snake_case()}}_([[maybe_unused]] {{klass.name}}Id id, [[maybe_unused]] const {{klass.name}}Data& d, [[maybe_unused]] const {{positions_type}}* positions = nullptr, [[maybe_unused]] bool lists = true) {
         {%- if klass.get_owner_fields() %}
-            index_insert_{{klass.to_snake_case()}}_owner_(id, d, positions);
+            index_insert_{{klass.to_snake_case()}}_owner_(id, d, positions, lists);
         {%- endif %}
         {%- for field in klass.get_ordered_fields() %}
             {%- if field.parent and not field.owner %}
                 {%- if field._parent_field.is_list %}
-            if (d.{{field.accessor}}.valid())
+            if (lists && d.{{field.accessor}}.valid())
                 insert_child_(index_.{{field._parent_klass.to_snake_case()}}_{{field.parent}}[d.{{field.accessor}}], id, positions ? (*positions)[{{list_parents.index(field)}}] : UINT32_MAX);
                 {%- else %}
             if (d.{{field.accessor}}.valid())

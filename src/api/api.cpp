@@ -744,13 +744,22 @@ namespace
     }
 
     // Deletes `owner` (a Shape or a Wire), recording it for undo.
-    void delete_owner(LeHandle *handle, le::GeometryId owner)
+    // Deletes every Shape and Wire in `owners`, each class as one batch so
+    // the child lists they leave are compacted once.
+    void delete_owners(LeHandle *handle, const std::vector<le::GeometryId> &owners)
     {
+        std::vector<le::ShapeId> shapes;
+        std::vector<le::WireId> wires;
+        for (const le::GeometryId &owner : owners)
+        {
+            if (owner.shape.valid())
+                shapes.push_back(owner.shape);
+            else
+                wires.push_back(owner.wire);
+        }
         le::editing::Transaction *txn = handle->command_history.current();
-        if (owner.shape.valid())
-            le::editing::delete_object(handle->root, txn, owner.shape);
-        else
-            le::editing::delete_object(handle->root, txn, owner.wire);
+        le::editing::delete_objects(handle->root, txn, std::span<const le::ShapeId>(shapes));
+        le::editing::delete_objects(handle->root, txn, std::span<const le::WireId>(wires));
     }
 
     std::optional<le::ShapeData> resolve_selected_outline(const LeHandle *handle, const LeHandle::SelectedObject &selected, int remaining_depth)
@@ -2474,6 +2483,7 @@ namespace
 
         int32_t deleted = 0;
         std::vector<LeHandle::ShapePiece> removed;
+        std::vector<le::GeometryId> emptied;
         // Its own undo step - unless a typed Tcl command already opened one
         // (le_repl_eval), which this then records into and leaves open.
         const bool own_transaction = !handle->command_history.is_recording();
@@ -2497,11 +2507,12 @@ namespace
                 }
             if (has_no_geometry(after))
             {
-                delete_owner(handle, owner);
+                emptied.push_back(owner);
                 continue;
             }
             store_owner_geometry(handle, owner, before, after);
         }
+        delete_owners(handle, emptied);
         if (own_transaction)
             handle->command_history.end(/*succeeded=*/deleted > 0);
         for (const LeHandle::ShapePiece &piece : removed)

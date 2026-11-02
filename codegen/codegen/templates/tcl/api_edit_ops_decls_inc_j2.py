@@ -8,5 +8,6 @@ TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 std::expected<{{klass.name}}Id, std::string> create_{{snake}}(LeHandle &handle, {{klass.name}}Data data);
 std::expected<void, std::string> update_{{snake}}(LeHandle &handle, {{klass.name}}Id id, {{klass.name}}Changes changes);
 std::expected<void, std::string> delete_{{snake}}(LeHandle &handle, {{klass.name}}Id id);
+std::expected<void, std::string> delete_{{snake}}_batch(LeHandle &handle, std::span<const {{klass.name}}Id> ids);
 {% endfor %}
 """
