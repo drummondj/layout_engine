@@ -2,6 +2,7 @@
 
 #include "gui_provider.hpp"
 #include "components/design_saver.hpp"
+#include "components/library_browser.hpp"
 
 #include <gtest/gtest.h>
 #include "../../test_support/scratch_dir.hpp"
@@ -347,4 +348,24 @@ TEST(ExtensionGui, FontsLoadIntoTheAtlasAndAreFoundByName)
     ImGui::Render();
     ImGui::DestroyContext();
     le::gui::clear_extension_gui_registrations();
+}
+
+// The Browser hides a design with no Abstract or Layout unless asked to
+// show it; the filter still applies either way.
+TEST(LibraryBrowser, ADesignWithoutPhysicalViewsShowsOnlyWhenAskedFor)
+{
+    constexpr uint32_t kNone = UINT32_MAX;
+    LeDesignInfo schematic_only{};
+    schematic_only.name = "fifo";
+    schematic_only.abstract_id.index = kNone;
+    schematic_only.layout_id.index = kNone;
+    LeDesignInfo cell = schematic_only;
+    cell.name = "INV_X1";
+    cell.abstract_id.index = 0;
+
+    EXPECT_FALSE(le::gui::design_shown_in_browser(schematic_only, "", false));
+    EXPECT_TRUE(le::gui::design_shown_in_browser(schematic_only, "", true));
+    EXPECT_FALSE(le::gui::design_shown_in_browser(schematic_only, "inv", true)) << "filtered out by name";
+    EXPECT_TRUE(le::gui::design_shown_in_browser(cell, "", false));
+    EXPECT_TRUE(le::gui::design_shown_in_browser(cell, "abstract", false)) << "matched by its view";
 }
