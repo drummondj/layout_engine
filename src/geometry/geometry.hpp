@@ -305,11 +305,10 @@ namespace le
             return Path{.width = path.width, .polygon = transform(path.polygon, offset)};
         }
 
-        // Translates every rect/polygon/path in `data` by `offset` -
-        // every other field (layer, spacing, ...) is copied
-        // unchanged. The whole-Shape convenience Move's commit path uses
-        // to build its "after" geometry in one call.
-        static ShapeData transform(const ShapeData &data, const Point &offset)
+        /// @brief `data` with its rects, polygons and paths translated by
+        /// `offset`; its vias, iterates, texts and every other field are
+        /// copied unchanged (transform_piece_in_place moves a via piece).
+        static ShapeData translate_rects_polygons_paths(const ShapeData &data, const Point &offset)
         {
             ShapeData out = data;
             for (auto &r : out.rects)
@@ -536,8 +535,9 @@ namespace le
         /// @brief Every rect, polygon and path point and via origin of
         /// `data` through `t` - rects re-normalized (a rotation can swap
         /// their corners); widths, masks and every other field copied.
-        /// Via geometry itself isn't rotated, only placed.
-        static ShapeData transform(const ShapeData &data, const InstanceTransform &t)
+        /// Via geometry itself isn't rotated, only placed. Iterates and
+        /// texts aren't moved.
+        static ShapeData transform_geometry_and_vias(const ShapeData &data, const InstanceTransform &t)
         {
             ShapeData out = data;
             for (Rect &r : out.rects)
@@ -1236,52 +1236,32 @@ namespace le
         /// failing iterate_count_ok is skipped.
         static ShapeData expand_iterates(ShapeData shape)
         {
-            auto valid = [](const auto &it)
-            { return iterate_count_ok(it.num_x, it.num_y); };
-
-            for (const RectIterate &it : shape.rect_iterates)
-            {
-                if (!valid(it))
-                    continue;
-                shape.rects.reserve(shape.rects.size() + static_cast<std::size_t>(it.num_x) * static_cast<std::size_t>(it.num_y));
-                for (int ix = 0; ix < it.num_x; ix++)
-                    for (int iy = 0; iy < it.num_y; iy++)
-                        shape.rects.push_back(Rect{
-                            .ll = Point{.x = it.rect.ll.x + ix * it.space_x, .y = it.rect.ll.y + iy * it.space_y},
-                            .ur = Point{.x = it.rect.ur.x + ix * it.space_x, .y = it.rect.ur.y + iy * it.space_y},
-                        });
-            }
-            shape.rect_iterates.clear();
-
-            for (const PathIterate &it : shape.path_iterates)
-            {
-                if (!valid(it))
-                    continue;
-                shape.paths.reserve(shape.paths.size() + static_cast<std::size_t>(it.num_x) * static_cast<std::size_t>(it.num_y));
-                for (int ix = 0; ix < it.num_x; ix++)
-                    for (int iy = 0; iy < it.num_y; iy++)
-                    {
-                        const Point offset{.x = ix * it.space_x, .y = iy * it.space_y};
-                        shape.paths.push_back(Path{.width = it.path.width, .polygon = transform(it.path.polygon, offset)});
-                    }
-            }
-            shape.path_iterates.clear();
-
-            for (const PolygonIterate &it : shape.polygon_iterates)
-            {
-                if (!valid(it))
-                    continue;
-                shape.polygons.reserve(shape.polygons.size() + static_cast<std::size_t>(it.num_x) * static_cast<std::size_t>(it.num_y));
-                for (int ix = 0; ix < it.num_x; ix++)
-                    for (int iy = 0; iy < it.num_y; iy++)
-                    {
-                        const Point offset{.x = ix * it.space_x, .y = iy * it.space_y};
-                        shape.polygons.push_back(transform(it.polygon, offset));
-                    }
-            }
-            shape.polygon_iterates.clear();
-
+            expand_iterate_list(shape.rect_iterates, shape.rects, [](const RectIterate &it, Point offset)
+                                { return Rect{.ll = Point{.x = it.rect.ll.x + offset.x, .y = it.rect.ll.y + offset.y},
+                                              .ur = Point{.x = it.rect.ur.x + offset.x, .y = it.rect.ur.y + offset.y}}; });
+            expand_iterate_list(shape.path_iterates, shape.paths, [](const PathIterate &it, Point offset)
+                                { return Path{.width = it.path.width, .polygon = transform(it.path.polygon, offset)}; });
+            expand_iterate_list(shape.polygon_iterates, shape.polygons, [](const PolygonIterate &it, Point offset)
+                                { return transform(it.polygon, offset); });
             return shape;
+        }
+
+        /// @brief Appends `make(it, offset)` to `out` for every element of
+        /// every iterate in `iterates` (x outer, y inner), skipping one that
+        /// fails iterate_count_ok, then clears `iterates`.
+        template <typename Iterates, typename Out, typename Make>
+        static void expand_iterate_list(Iterates &iterates, Out &out, Make make)
+        {
+            for (const auto &it : iterates)
+            {
+                if (!iterate_count_ok(it.num_x, it.num_y))
+                    continue;
+                out.reserve(out.size() + static_cast<std::size_t>(it.num_x) * static_cast<std::size_t>(it.num_y));
+                for (int ix = 0; ix < it.num_x; ix++)
+                    for (int iy = 0; iy < it.num_y; iy++)
+                        out.push_back(make(it, Point{.x = ix * it.space_x, .y = iy * it.space_y}));
+            }
+            iterates.clear();
         }
 
         // --- Shape boolean operations and conversions (shape_* TCL commands) ---

@@ -1,4 +1,5 @@
 #include "../view_render_pipeline.hpp"
+#include "synchronous_stage_runner.hpp"
 #include <gtest/gtest.h>
 
 using namespace le;
@@ -167,4 +168,25 @@ TEST_F(ViewRenderPipelineFixture, TogglingAnObjectFilterReCullsButDoesNotReResol
     EXPECT_TRUE(pipeline.viewport_cull_stage().last_call_recomputed());
     EXPECT_TRUE(pipeline.rasterize_stage().last_call_recomputed());
     EXPECT_NE(before.frame, after.frame);
+}
+
+namespace
+{
+    struct DoublingStage : MemoizingStage<int, int, int>
+    {
+        using MemoizingStage::MemoizingStage;
+        int compute(const int &data, const int &) override { return data * 2; }
+    };
+}
+
+// A stage reads /proc for its memory stats only while sampling is on.
+TEST(MemoizingStage, SamplesTimingAndMemoryOnlyWhenAsked)
+{
+    SynchronousStageRunner<DoublingStage, int, int, int> runner{"Doubling"};
+    EXPECT_EQ(runner.run(21, 1, 0), 42);
+    EXPECT_EQ(runner.stage().last_compute_rss_after_kb(), 0) << "not sampled";
+
+    runner.stage().set_sampling(true);
+    EXPECT_EQ(runner.run(4, 2, 0), 8);
+    EXPECT_GT(runner.stage().last_compute_rss_after_kb(), 0);
 }

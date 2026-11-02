@@ -161,6 +161,17 @@ namespace le
         // (tbb_core.hpp's last_call_recomputed()/last_compute_wall_ns()/
         // cache_object_count()/etc.) after a run() call, without exposing
         // any way to mutate a stage directly. ---
+        /// @brief Turns every stage's timing and memory sampling on or off
+        /// (MemoizingStage::set_sampling).
+        void set_stage_sampling(bool on)
+        {
+            layer_generation_.set_sampling(on);
+            hierarchy_resolver_.set_sampling(on);
+            viewport_cull_.set_sampling(on);
+            rasterize_.set_sampling(on);
+            compose_.set_sampling(on);
+        }
+
         const LayerGenerationStage &layer_generation_stage() const { return layer_generation_; }
         const HierarchyResolverStage &hierarchy_resolver_stage() const { return hierarchy_resolver_; }
         const ViewportCullStage &viewport_cull_stage() const { return viewport_cull_; }

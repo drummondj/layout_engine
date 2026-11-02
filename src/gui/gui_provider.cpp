@@ -444,22 +444,20 @@ namespace le::gui
             run_tcl_command("set_undo_limit " + std::to_string(limit));
     }
 
+    std::string tcl_quote(const std::string &text)
+    {
+        std::string out = "\"";
+        for (const char c : text)
+        {
+            if (c == '\\' || c == '"' || c == '$' || c == '[' || c == ']')
+                out += '\\';
+            out += c;
+        }
+        return out + "\"";
+    }
+
     namespace
     {
-        // A Tcl word for `text` - double-quoted, with every character Tcl
-        // would substitute inside quotes escaped (a file path can hold any
-        // of them).
-        std::string tcl_quote(const std::string &text)
-        {
-            std::string out = "\"";
-            for (const char c : text)
-            {
-                if (c == '\\' || c == '"' || c == '$' || c == '[' || c == ']')
-                    out += '\\';
-                out += c;
-            }
-            return out + "\"";
-        }
 
         // Enough digits for any spacing a user types, without float noise
         // (0.1 stays "0.1", not "0.10000000000000001").
@@ -506,32 +504,32 @@ namespace le::gui
     {
         char color[8];
         std::snprintf(color, sizeof(color), "#%02x%02x%02x", r, g, b);
-        run_tcl_command("set_layer_color {" + layer_name + "} " + color);
+        run_tcl_command("set_layer_color " + tcl_quote(layer_name) + " " + color);
     }
 
     void GuiProvider::reset_layer_color(const std::string &layer_name)
     {
-        run_tcl_command("reset_layer_color {" + layer_name + "}");
+        run_tcl_command("reset_layer_color " + tcl_quote(layer_name));
     }
 
     void GuiProvider::set_layer_visible(const std::string &layer_name, bool value)
     {
-        run_tcl_command("set_layer_visible {" + layer_name + "} " + (value ? "true" : "false"));
+        run_tcl_command("set_layer_visible " + tcl_quote(layer_name) + " " + (value ? "true" : "false"));
     }
 
     void GuiProvider::set_layer_selectable(const std::string &layer_name, bool value)
     {
-        run_tcl_command("set_layer_selectable {" + layer_name + "} " + (value ? "true" : "false"));
+        run_tcl_command("set_layer_selectable " + tcl_quote(layer_name) + " " + (value ? "true" : "false"));
     }
 
     void GuiProvider::set_purpose_visible(const std::string &purpose_name, bool value)
     {
-        run_tcl_command("set_purpose_visible " + purpose_name + " " + (value ? "true" : "false"));
+        run_tcl_command("set_purpose_visible " + tcl_quote(purpose_name) + " " + (value ? "true" : "false"));
     }
 
     void GuiProvider::set_purpose_selectable(const std::string &purpose_name, bool value)
     {
-        run_tcl_command("set_purpose_selectable " + purpose_name + " " + (value ? "true" : "false"));
+        run_tcl_command("set_purpose_selectable " + tcl_quote(purpose_name) + " " + (value ? "true" : "false"));
     }
 
     namespace
@@ -557,12 +555,12 @@ namespace le::gui
 
     void GuiProvider::set_object_filter_visible(int32_t filter, const std::string &value, bool visible)
     {
-        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_visible {" + value + "} " + (visible ? "true" : "false"));
+        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_visible " + tcl_quote(value) + " " + (visible ? "true" : "false"));
     }
 
     void GuiProvider::set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable)
     {
-        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_selectable {" + value + "} " + (selectable ? "true" : "false"));
+        run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_selectable " + tcl_quote(value) + " " + (selectable ? "true" : "false"));
     }
 
     void GuiProvider::run_tcl_command(const std::string &script)

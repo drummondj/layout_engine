@@ -21,6 +21,15 @@ namespace le
         friend bool operator==(const FinGrid &, const FinGrid &) = default;
     };
 
+    /// @brief `v` rounded to the nearest `offset + k * pitch`; `v` itself
+    /// when `pitch` isn't positive.
+    inline int64_t snap_to_grid(int64_t v, int64_t pitch, int64_t offset = 0)
+    {
+        if (pitch <= 0)
+            return v;
+        return offset + static_cast<int64_t>(std::llround(static_cast<double>(v - offset) / static_cast<double>(pitch))) * pitch;
+    }
+
     namespace fin_grid_detail
     {
         inline bool iequals(std::string_view a, std::string_view b)
