@@ -55,5 +55,9 @@ check "...or rotate it" 1 [catch {update_placement $u1 -orientation W}]
 set_placement_status PLACED
 check "arm_move accepts it once unlocked" 0 [catch {arm_move}]
 check "update_placement moves it once unlocked" 0 [catch {update_placement $u1 -location {5 5}}]
+update_placement $u1 -placement_status UNPLACED
+check "update_placement places and fixes in one command" 0 [catch {update_placement $u1 -location {6 6} -placement_status FIXED -orientation N}]
+check "...at the new location" {{6 6}} [get_properties $u1 .location]
+check "...and FIXED" FIXED [get_properties $u1 .placement_status]
 
 puts "PASS"
