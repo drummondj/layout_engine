@@ -5,7 +5,10 @@
 #include <blend2d/blend2d.h>
 
 #include <memory>
+#include <optional>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace le
 {
@@ -15,6 +18,30 @@ namespace le
     /// pixel storage (refcounted, cheap to copy), the direct output of
     /// RasterizeBlend2DStage's own `BLContext` - ComposeStage composites
     /// it natively in Blend2D, with no format conversion.
+    /// @brief A label on one of a node's drawn shapes, in the node's own
+    /// dbu. Rasterize records it instead of drawing it; ComposeStage draws
+    /// it upright, once per visible instance of the node, after
+    /// compositing, so a rotated or mirrored placement (or view) never
+    /// turns its text.
+    struct NodeLabel
+    {
+        /// @brief Points into the node's chunk, which the RasterizeOutput's
+        /// `culled` keeps alive.
+        const std::string *text = nullptr;
+
+        /// @brief The text's baseline-left origin; for a placement name,
+        /// unused (`placement_box` places it).
+        BLPoint anchor_dbu;
+
+        /// @brief A placement name's placement rect: the name goes in its
+        /// on-screen bottom-left corner, truncated to its on-screen width.
+        std::optional<Rect> placement_box;
+
+        /// @brief The font's pixel size, already clamped.
+        int font_key = 0;
+        BLRgba32 color;
+    };
+
     struct RasterizedImage
     {
         BLImage image;
@@ -36,6 +63,9 @@ namespace le
         /// @brief The node needed more than kMaxImageDimensionPx pixels at
         /// this zoom; `image` holds only its first kMaxImageDimensionPx.
         bool cropped = false;
+
+        /// @brief The node's labels, on shapes this image draws.
+        std::vector<NodeLabel> labels;
     };
 
     /// @brief A Rasterize stage's own output - one RasterizedImage per

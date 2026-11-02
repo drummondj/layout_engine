@@ -87,9 +87,11 @@ fails on a temp path that isn't unique to its process.
     Rasterize which route shapes and placement rects to skip - a toggle
     never re-resolves.
   - `RasterizeBlend2DStage` rasterizes each node's own shapes to a
-    `BLImage` (fill patterns, labels via a cached monospace glyph atlas,
-    port markers, the background grid for the top level); `ComposeStage`
-    composites children and draws the overlays (selection, flightlines,
+    `BLImage` (fill patterns, port markers, the background grid for the
+    top level) and records their labels (`NodeLabel`); `ComposeStage`
+    composites children, draws every label upright over the result once
+    per visible instance big enough to read (a cached monospace glyph
+    atlas), then the overlays (selection, flightlines,
     Move ghost, Resize hover, cursor box, rulers, drag rectangle), then
     extensions' (`ViewRenderOptions::extension_overlays`, from
     `Registry::add_overlay`; `le/extension_overlay.hpp`).

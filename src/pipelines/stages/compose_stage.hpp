@@ -107,24 +107,18 @@ namespace le
     /// HierarchyResolverStage and ViewportCullStage already apply, one
     /// stage further down.
     ///
-    /// A known, accepted gap of the "raster bitmap per node" design
-    /// (ViewRenderOptions::scale's own doc comment, RasterizeBlend2DStage's
-    /// own doc comment): a placement whose own orientation isn't N bakes
-    /// that rotation/reflection into the composited pixels of its own
-    /// child image, including any text labels drawn within it by
-    /// RasterizeBlend2DStage - a rotated placement's own labels render
-    /// rotated/mirrored too. Left unfixed by explicit decision: a correct
-    /// fix needs text drawn as a separate overlay
-    /// pass after compositing (each label positioned at its own final,
-    /// already-composited screen coordinates, independent of whatever
-    /// per-node bitmap it originated from), a real architecture change,
-    /// not a small patch to RasterizeBlend2DStage's own current per-node
-    /// text-drawing code.
+    /// Labels (RasterizedImage::labels) are drawn after compositing, over
+    /// everything, at each visible instance's on-screen position and
+    /// upright, so neither a rotated or mirrored placement nor a mirrored
+    /// view turns them (draw_labels).
     class ComposeStage : public MemoizingStage<RasterizeOutputHandle, RasterizedFrame, ViewRenderOptions>
     {
     public:
         explicit ComposeStage(oneapi::tbb::flow::graph &g, std::string label = "Compose")
             : MemoizingStage(g, std::move(label)) {}
+
+        /// @brief How many labels the last composited hierarchy drew.
+        std::size_t labels_drawn() const { return labels_drawn_; }
 
     protected:
         RasterizedFrame compute(const RasterizeOutputHandle &input, const ViewRenderOptions &options) override
@@ -141,38 +135,47 @@ namespace le
             const int width = top_own_image.width();
             const int height = top_own_image.height();
 
-            // The composited hierarchy depends only on the input, top_level
-            // and scale; an overlay-only change (a mouse move) reuses it and
-            // redraws just the overlays on a copy.
-            if (input != base_input_ || options.top_level != base_top_level_ || options.scale != base_scale_)
+            // The composited hierarchy and its labels depend only on the
+            // input, top_level, scale and view_flip; an overlay-only change
+            // (a mouse move) reuses them and redraws just the overlays on a
+            // copy.
+            if (input != base_input_ || options.top_level != base_top_level_ || options.scale != base_scale_ || options.view_flip != base_view_flip_)
             {
+                BLImage hierarchy(width, height, BL_FORMAT_PRGB32);
+                BLContext hierarchy_ctx(hierarchy);
+                hierarchy_ctx.clear_all();
+                std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> composed_cache;
+                draw_node_and_children(hierarchy_ctx, options.top_level, own_it->second, *input->culled, input->images, composed_cache, options.scale);
+                hierarchy_ctx.end();
+
+                // A mirrored view draws the hierarchy mirrored; the labels
+                // go on afterwards, through the same mirror, upright.
+                const BLMatrix2D flip = options.view_flip == ViewFlip::HORIZONTAL ? BLMatrix2D(-1.0, 0.0, 0.0, 1.0, width, 0.0)
+                                        : options.view_flip == ViewFlip::VERTICAL ? BLMatrix2D(1.0, 0.0, 0.0, -1.0, 0.0, height)
+                                                                                  : BLMatrix2D::make_identity();
                 base_image_ = BLImage(width, height, BL_FORMAT_PRGB32);
                 BLContext base_ctx(base_image_);
                 base_ctx.clear_all();
-                std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> composed_cache;
-                draw_node_and_children(base_ctx, options.top_level, own_it->second, *input->culled, input->images, composed_cache, options.scale);
+                base_ctx.save();
+                base_ctx.set_comp_op(BL_COMP_OP_SRC_COPY);
+                base_ctx.set_transform(flip);
+                base_ctx.blit_image(BLPoint(0, 0), hierarchy);
+                base_ctx.restore();
+                labels_drawn_ = 0;
+                const BLMatrix2D top_to_pixel = combine_outer_after_inner(flip, dbu_to_pixel_matrix(own_it->second.local_origin, height, options.scale));
+                draw_labels(base_ctx, options.top_level, top_to_pixel, *input->culled, input->images, BLBox(0, 0, width, height), options.scale,
+                            std::min(options.label_min_size_px, options.label_max_size_px));
                 base_ctx.end();
                 base_input_ = input;
                 base_top_level_ = options.top_level;
                 base_scale_ = options.scale;
+                base_view_flip_ = options.view_flip;
             }
 
             // Shares base_image_'s pixels until the context attaches, which
             // copies them (copy-on-write), so base_image_ stays overlay-free.
-            // A mirrored view draws it mirrored instead; text in it mirrors
-            // too, as in a mirrored placement.
-            BLImage final_image = options.view_flip == ViewFlip::NONE ? base_image_ : BLImage(width, height, BL_FORMAT_PRGB32);
+            BLImage final_image = base_image_;
             BLContext ctx(final_image);
-            if (options.view_flip != ViewFlip::NONE)
-            {
-                const bool horizontal = options.view_flip == ViewFlip::HORIZONTAL;
-                ctx.save();
-                ctx.clear_all();
-                ctx.set_comp_op(BL_COMP_OP_SRC_COPY);
-                ctx.set_transform(horizontal ? BLMatrix2D(-1.0, 0.0, 0.0, 1.0, width, 0.0) : BLMatrix2D(1.0, 0.0, 0.0, -1.0, 0.0, height));
-                ctx.blit_image(BLPoint(0, 0), base_image_);
-                ctx.restore();
-            }
 
             // Overlay passes - each drawn directly onto the already-fully-
             // composed context, last, rather than as a separate stage/node
@@ -602,25 +605,8 @@ namespace le
                 return BLPoint(x, y);
             };
 
-            const BLFontFace &font_face = default_blend2d_font_face();
             const int font_key = std::max(1, static_cast<int>(std::lround(options.ruler_label_size_px)));
-            auto font_it = monospace_font_cache_.find(font_key);
-            if (font_it == monospace_font_cache_.end())
-            {
-                MonospaceFontEntry entry;
-                if (font_face.is_valid())
-                {
-                    entry.font.create_from_face(font_face, static_cast<float>(font_key));
-                    BLGlyphBuffer gb;
-                    gb.set_utf8_text("0", 1);
-                    entry.font.shape(gb);
-                    BLTextMetrics metrics;
-                    entry.font.get_text_metrics(gb, metrics);
-                    entry.cell_width = metrics.advance.x;
-                }
-                font_it = monospace_font_cache_.emplace(font_key, std::move(entry)).first;
-            }
-            const MonospaceFontEntry &font_entry = font_it->second;
+            const MonospaceFontEntry &font_entry = monospace_font(monospace_font_cache_, font_key);
 
             for (const std::vector<Point> &polyline : options.ruler_polylines_dbu)
             {
@@ -665,6 +651,112 @@ namespace le
                 const Point &from = options.ruler_polylines_dbu.back().back();
                 draw_ruler_segment(ctx, to_pixel, options.ruler_dbu_per_um, from, *options.ruler_ghost_point_dbu, /*is_ghost=*/true, font_entry, font_key);
             }
+        }
+
+        /// @brief Draws `id`'s labels and, recursively, those of each of its
+        /// visible instances, upright at their on-screen positions.
+        /// `to_pixel` maps `id`'s dbu to `ctx`'s pixels, `screen` is
+        /// `ctx`'s pixel bounds. An instance smaller on screen than
+        /// `min_label_px` across is skipped with everything inside it: no
+        /// label in it could be read, and at the zooms where many
+        /// instances are visible this skips almost all of them.
+        void draw_labels(
+            BLContext &ctx, const HierarchyId &id, const BLMatrix2D &to_pixel, const HierarchyResolverOutput &culled,
+            const std::unordered_map<HierarchyId, RasterizedImage, HierarchyIdHash> &rasterized, const BLBox &screen, double scale,
+            double min_label_px)
+        {
+            const auto rasterized_it = rasterized.find(id);
+            if (rasterized_it == rasterized.end())
+                return;
+            for (const NodeLabel &label : rasterized_it->second.labels)
+                draw_label(ctx, label, to_pixel, screen);
+
+            const auto view_data_it = culled.view_data.find(id);
+            if (view_data_it == culled.view_data.end())
+                return;
+            for (const ViewPlacements &tile : view_data_it->second.placement_tiles)
+            {
+                for (const ViewPlacementData &placement : tile->placements)
+                {
+                    // Orientations keep sizes, so the size test needs no
+                    // transform: most instances fail it at a wide zoom.
+                    const Rect &extent = placement.extent;
+                    if (static_cast<double>(extent.ur.x - extent.ll.x) * scale < min_label_px ||
+                        static_cast<double>(extent.ur.y - extent.ll.y) * scale < min_label_px)
+                        continue;
+                    const BLBox box = pixel_bounds(to_pixel, extent);
+                    if (box.x0 > screen.x1 || box.x1 < screen.x0 || box.y0 > screen.y1 || box.y1 < screen.y0)
+                        continue;
+                    const BLMatrix2D child_to_pixel = combine_outer_after_inner(to_pixel, instance_matrix(placement.transform));
+                    draw_labels(ctx, placement.id, child_to_pixel, culled, rasterized, screen, scale, min_label_px);
+                }
+            }
+        }
+
+        /// @brief Draws one label, if any of it is on `screen`. A placement
+        /// name goes in its placement's on-screen bottom-left corner,
+        /// truncated to the placement's on-screen width.
+        void draw_label(BLContext &ctx, const NodeLabel &label, const BLMatrix2D &to_pixel, const BLBox &screen)
+        {
+            const MonospaceFontEntry &font_entry = monospace_font(monospace_font_cache_, label.font_key);
+            if (!font_entry.font.is_valid() || font_entry.cell_width <= 0.0)
+                return;
+
+            std::string truncated;
+            const std::string *text = label.text;
+            BLPoint origin;
+            if (label.placement_box)
+            {
+                const BLBox box = pixel_bounds(to_pixel, *label.placement_box);
+                const double available_width_px = box.x1 - box.x0 - 2.0 * kPlacementLabelPaddingPx;
+                if (available_width_px <= 0.0)
+                    return;
+                truncated = truncate_monospace_label(*label.text, font_entry.cell_width, available_width_px);
+                if (truncated.empty())
+                    return;
+                text = &truncated;
+                origin = BLPoint(box.x0 + kPlacementLabelPaddingPx, box.y1 - kPlacementLabelPaddingPx);
+            }
+            else
+            {
+                origin = to_pixel.map_point(label.anchor_dbu);
+            }
+
+            const double width = font_entry.cell_width * static_cast<double>(text->size());
+            const double size = static_cast<double>(label.font_key);
+            if (origin.x > screen.x1 || origin.x + width < screen.x0 || origin.y - size > screen.y1 || origin.y + size < screen.y0)
+                return;
+            draw_monospace_label_blend2d(ctx, font_entry, label.font_key, glyph_bitmap_cache_, *text, label.color, origin);
+            ++labels_drawn_;
+        }
+
+        /// @brief The pixel bounding box of dbu rect `rect` under `to_pixel`.
+        static BLBox pixel_bounds(const BLMatrix2D &to_pixel, const Rect &rect)
+        {
+            const BLPoint corners[4] = {
+                to_pixel.map_point(static_cast<double>(rect.ll.x), static_cast<double>(rect.ll.y)),
+                to_pixel.map_point(static_cast<double>(rect.ur.x), static_cast<double>(rect.ll.y)),
+                to_pixel.map_point(static_cast<double>(rect.ll.x), static_cast<double>(rect.ur.y)),
+                to_pixel.map_point(static_cast<double>(rect.ur.x), static_cast<double>(rect.ur.y)),
+            };
+            BLBox box(corners[0].x, corners[0].y, corners[0].x, corners[0].y);
+            for (const BLPoint &corner : corners)
+            {
+                box.x0 = std::min(box.x0, corner.x);
+                box.y0 = std::min(box.y0, corner.y);
+                box.x1 = std::max(box.x1, corner.x);
+                box.y1 = std::max(box.y1, corner.y);
+            }
+            return box;
+        }
+
+        /// @brief `transform` (child dbu to parent dbu) as a BLMatrix2D.
+        static BLMatrix2D instance_matrix(const Geometry::InstanceTransform &transform)
+        {
+            return BLMatrix2D(
+                static_cast<double>(transform.linear.a), static_cast<double>(transform.linear.c),
+                static_cast<double>(transform.linear.b), static_cast<double>(transform.linear.d),
+                static_cast<double>(transform.translation.x), static_cast<double>(transform.translation.y));
         }
 
         /// @brief Draws `own`'s own image onto `ctx` (already at
@@ -832,9 +924,10 @@ namespace le
             const double translation_x = a * origin_x + b * origin_y + static_cast<double>(transform.translation.x);
             const double translation_y = c * origin_x + d * origin_y + static_cast<double>(transform.translation.y);
 
+            // (m00, m01) are u's terms in x' and y', (m10, m11) v's.
             return BLMatrix2D(
-                a / scale, -b / scale,
-                c / scale, -d / scale,
+                a / scale, c / scale,
+                -b / scale, -d / scale,
                 translation_x, translation_y);
         }
 
@@ -871,6 +964,8 @@ namespace le
         RasterizeOutputHandle base_input_;
         HierarchyId base_top_level_;
         double base_scale_ = 0.0;
+        ViewFlip base_view_flip_ = ViewFlip::NONE;
+        std::size_t labels_drawn_ = 0;
         BLImage base_image_;
         std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> glyph_bitmap_cache_;
     };
