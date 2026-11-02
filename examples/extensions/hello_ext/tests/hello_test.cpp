@@ -146,7 +146,7 @@ TEST(HelloExt, AddsAMarkerToTheCurrentLayoutAsOneUndoStep)
 {
     Session session;
     le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    const LeLayoutId layout = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), "top"));
+    const LeLayoutId layout = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
     ASSERT_EQ(le_set_current_layout(session.handle, layout), 0);
 
     ASSERT_TRUE(hello::add_marker(ctx, "clock_root"));
@@ -159,7 +159,7 @@ TEST(HelloExt, AddingAMarkerWithNoCurrentLayoutFails)
 {
     Session session;
     le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), "top"));
+    le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
     EXPECT_FALSE(hello::add_marker(ctx, "clock_root"));
     EXPECT_EQ(markers_and_shapes(session.handle).first, 0u);
     EXPECT_EQ(le_undo(session.handle), 0);
@@ -258,7 +258,7 @@ TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
     add_two_notes(session.handle);
     add_marker(session.handle);
     // And a HelloPin owning a shape, in a layout of its own.
-    const LeLayoutId pins = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "pins"), "top"));
+    const LeLayoutId pins = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "pins"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
     const double rect[] = {1.0, 1.0, 2.0, 2.0};
     le_create_shape(session.handle, le_shape_owner_hello_pin(le_create_hello_pin(session.handle, pins)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1,
                     rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
@@ -341,7 +341,7 @@ TEST(HelloExt, MarkersDrawAndSelectInTheLayoutView)
     const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0,
                          nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
     ASSERT_EQ(le_set_current_technology(h, technology), 0); // as reading a LEF does
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
     const LeLayoutId layout = le_create_layout(h, design);
     const LeHelloMarkerId marker = le_create_hello_marker(h, layout, "clock_root");
     const double rect[] = {0.0, 0.0, 2.0, 1.0};
@@ -385,7 +385,7 @@ TEST(HelloExt, TiledPinsDrawSelectAndMoveBetweenTiles)
     const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0,
                                                            0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
     ASSERT_EQ(le_set_current_technology(h, technology), 0);
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
     const LeLayoutId layout = le_create_layout(h, design);
     // A 100 x 100 um die area, which the view fits.
     const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
@@ -523,7 +523,7 @@ TEST(HelloExt, MarkersAreLabelledWithTheirNames)
     const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0,
                                                            0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
     ASSERT_EQ(le_set_current_technology(h, technology), 0);
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
     const LeLayoutId layout = le_create_layout(h, design);
     // A 100 x 100 um die area, which the view fits.
     const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
@@ -578,7 +578,7 @@ TEST(HelloExt, TheOverlayReadsItsStateWhileAnotherThreadWritesIt)
     const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0,
                                                          nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
     ASSERT_EQ(le_set_current_technology(h, technology), 0);
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), "top");
+    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
     le_create_layout(h, design);
     ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
     le_set_viewport_size(h, 200, 100);

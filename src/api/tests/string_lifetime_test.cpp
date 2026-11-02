@@ -47,7 +47,7 @@ namespace
 TEST_F(StringLifetime, NamesSurviveRenameGrowthAndDelete)
 {
     const LeLibraryId library = le_create_library(handle, "lib");
-    const LeDesignId design = le_create_design(handle, library, "d");
+    const LeDesignId design = le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "d");
     const char *design_name = le_design_name_by_id(handle, design);
     const char *library_name = le_library_name_by_id(handle, library);
     const LeLibraryInfo library_info = le_library_at(handle, 0);
@@ -55,7 +55,7 @@ TEST_F(StringLifetime, NamesSurviveRenameGrowthAndDelete)
     ASSERT_STREQ(design_name, "d");
     ASSERT_STREQ(library_name, "lib");
 
-    ASSERT_EQ(le_update_design(handle, design, 0, LeLibraryId{}, kLongName.c_str()), 0);
+    ASSERT_EQ(le_update_design(handle, design, 0, LeLibraryId{}, 0, LeDesignId{}, kLongName.c_str()), 0);
     ASSERT_EQ(le_update_library(handle, library, (kLongName + "_lib").c_str()), 0);
     for (int i = 0; i < 1000; ++i)
         le_create_library(handle, ("grow" + std::to_string(i)).c_str());
@@ -70,8 +70,8 @@ TEST_F(StringLifetime, NamesSurviveRenameGrowthAndDelete)
 TEST_F(StringLifetime, AnotherThreadsCallsLeaveThisThreadsStringAlone)
 {
     const LeLibraryId library = le_create_library(handle, "lib");
-    const LeDesignId first = le_create_design(handle, library, "first");
-    const LeDesignId second = le_create_design(handle, library, "second");
+    const LeDesignId first = le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "first");
+    const LeDesignId second = le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "second");
     const char *name = le_design_name_by_id(handle, first);
 
     std::thread([&]

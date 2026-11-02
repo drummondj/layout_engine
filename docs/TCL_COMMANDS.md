@@ -2706,7 +2706,7 @@ Resolves instances whose design wasn't known when they were read - e.g. after a 
 
 `read_verilog -netlist|-rtl -library <name> <path> [<path> ...] [-help]`
 
-Reads one or more SystemVerilog/Verilog files, compiled together, as schematics. -netlist elaborates a gate-level netlist fully (parameters, generate blocks); cells read with read_lef but with no Verilog of their own get stub modules automatically, so their instances resolve. -rtl only parses, keeping anything it can't read as a placeholder instance. New designs go into the -library library, which is created if it doesn't exist; if that library has no design of a module's name but another library has exactly one with no schematic (e.g. a cell from read_lef), that design gets the schematic instead. A design in the -library library that already has a schematic is an error. Instances are linked to known designs afterwards (see link). Returns 0 on success, nonzero on an error (the details are printed).
+Reads one or more SystemVerilog/Verilog files, compiled together, as schematics. -netlist elaborates a gate-level netlist fully (parameters, generate blocks); a module instantiated with non-default parameter values gets a design per set of values, named as Design Compiler names them (e.g. fifo_WIDTH8) and linked to the module's design by base_design. cells read with read_lef but with no Verilog of their own get stub modules automatically, so their instances resolve. -rtl only parses, keeping anything it can't read as a placeholder instance. New designs go into the -library library, which is created if it doesn't exist; if that library has no design of a module's name but another library has exactly one with no schematic (e.g. a cell from read_lef), that design gets the schematic instead. A design in the -library library that already has a schematic is an error. Instances are linked to known designs afterwards (see link). Returns 0 on success, nonzero on an error (the details are printed).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -3536,13 +3536,14 @@ Lists this session's typed commands, numbered, in the order they were entered - 
 
 ### create_design
 
-`create_design -library <token> -name <str> [-help]`
+`create_design -library <token> [-base_design <token>] -name <str> [-help]`
 
 Creates a Design and returns its token. Design: A library cell or logical module
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-library` | `token` | yes | Parent Library token |
+| `-base_design` | `token` | no | For a parameterized module elaborated with non-default parameter values, the Design of its module definition |
 | `-name` | `str` | yes | The name of the design, unique within its library |
 
 ### create_library
@@ -3926,13 +3927,14 @@ Returns what has changed since it was last saved: "design" if the design has cha
 
 ### update_design
 
-`update_design <id> [-library <token>] [-name <str>] [-help]`
+`update_design <id> [-library <token>] [-base_design <token>] [-name <str>] [-help]`
 
 Changes the given fields of a Design; omitted flags leave a field unchanged.
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `-library` | `token` | no | Move it to this Library (token) |
+| `-base_design` | `token` | no | For a parameterized module elaborated with non-default parameter values, the Design of its module definition |
 | `-name` | `str` | no | The name of the design, unique within its library |
 
 ### update_library

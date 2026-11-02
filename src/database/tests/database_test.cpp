@@ -123,17 +123,17 @@ struct TwoLibraries : ::testing::Test
 TEST_F(TwoLibraries, AReparentOntoATakenNameChangesNothing)
 {
     const uint64_t log_end = root.change_log().end_sequence();
-    EXPECT_FALSE(root.update_design(p, b, std::string("q")));
+    EXPECT_FALSE(root.update_design(p, b, std::nullopt, std::string("q")));
     expect_unchanged();
     EXPECT_EQ(root.change_log().end_sequence(), log_end);
 }
 
 TEST_F(TwoLibraries, AReparentWhoseOldNameIsTakenThereButNewNameIsFreeSucceeds)
 {
-    root.update_design(q, LibraryId{}, std::string("p")); // b now holds a "p"
+    root.update_design(q, LibraryId{}, std::nullopt, std::string("p")); // b now holds a "p"
     const DesignId other = root.get_design_by_name(b, "p");
 
-    ASSERT_TRUE(root.update_design(p, b, std::string("fresh")));
+    ASSERT_TRUE(root.update_design(p, b, std::nullopt, std::string("fresh")));
     EXPECT_EQ(root.get_design(p)->library, b);
     EXPECT_TRUE(root.get_library_designs(a).empty());
     EXPECT_EQ(root.get_library_designs(b), (std::vector<DesignId>{other, p}));
@@ -145,7 +145,7 @@ TEST_F(TwoLibraries, AReparentWhoseOldNameIsTakenThereButNewNameIsFreeSucceeds)
 TEST_F(TwoLibraries, ARenameOntoASiblingsNameChangesNothing)
 {
     const DesignId sibling = root.create_design(DesignData{.library = a, .name = "s"});
-    EXPECT_FALSE(root.update_design(p, LibraryId{}, std::string("s")));
+    EXPECT_FALSE(root.update_design(p, LibraryId{}, std::nullopt, std::string("s")));
     EXPECT_EQ(root.get_design(p)->name, "p");
     EXPECT_EQ(root.get_design_by_name(a, "p"), p);
     EXPECT_EQ(root.get_design_by_name(a, "s"), sibling);
@@ -153,7 +153,7 @@ TEST_F(TwoLibraries, ARenameOntoASiblingsNameChangesNothing)
 
 TEST_F(TwoLibraries, AReparentKeepingTheNameMovesItsNameIndex)
 {
-    ASSERT_TRUE(root.update_design(p, b, std::nullopt));
+    ASSERT_TRUE(root.update_design(p, b, std::nullopt, std::nullopt));
     EXPECT_EQ(root.get_design_by_name(b, "p"), p);
     EXPECT_FALSE(root.get_design_by_name(a, "p").valid());
     EXPECT_EQ(root.get_library_designs(b), (std::vector<DesignId>{q, p}));
