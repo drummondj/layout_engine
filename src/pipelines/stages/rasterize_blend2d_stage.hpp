@@ -514,7 +514,7 @@ namespace le
         BLContext &ctx, const std::vector<ViewShapeChunk> &chunks, const std::vector<PathOutlineCache *> &path_outline_caches, const Rect &query_bbox,
         const ViewLayerSet &view_layers, double scale,
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
-        std::vector<NodeLabel> &labels,
+        std::vector<NodeLabel> &labels, std::unordered_map<int, MonospaceFontEntry> &monospace_font_cache,
         double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize,
         const std::vector<ChunkVisibilityHandle> *chunk_visibility = nullptr,
         PlacementLayering layering = PlacementLayering::ALL)
@@ -811,15 +811,24 @@ namespace le
                 if (is_placement_layer)
                 {
                     // Text.size bakes in kPlacementLabelHeightRatio, so no
-                    // kLabelWidthRatio here.
+                    // kLabelWidthRatio here. A name is dropped here if it
+                    // couldn't show in any orientation: its rect's longer
+                    // on-screen side can't hold the four characters
+                    // truncate_monospace_label needs (or the whole name).
                     for (std::size_t i = 0; i < shape.texts.size() && i < shape.rects.size(); ++i)
                     {
                         if (part_hidden(i))
                             continue;
                         const Text &text = shape.texts[i];
+                        const Rect &box = shape.rects[i];
                         const double pixel_size = std::clamp(text.size * scale, min_label_px, max_label_px);
-                        labels.push_back(NodeLabel{.text = &text.label, .placement_box = shape.rects[i],
-                                                   .font_key = std::max(1, static_cast<int>(std::lround(pixel_size))), .color = stroke_color});
+                        const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
+                        const double cell_width = monospace_font(monospace_font_cache, font_key).cell_width;
+                        const double longest_px = static_cast<double>(std::max(box.ur.x - box.ll.x, box.ur.y - box.ll.y)) * scale - 2.0 * kPlacementLabelPaddingPx;
+                        if (cell_width <= 0.0 || text.label.empty() ||
+                            std::floor(longest_px / cell_width) < static_cast<double>(std::min<std::size_t>(text.label.size(), 4)))
+                            continue;
+                        labels.push_back(NodeLabel{.text = &text.label, .placement_box = box, .font_key = font_key, .color = stroke_color});
                     }
                     return;
                 }
@@ -999,7 +1008,7 @@ namespace le
                     draw_view_shapes_blend2d(
                         context, data.chunks, outline_caches, local_bbox, view_layers, options.scale,
                         options.layer_name_visible, options.purpose_visible,
-                        labels, options.label_min_size_px, options.label_max_size_px, &data.chunk_visibility,
+                        labels, monospace_font_cache_, options.label_min_size_px, options.label_max_size_px, &data.chunk_visibility,
                         layering);
                 };
                 draw(ctx, split ? PlacementLayering::UNDER_PLACEMENTS : PlacementLayering::ALL);
@@ -1100,6 +1109,10 @@ namespace le
             PathOutlineCache outlines;
         };
         std::unordered_map<const ViewLayerShapes *, ChunkPathOutlineCache> path_outline_cache_by_chunk_;
+
+        // For sizing placement names; never invalidated, a font_key's font
+        // never changes.
+        std::unordered_map<int, MonospaceFontEntry> monospace_font_cache_;
 
         uint32_t thread_count_ = 8;
         bool cropping_ = false; // the last frame cut a node off

@@ -286,6 +286,32 @@ TEST_F(RasterizeBlend2DStageFixture, ChunkVisibilityMasksHideRouteShapesAndPlace
     EXPECT_EQ(names, std::vector<std::string>{"p1"});
 }
 
+// A placement name is recorded only if its rect's longer on-screen side
+// can hold the whole name or four of its characters.
+TEST_F(RasterizeBlend2DStageFixture, APlacementNameThatCantFitIsNotRecorded)
+{
+    const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
+    const LayoutId top = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = library_id, .name = "TOP"})});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{100, 100}}}});
+    const DesignId leaf_design = root.get_abstract(leaf_abstract)->design;
+    // LEAF is 10 dbu square: 100 px at scale 10, 20 px at scale 2.
+    root.create_placement(PlacementData{.layout = top, .name = "a_long_instance_name", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{10, 10}, .orientation = Orientation::N});
+
+    const auto names_at = [&](double scale)
+    {
+        const ViewRenderOptions options = options_for(HierarchyId{top}, 0, Rect{.ll = Point{0, 0}, .ur = Point{100, 100}}, scale);
+        HierarchyResolverRunner resolver{"HierarchyResolver"};
+        resolver.run(view_layers_handle, 0, options);
+        RasterizeBlend2DRunner rasterizer{"Rasterize"};
+        std::size_t names = 0;
+        for (const NodeLabel &label : rasterizer.run(resolver.last_handle(), 0, options).images.at(HierarchyId{top}).labels)
+            names += label.placement_box.has_value() ? 1 : 0;
+        return names;
+    };
+    EXPECT_EQ(names_at(10.0), 1u);
+    EXPECT_EQ(names_at(2.0), 0u) << "16 px holds two 12 px characters";
+}
+
 TEST_F(RasterizeBlend2DStageFixture, PortMarkerIsCappedAtSixteenPixels)
 {
     // An INPUT port on TOP's left die edge: its marker points in, apex at

@@ -163,7 +163,7 @@ namespace le
                 base_ctx.restore();
                 labels_drawn_ = 0;
                 const BLMatrix2D top_to_pixel = combine_outer_after_inner(flip, dbu_to_pixel_matrix(own_it->second.local_origin, height, options.scale));
-                draw_labels(base_ctx, options.top_level, top_to_pixel, *input->culled, input->images, BLBox(0, 0, width, height),
+                draw_labels(base_ctx, options.top_level, top_to_pixel, *input->culled, input->images, BLBox(0, 0, width, height), options.scale,
                             std::min(options.label_min_size_px, options.label_max_size_px));
                 base_ctx.end();
                 base_input_ = input;
@@ -662,7 +662,8 @@ namespace le
         /// instances are visible this skips almost all of them.
         void draw_labels(
             BLContext &ctx, const HierarchyId &id, const BLMatrix2D &to_pixel, const HierarchyResolverOutput &culled,
-            const std::unordered_map<HierarchyId, RasterizedImage, HierarchyIdHash> &rasterized, const BLBox &screen, double min_label_px)
+            const std::unordered_map<HierarchyId, RasterizedImage, HierarchyIdHash> &rasterized, const BLBox &screen, double scale,
+            double min_label_px)
         {
             const auto rasterized_it = rasterized.find(id);
             if (rasterized_it == rasterized.end())
@@ -677,15 +678,17 @@ namespace le
             {
                 for (const ViewPlacementData &placement : tile->placements)
                 {
-                    const auto child_it = culled.view_data.find(placement.id);
-                    if (child_it == culled.view_data.end())
+                    // Orientations keep sizes, so the size test needs no
+                    // transform: most instances fail it at a wide zoom.
+                    const Rect &extent = placement.extent;
+                    if (static_cast<double>(extent.ur.x - extent.ll.x) * scale < min_label_px ||
+                        static_cast<double>(extent.ur.y - extent.ll.y) * scale < min_label_px)
+                        continue;
+                    const BLBox box = pixel_bounds(to_pixel, extent);
+                    if (box.x0 > screen.x1 || box.x1 < screen.x0 || box.y0 > screen.y1 || box.y1 < screen.y0)
                         continue;
                     const BLMatrix2D child_to_pixel = combine_outer_after_inner(to_pixel, instance_matrix(placement.transform));
-                    const BLBox box = pixel_bounds(child_to_pixel, child_it->second.extent);
-                    if (box.x1 - box.x0 < min_label_px || box.y1 - box.y0 < min_label_px ||
-                        box.x0 > screen.x1 || box.x1 < screen.x0 || box.y0 > screen.y1 || box.y1 < screen.y0)
-                        continue;
-                    draw_labels(ctx, placement.id, child_to_pixel, culled, rasterized, screen, min_label_px);
+                    draw_labels(ctx, placement.id, child_to_pixel, culled, rasterized, screen, scale, min_label_px);
                 }
             }
         }
