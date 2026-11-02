@@ -59,6 +59,24 @@ same with `-B build_release -DCMAKE_BUILD_TYPE=Release`. A Profile tree
 (`-DCMAKE_BUILD_TYPE=Profile`: Release plus debug info) turns on Tracy
 instrumentation; any tree can set `-DLE_ENABLE_TRACY=ON` or `OFF`.
 
+## Sanitizer trees
+
+`-DLE_SANITIZER=thread`, `address` or `undefined` builds a tree with that
+sanitizer, every dependency the build compiles included:
+
+```
+cmake -S . -B build_tsan -DCMAKE_BUILD_TYPE=Debug -DLE_SANITIZER=thread
+cmake --build build_tsan -j4
+ctest --test-dir build_tsan --output-on-failure
+```
+
+A `thread` tree builds oneTBB from source with TSan instead of using the
+machine's: TSan can't see the synchronization inside an uninstrumented
+`libtbb`, and reports every hand-off through the render pipeline's flow graph
+as a race. Nothing else is needed; a report from such a tree is worth
+looking at. The vendored LEF/DEF parsers (built by their own Makefiles)
+aren't instrumented.
+
 ## With the machine's own packages
 
 `le doctor --source` checks each item: a C++23 compiler (GCC 13+ or

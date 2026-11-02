@@ -427,6 +427,10 @@ Gotchas:
   `-DENABLE_COVERAGE=OFF` explicitly (or use a fresh tree) for real
   numbers.
 
+Sanitizers: `-DLE_SANITIZER=thread|address|undefined` (e.g. a `build_tsan`
+tree); a thread tree builds oneTBB from source with TSan, since an
+uninstrumented libtbb makes every flow-graph hand-off a false race.
+
 Coverage: `-DENABLE_COVERAGE=ON`, then `cmake --build build --target
 coverage` (Clang source-based; report in `build/coverage/`).
 

@@ -40,6 +40,21 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 cmake_policy(SET CMP0135 NEW)
 
+# A sanitizer tree: LE_SANITIZER=thread, address or undefined instruments
+# everything this build compiles, fetched dependencies included (set before
+# any of them). A thread tree also builds oneTBB from source with TSan (see
+# the oneTBB block below): a prebuilt libtbb hides its synchronization from
+# TSan, which then reports every hand-off through the flow graph as a race.
+set(LE_SANITIZER "" CACHE STRING "Sanitizer to build with: thread, address or undefined (empty for none)")
+set_property(CACHE LE_SANITIZER PROPERTY STRINGS "" thread address undefined)
+if(LE_SANITIZER)
+    if(NOT LE_SANITIZER MATCHES "^(thread|address|undefined)$")
+        message(FATAL_ERROR "LE_SANITIZER must be thread, address or undefined, not '${LE_SANITIZER}'")
+    endif()
+    add_compile_options(-fsanitize=${LE_SANITIZER} -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=${LE_SANITIZER})
+endif()
+
 # le_tcl (below) is a shared module (le_tcl.so) that statically links
 # io/render/api/lef_lib - on Linux, a static library linked into a .so
 # needs to have been compiled with -fPIC, or the final link fails with
@@ -333,8 +348,21 @@ FetchContent_MakeAvailable(blend2d)
 # provide it (Dockerfile.linux-ci's `libtbb-dev` package - Ubuntu 24.04's
 # has real CMake config support; Dockerfile.linux-release's `tbb` stage
 # builds oneTBB from source, since Rocky 8's dnf `tbb-devel` predates that
-# support); le's toolchain (toolchain/pixi.toml) has tbb-devel. ---
-find_package(TBB REQUIRED CONFIG)
+# support); le's toolchain (toolchain/pixi.toml) has tbb-devel. A TSan
+# tree builds the same release from source instead, instrumented. ---
+if(LE_SANITIZER STREQUAL "thread")
+    set(TBB_TEST OFF CACHE BOOL "" FORCE)
+    set(TBB_STRICT OFF CACHE BOOL "" FORCE)
+    set(TBB_SANITIZE thread CACHE STRING "" FORCE)
+    le_fetch_declare(
+        onetbb
+        URL https://github.com/uxlfoundation/oneTBB/archive/refs/tags/v2021.11.0.tar.gz
+        URL_HASH SHA256=782ce0cab62df9ea125cdea253a50534862b563f1d85d4cda7ad4e77550ac363
+    )
+    FetchContent_MakeAvailable(onetbb)
+else()
+    find_package(TBB REQUIRED CONFIG)
+endif()
 
 # Tracy - the sibling oneTBB_test project's own src/core.hpp (copied into
 # src/pipelines/tbb_core.hpp) hard-depends on its ZoneScoped/ZoneName/
@@ -1016,7 +1044,11 @@ if(SWIG_FOUND AND TCL_FOUND)
         ${PROJECT_BINARY_DIR}/lucide.ttf
         DESTINATION . COMPONENT bundle)
     install(DIRECTORY ${LE_FONT_DIR}/ DESTINATION fonts COMPONENT bundle)
-    install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb DESTINATION . COMPONENT bundle)
+    if(TARGET tbb)
+        install(TARGETS tbb LIBRARY DESTINATION . COMPONENT bundle) # built from source (a TSan tree)
+    else()
+        install(IMPORTED_RUNTIME_ARTIFACTS TBB::tbb DESTINATION . COMPONENT bundle)
+    endif()
 
     # The shared libraries a host can't be relied on to provide (the C++
     # runtime, readline, Tcl, zlib, GL dispatch and X11 client libraries) go in
