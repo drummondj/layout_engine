@@ -2248,6 +2248,17 @@ namespace
         return drawable_piece(handle->root, *data, piece->piece_kind, piece->piece_index, handle->current_layout());
     }
 
+    // How many selected placements are FIXED or COVER - placements Move
+    // leaves alone.
+    int32_t locked_placement_count_unlocked(const LeHandle *handle)
+    {
+        return static_cast<int32_t>(std::ranges::count_if(selected_placements_unlocked(handle), [&](le::PlacementId id)
+                                                          {
+                                                              const le::PlacementData *placement = handle->root.get_placement(id);
+                                                              return placement && le::placement_is_locked(placement->placement_status);
+                                                          }));
+    }
+
     // LE_KEY_MOVE/le_arm_move's own body - unlocked
     // variant, same reasoning as fit_selected_unlocked
     // below (called from inside le_key_down, which already holds
@@ -2261,17 +2272,6 @@ namespace
     // Move moves exactly whichever
     // pieces are selected, not necessarily every piece of their owning
     // Shapes.
-    // How many selected placements are FIXED or COVER - placements Move
-    // leaves alone.
-    int32_t locked_placement_count_unlocked(const LeHandle *handle)
-    {
-        return static_cast<int32_t>(std::ranges::count_if(selected_placements_unlocked(handle), [&](le::PlacementId id)
-                                                          {
-                                                              const le::PlacementData *placement = handle->root.get_placement(id);
-                                                              return placement && le::placement_is_locked(placement->placement_status);
-                                                          }));
-    }
-
     void arm_move_unlocked(LeHandle *handle)
     {
         if (handle->mode() != LeHandle::Mode::EDIT)

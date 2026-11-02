@@ -1258,7 +1258,7 @@ class Klass:
         Foreign/LayerDensityEntry) get no parent flag at all -
         reassigning one parent field alone would violate their "exactly
         one parent set" invariant, and there's no atomic "swap parent,
-        clear siblings" primitive designed (decision 5 - see the plan).
+        clear siblings" primitive.
         Generated for every pool class unconditionally, same as
         create_<type> - even a class with zero non-parent create fields
         (Obstruction, Schematic) still has a real, useful reparent-only
@@ -3831,11 +3831,8 @@ class Field:
         A `dbu`-typed scalar converts to microns via `dbu_var` (in scope
         at every to_property_string()/to_property_list_string() call site
         - see struct_hpp_j2.py) and formats with format_coordinate_um(),
-        instead of the raw integer std::to_string() would otherwise give -
-        this is the fix for Shape's rects/polygons/paths having been the
-        only clean, unit-converted display anywhere (previously hand-
-        patched in api.cpp; every `dbu` field anywhere now converts the
-        same way, recursively, for free).
+        instead of the raw integer std::to_string() would otherwise give,
+        so every `dbu` field converts the same way, recursively.
 
         A scalar reference to an embedded klass is wrapped in its own
         "{...}" here - to_property_string() itself returns bare,

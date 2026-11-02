@@ -171,7 +171,7 @@ fails on a temp path that isn't unique to its process.
   every readable class (see TCL codegen). `le_repl_eval` is the bracket
   point that makes a typed command undoable and recallable. `le_shell.cpp`
   is the shell: readline console on a spawned thread, the GUI loop on the
-  main thread (GLFW requires it on macOS), one shared `LeHandle` injected
+  main thread (where GLFW wants it), one shared `LeHandle` injected
   via `set_session_handle`.
 - `src/gui/` — the Dear ImGui GUI (`le_gui.cpp`, `gui_provider.*`,
   `panels.*`, `components/`). `GuiProvider` is its only contact with the C

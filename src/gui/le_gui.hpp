@@ -20,10 +20,9 @@ namespace le::gui
     /// through `handle` itself and the show-gui-request flag both sides
     /// already share via LeHandle.
     ///
-    /// Must be called from the process's own true main thread - GLFW
-    /// requires window/context creation to happen only there on macOS
-    /// (a hard Cocoa constraint; harmless to also do this on Linux, which
-    /// has no such restriction). This is why the caller (le_shell.cpp)
+    /// Must be called from the process's own true main thread - GLFW's
+    /// threading rules put window creation and event processing there.
+    /// This is why the caller (le_shell.cpp)
     /// runs its own interactive Tcl console on a *different*, spawned
     /// thread instead of the process's main one - Tcl_Main's own
     /// blocking stdin/event loop and this loop can't share a thread

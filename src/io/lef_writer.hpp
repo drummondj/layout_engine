@@ -94,7 +94,7 @@ namespace le
         // include_numeric defaults true; pass false for a ROUTING layer
         // specifically - lefwRealProperty/lefwIntProperty are missing
         // LEFW_LAYERROUTING(_START) from their own accepted-state list
-        // (confirmed in lefwWriter.cpp; lefwStringProperty has it), so
+        // (per lefwWriter.cpp; lefwStringProperty has it), so
         // numeric properties there are readable but not writable, unlike
         // every other property-carrying construct including CUT layers.
         static int write_properties(const std::vector<LefProperty> &properties, bool include_numeric = true);
@@ -110,7 +110,7 @@ namespace le
         // Shared by both the ROUTING and CUT branches of
         // write_technology_layers - lefwLayerAntennaModel/its per-field
         // siblings accept LEFW_LAYERROUTING(_START) AND LEFW_LAYER(_START)
-        // alike (confirmed in lefwWriter.cpp), unlike write_properties'
+        // alike (per lefwWriter.cpp), unlike write_properties'
         // ROUTING-layer numeric gap above.
         // is_cut selects whether the "SideArea"-family fields are written -
         // see write_layer_antenna_models's own comment in lef_writer.cpp
