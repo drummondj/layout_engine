@@ -71,10 +71,22 @@ namespace le
         return values;
     }
 
+    /// @brief The names of every value in `all` (a generated
+    /// `all_<enum>_values`), in its order.
+    template <typename Enum, std::size_t N>
+    std::vector<std::string> enum_value_names(const std::array<Enum, N> &all)
+    {
+        std::vector<std::string> names;
+        names.reserve(N + 1);
+        for (const Enum value : all)
+            names.push_back(to_string(value));
+        return names;
+    }
+
     /// @brief Every Placement.placement_status value the Layers panel offers.
     inline const std::vector<std::string> &placement_status_values()
     {
-        static const std::vector<std::string> values{"UNPLACED", "PLACED", "FIXED", "COVER", "SOFTFIXED"};
+        static const std::vector<std::string> values = enum_value_names(all_placement_status_values);
         return values;
     }
 
@@ -82,7 +94,7 @@ namespace le
     /// one is ROUTED.
     inline const std::vector<std::string> &routing_status_values()
     {
-        static const std::vector<std::string> values{"ROUTED", "FIXED", "COVER", "NOSHIELD", "SHIELD"};
+        static const std::vector<std::string> values = enum_value_names(all_routing_status_values);
         return values;
     }
 
@@ -90,9 +102,12 @@ namespace le
     /// SPECIALNETS SHAPE), kUnsetFilterValue last for wiring with none.
     inline const std::vector<std::string> &route_shape_values()
     {
-        static const std::vector<std::string> values{"RING",      "PADRING",      "BLOCKRING", "STRIPE",   "FOLLOWPIN",
-                                                     "IOWIRE",    "COREWIRE",     "BLOCKWIRE", "BLOCKAGEWIRE",
-                                                     "FILLWIRE",  "FILLWIREOPC",  "DRCFILL",   std::string(kUnsetFilterValue)};
+        static const std::vector<std::string> values = []
+        {
+            std::vector<std::string> names = enum_value_names(all_route_shape_values);
+            names.emplace_back(kUnsetFilterValue);
+            return names;
+        }();
         return values;
     }
 

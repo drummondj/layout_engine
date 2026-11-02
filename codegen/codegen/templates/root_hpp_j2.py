@@ -476,8 +476,8 @@ namespace {{schema.namespace}} {
         /// @brief Clear all data from {{klass.name}} pool
         void clear_{{klass.to_snake_case()}}() { change_log_.saturate(); return {{klass.to_snake_case()}}_.clear(); }
 
-        /// @brief Get size of {{klass.name}} pool
-        uint64_t get_{{klass.to_snake_case()}}_size() { return {{klass.to_snake_case()}}_.size(); }
+        /// @brief How many live {{klass.name}} objects there are.
+        uint64_t get_{{klass.to_snake_case()}}_size() const { return {{klass.to_snake_case()}}_.size(); }
 
         /// @brief Iterate through {{klass.name}}Ids
         template <typename Fn>

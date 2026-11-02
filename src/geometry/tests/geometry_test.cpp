@@ -150,7 +150,7 @@ TEST(Geometry, TransformTranslatesEveryRectPolygonAndPathInAShapeAndLeavesOtherF
     shape.paths.push_back(Path{.width = 4, .polygon = Polygon{.points = {{0, 0}, {10, 0}}}});
     shape.spacing = 7;
 
-    ShapeData moved = Geometry::transform(shape, Point{5, -5});
+    ShapeData moved = Geometry::translate_rects_polygons_paths(shape, Point{5, -5});
 
     EXPECT_EQ(moved.layer, m1);
     EXPECT_EQ(moved.spacing, 7);

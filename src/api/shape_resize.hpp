@@ -97,13 +97,13 @@ namespace le
             switch (mode)
             {
             case ShapeSnapMode::USER_GRID:
-                return snap_to_grid_value(v, user_grid, 0);
+                return snap_to_grid(v, user_grid, 0);
             case ShapeSnapMode::MANUFACTURING_GRID:
-                return manufacturing_grid ? snap_to_grid_value(v, *manufacturing_grid, 0) : v;
+                return manufacturing_grid ? snap_to_grid(v, *manufacturing_grid, 0) : v;
             case ShapeSnapMode::FIN_GRID:
                 if (fin_grid && fin_grid->horizontal != x_axis)
-                    return snap_to_grid_value(v, fin_grid->pitch, fin_grid->offset);
-                return manufacturing_grid ? snap_to_grid_value(v, *manufacturing_grid, 0) : v;
+                    return snap_to_grid(v, fin_grid->pitch, fin_grid->offset);
+                return manufacturing_grid ? snap_to_grid(v, *manufacturing_grid, 0) : v;
             case ShapeSnapMode::NONE:
             case ShapeSnapMode::TRACKS:
                 return v;
@@ -118,13 +118,13 @@ namespace le
             switch (mode)
             {
             case ShapeSnapMode::USER_GRID:
-                return snap_to_grid_value(v, user_grid, 0);
+                return snap_to_grid(v, user_grid, 0);
             case ShapeSnapMode::MANUFACTURING_GRID:
             {
                 if (!manufacturing_grid)
                     return v;
                 const int64_t half = width / 2;
-                return snap_to_grid_value(v - half, *manufacturing_grid, 0) + half;
+                return snap_to_grid(v - half, *manufacturing_grid, 0) + half;
             }
             case ShapeSnapMode::TRACKS:
             {
@@ -141,14 +141,6 @@ namespace le
                 return v;
             }
             return v;
-        }
-
-    private:
-        static int64_t snap_to_grid_value(int64_t v, int64_t pitch, int64_t offset)
-        {
-            if (pitch <= 0)
-                return v;
-            return offset + static_cast<int64_t>(std::llround(static_cast<double>(v - offset) / static_cast<double>(pitch))) * pitch;
         }
     };
 
