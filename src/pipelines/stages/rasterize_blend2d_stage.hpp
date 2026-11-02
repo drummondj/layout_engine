@@ -359,8 +359,7 @@ namespace le
         return result;
     }
 
-    /// @brief One entry of `RasterizeBlend2DStage::monospace_font_cache_`
-    /// below - a BLFont built at one specific clamped/rounded pixel size
+    /// @brief One entry of a font cache (`monospace_font`) - a BLFont built at one specific clamped/rounded pixel size
     /// (`font_key`), plus that size's own fixed monospace cell width
     /// (measured once, via a single representative character - a
     /// monospace font's own advance is identical for every printable
@@ -371,6 +370,30 @@ namespace le
         BLFont font;
         double cell_width = 0.0;
     };
+
+    /// @brief `cache`'s font for `font_key` (a pixel size), built and its
+    /// cell width measured on first use.
+    inline const MonospaceFontEntry &monospace_font(std::unordered_map<int, MonospaceFontEntry> &cache, int font_key)
+    {
+        auto it = cache.find(font_key);
+        if (it == cache.end())
+        {
+            MonospaceFontEntry entry;
+            const BLFontFace &font_face = default_blend2d_font_face();
+            if (font_face.is_valid())
+            {
+                entry.font.create_from_face(font_face, static_cast<float>(font_key));
+                BLGlyphBuffer gb;
+                gb.set_utf8_text("0", 1);
+                entry.font.shape(gb);
+                BLTextMetrics metrics;
+                entry.font.get_text_metrics(gb, metrics);
+                entry.cell_width = metrics.advance.x;
+            }
+            it = cache.emplace(font_key, std::move(entry)).first;
+        }
+        return it->second;
+    }
 
     /// @brief Truncates `text` to fit within `max_width_px` when rendered
     /// in a monospace font whose own fixed per-character advance is
@@ -403,10 +426,9 @@ namespace le
 
     /// @brief Draws `label` one monospace character at a time, starting
     /// at `device_origin` (already mapped into device/pixel space - the
-    /// caller's own job, draw_view_shapes_blend2d's text loop below).
-    /// `font_entry` is looked up/built by the caller, keyed by the same
-    /// `font_key` `glyph_bitmap_cache` is also keyed by (RasterizeBlend2DStage's
-    /// own `monospace_font_cache_`) - every glyph this call draws is
+    /// caller's own job, ComposeStage's label pass).
+    /// `font_entry` is the caller's `monospace_font(font_key)`, the same
+    /// `font_key` `glyph_bitmap_cache` is keyed by - every glyph this call draws is
     /// rendered directly at its own real on-screen size (via
     /// `render_glyph_bitmap`/`glyph_bitmap_cache` - GlyphBitmapCacheKey's
     /// own doc comment has the full "why per-character, not per-string,
@@ -468,32 +490,12 @@ namespace le
     /// fallback viewport-culling dispatch, and `path_outline_caches` (one
     /// per chunk, index-parallel to `chunks`) via BLContext draw calls.
     ///
-    /// Text (Shape.texts) draws two cases: the generic per-shape
-    /// TERMINAL/ROUTE label (kLabelWidthRatio-scaled, clamped to
-    /// [kMinLabelPixelSize, kMaxLabelPixelSize], centered at
-    /// `text.location`, never truncated), and the placement-name label
-    /// (index-paired with shape.rects, bottom-left-anchored, truncated to
-    /// fit via `truncate_monospace_label` - that function's own doc
-    /// comment has the full rationale).
-    ///
-    /// Every label is drawn one monospace character at a time
-    /// (`draw_monospace_label_blend2d` below) via a per-CHARACTER
-    /// rendered-glyph-bitmap cache (`render_glyph_bitmap`/
-    /// `GlyphBitmapCacheKey`'s own doc comment has the full rationale -
-    /// short version: a per-STRING cache's own key space is unbounded for
-    /// content like a Placement's own name, which is unique per instance;
-    /// a per-CHARACTER cache is bounded by the alphabet actually used
-    /// regardless of how many distinct/unique strings a design contains)
-    /// rather than a fresh vector shape+fill per occurrence. This maps
-    /// `text.location` through the context's own current
-    /// `final_transform()` once to get its real device-pixel position,
-    /// draws under a plain identity transform at that point (a cached
-    /// glyph's own bitmap already being sized in real device pixels, no
-    /// further multiplication by the ambient dbu-to-pixel scale), then
-    /// restores - correct once this context is confirmed to never carry a
-    /// rotation component within a single node's own render pass - see
-    /// compose_stage.hpp's own doc comment for the cross-node rotation/
-    /// flip case this doesn't handle.
+    /// Text (Shape.texts) isn't drawn here: each label on a drawn shape is
+    /// appended to `labels` (NodeLabel) for ComposeStage to draw upright.
+    /// Two cases: the generic per-shape TERMINAL/ROUTE label
+    /// (kLabelWidthRatio-scaled, clamped to the min/max label size, at
+    /// `text.location`), and the placement name (index-paired with
+    /// shape.rects, in the rect's bottom-left corner, truncated to fit).
     ///
     /// Blend2D has no "stroke width 0 means always exactly 1 device
     /// pixel" hairline convention - a sub-pixel-on-screen (or
@@ -512,8 +514,7 @@ namespace le
         BLContext &ctx, const std::vector<ViewShapeChunk> &chunks, const std::vector<PathOutlineCache *> &path_outline_caches, const Rect &query_bbox,
         const ViewLayerSet &view_layers, double scale,
         const std::unordered_map<std::string, bool> &layer_name_visible, const std::unordered_map<ViewLayerPurpose, bool> &purpose_visible,
-        std::unordered_map<int, MonospaceFontEntry> &monospace_font_cache,
-        std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> &glyph_bitmap_cache,
+        std::vector<NodeLabel> &labels,
         double requested_min_label_px = kMinLabelPixelSize, double max_label_px = kMaxLabelPixelSize,
         const std::vector<ChunkVisibilityHandle> *chunk_visibility = nullptr,
         PlacementLayering layering = PlacementLayering::ALL)
@@ -524,51 +525,8 @@ namespace le
         // yields to it.
         const double min_label_px = std::min(requested_min_label_px, max_label_px);
 
-        // `monospace_font_cache` and `glyph_bitmap_cache` are owned by the
-        // CALLER (RasterizeBlend2DStage - its own `monospace_font_cache_`/
-        // `glyph_bitmap_cache_` members) and passed in by reference here,
-        // deliberately shared across every node this stage renders (and
-        // across frames, for the lifetime of the stage) rather than
-        // scoped to one call of this function - the real repetition this
-        // backend can exploit (the same character, e.g. "A"/"0"/"_",
-        // recurring across many different labels drawn from a small
-        // alphabet) is *cross-node*, not intra-node: HierarchyResolverStage
-        // renders each distinct AbstractId's own content exactly once
-        // regardless of placement count ("a design placed N times is
-        // still resolved once"), so within any single call of THIS
-        // function a given Terminal's own pin name (or Placement's own
-        // instance name) appears at most once - a per-call cache would
-        // miss every time.
-        const BLFontFace &font_face = default_blend2d_font_face();
         const ViewLayerId placement_layer_id = view_layers.placement_view_layer();
         const ViewLayerId port_marker_layer_id = view_layers.port_marker_view_layer();
-
-        // Shared by both the generic per-shape text loop and the
-        // placement-name branch below (draw_one_shape) - looks up
-        // `monospace_font_cache`'s own entry for `font_key`, building
-        // (and measuring the fixed cell width of) a fresh BLFont on a
-        // cache miss. Declared once here rather than duplicated in both
-        // call sites.
-        auto get_or_build_monospace_font = [&](int font_key) -> MonospaceFontEntry &
-        {
-            auto it = monospace_font_cache.find(font_key);
-            if (it == monospace_font_cache.end())
-            {
-                MonospaceFontEntry entry;
-                if (font_face.is_valid())
-                {
-                    entry.font.create_from_face(font_face, static_cast<float>(font_key));
-                    BLGlyphBuffer gb;
-                    gb.set_utf8_text("0", 1);
-                    entry.font.shape(gb);
-                    BLTextMetrics metrics;
-                    entry.font.get_text_metrics(gb, metrics);
-                    entry.cell_width = metrics.advance.x;
-                }
-                it = monospace_font_cache.emplace(font_key, std::move(entry)).first;
-            }
-            return it->second;
-        };
 
         // PORT_MARKER draws first, under everything else - otherwise a
         // port's marker would cover its own label, drawn with the port's
@@ -852,74 +810,28 @@ namespace le
 
                 if (is_placement_layer)
                 {
-                    // Placement name labels: floored/capped font size (no
-                    // kLabelWidthRatio here - unlike a Terminal/ROUTE
-                    // label, text.size already bakes in
-                    // kPlacementLabelHeightRatio at construction time,
-                    // hierarchy_resolver_stage.hpp's own
-                    // placement_shape), bottom-left-anchored with a
-                    // small constant on-screen padding, truncated to fit
-                    // the placement's own on-screen width via the
-                    // index-paired shape.rects entry - see this function's
-                    // own top-level doc comment and
-                    // truncate_monospace_label's own doc comment.
-                    for (std::size_t i = 0; i < shape.texts.size(); ++i)
+                    // Text.size bakes in kPlacementLabelHeightRatio, so no
+                    // kLabelWidthRatio here.
+                    for (std::size_t i = 0; i < shape.texts.size() && i < shape.rects.size(); ++i)
                     {
+                        if (part_hidden(i))
+                            continue;
                         const Text &text = shape.texts[i];
                         const double pixel_size = std::clamp(text.size * scale, min_label_px, max_label_px);
-                        if (i >= shape.rects.size() || part_hidden(i))
-                            continue;
-                        const double width_px = static_cast<double>(shape.rects[i].ur.x - shape.rects[i].ll.x) * scale;
-                        const double available_width_px = width_px - 2.0 * kPlacementLabelPaddingPx;
-                        if (available_width_px <= 0.0)
-                            continue;
-
-                        const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
-                        const MonospaceFontEntry &font_entry = get_or_build_monospace_font(font_key);
-
-                        const std::string truncated = truncate_monospace_label(text.label, font_entry.cell_width, available_width_px);
-                        if (truncated.empty())
-                            continue;
-
-                        // Bottom-left-anchored with a small constant
-                        // on-screen padding - this backend
-                        // works entirely in already-mapped device-pixel
-                        // space (this function's own top-level doc
-                        // comment), so the padding is added directly here:
-                        // right (+x) and up the screen (-y, since device
-                        // pixel y increases downward) from the placement's
-                        // own raw bottom-left device point.
-                        const BLPoint box_origin = ctx.final_transform().map_point(text.location.x, text.location.y);
-                        const BLPoint device_origin(box_origin.x + kPlacementLabelPaddingPx, box_origin.y - kPlacementLabelPaddingPx);
-                        draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache, truncated, stroke_color, device_origin);
+                        labels.push_back(NodeLabel{.text = &text.label, .placement_box = shape.rects[i],
+                                                   .font_key = std::max(1, static_cast<int>(std::lround(pixel_size))), .color = stroke_color});
                     }
-                    return; // this shape's own placement-name text is handled above - don't also fall into the generic text loop below
+                    return;
                 }
 
                 for (const Text &text : shape.texts)
                 {
-                    // Clamped at both ends: kMinLabelPixelSize keeps a
-                    // label legible when its own local geometry is tiny;
-                    // kMaxLabelPixelSize keeps it from growing without
-                    // bound when zoomed in close (a label only needs to
-                    // stay readable, not track the geometry's own on-screen
-                    // size 1:1) - and, since font_key below is also this
-                    // cache's own font-size dimension, bounds how many
-                    // distinct sizes monospace_font_cache/glyph_bitmap_cache
-                    // ever need to hold regardless of how far a user zooms
-                    // in (GlyphBitmapCacheKey's own doc comment).
+                    // The max also bounds how many font sizes the glyph
+                    // cache holds, however far in the view zooms.
                     const double pixel_size = std::clamp(text.size * scale * kLabelWidthRatio, min_label_px, max_label_px);
-                    const int font_key = std::max(1, static_cast<int>(std::lround(pixel_size)));
-                    const MonospaceFontEntry &font_entry = get_or_build_monospace_font(font_key);
-
-                    // Maps this shape's own dbu-space label origin through
-                    // the context's current (translate+scale+flip) transform
-                    // once, to a real device-pixel point - see this
-                    // function's own top-level doc comment for why that's
-                    // sufficient here (no accumulated instance rotation to
-                    // defend against within one node's own render pass).
-                    const BLPoint device_origin = ctx.final_transform().map_point(text.location.x, text.location.y);
-                    draw_monospace_label_blend2d(ctx, font_entry, font_key, glyph_bitmap_cache, text.label, stroke_color, device_origin);
+                    labels.push_back(NodeLabel{.text = &text.label,
+                                               .anchor_dbu = BLPoint(static_cast<double>(text.location.x), static_cast<double>(text.location.y)),
+                                               .font_key = std::max(1, static_cast<int>(std::lround(pixel_size))), .color = stroke_color});
                 }
             };
 
@@ -972,9 +884,8 @@ namespace le
 
     /// @brief The Rasterize stage - Blend2D's own JIT-compiled
     /// rasterization pipeline, multi-threaded tiled rendering, suited to
-    /// this project's "millions of small shapes" workload. Both generic
-    /// per-shape text and placement-name labels are drawn (see
-    /// draw_view_shapes_blend2d's own doc comment), via a monospace font.
+    /// this project's "millions of small shapes" workload. Labels are
+    /// recorded, not drawn (see draw_view_shapes_blend2d's doc comment).
     ///
     /// `thread_count_` is a plain mutable setting (set_thread_count
     /// below), not a constructor parameter - a benchmark wanting a
@@ -1082,12 +993,13 @@ namespace le
                 // `image` and the rest in a second image ComposeStage draws
                 // over the children; otherwise one image holds everything.
                 const bool split = has_child_content(*culled, data);
+                std::vector<NodeLabel> labels;
                 const auto draw = [&](BLContext &context, PlacementLayering layering)
                 {
                     draw_view_shapes_blend2d(
                         context, data.chunks, outline_caches, local_bbox, view_layers, options.scale,
                         options.layer_name_visible, options.purpose_visible,
-                        monospace_font_cache_, glyph_bitmap_cache_, options.label_min_size_px, options.label_max_size_px, &data.chunk_visibility,
+                        labels, options.label_min_size_px, options.label_max_size_px, &data.chunk_visibility,
                         layering);
                 };
                 draw(ctx, split ? PlacementLayering::UNDER_PLACEMENTS : PlacementLayering::ALL);
@@ -1104,7 +1016,7 @@ namespace le
 
                 // ComposeStage composites BLImages natively, so these are
                 // the finished RasterizedImage - no format conversion.
-                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll, std::move(over_placements), cropped});
+                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll, std::move(over_placements), cropped, std::move(labels)});
             }
 
             // Warned once per run of cropped frames, not on every pan.
@@ -1188,31 +1100,6 @@ namespace le
             PathOutlineCache outlines;
         };
         std::unordered_map<const ViewLayerShapes *, ChunkPathOutlineCache> path_outline_cache_by_chunk_;
-
-        // Both shared across every node this stage renders, and across
-        // every frame for this stage's own lifetime - built/populated
-        // lazily, on demand, inside draw_view_shapes_blend2d (not here)
-        // since a font is only ever needed for a `font_key` some label
-        // actually resolves to. The real repetition this backend can
-        // exploit is *cross-node* (the same character/size/color
-        // recurring across many different labels), not intra-node - see
-        // draw_view_shapes_blend2d's own doc comment.
-        //
-        // Unlike `path_outline_cache_by_chunk_` above, entries in either
-        // map below never need invalidating - a (font_key)'s own BLFont,
-        // or a (character, font_key, color)'s own rendered ink, never
-        // changes - and `glyph_bitmap_cache_` is bounded by construction:
-        // at most (the
-        // size of the alphabet actually used - printable ASCII, well
-        // under 128) times (~15 distinct clamped/rounded font sizes)
-        // times (the number of distinct colors a design's own
-        // ViewLayerSet defines - small, one per physical layer) entries,
-        // regardless of how many distinct or unique strings (e.g.
-        // Placement names, each unique per instance) a design's own
-        // content contains - a real, reported unbounded-memory-growth bug
-        // in the per-STRING predecessor this replaced.
-        std::unordered_map<int, MonospaceFontEntry> monospace_font_cache_;
-        std::unordered_map<GlyphBitmapCacheKey, CachedGlyphBitmap, GlyphBitmapCacheKeyHash> glyph_bitmap_cache_;
 
         uint32_t thread_count_ = 8;
         bool cropping_ = false; // the last frame cut a node off
