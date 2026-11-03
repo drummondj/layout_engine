@@ -169,11 +169,9 @@ namespace le
     // implementation (defwWriter.cpp) gates the WEIGHT line on a plain
     // `if (weight)` - true for -1.0, which would write a literal
     // "WEIGHT -1" for every component with no weight. 0.0 is the only
-    // value `if (weight)` treats as false, so it's the real sentinel - see
-    // plans/LEFDEF_BUGS.md's DEF writer section for the fuller writeup (including
-    // the one real consequence: a component whose real weight IS zero can
-    // never round-trip through this writer, a vendored-writer limitation,
-    // not a bug in this project's own code).
+    // value `if (weight)` treats as false, so it's the real sentinel. A
+    // component whose real weight IS zero therefore can't round-trip
+    // through this writer, a vendored-writer limitation.
     //
     // component_weight.def has two COMPONENTS - one with no WEIGHT clause
     // at all, one with an explicit "+ WEIGHT 3" - reading, writing, and

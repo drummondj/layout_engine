@@ -100,9 +100,7 @@ ENV BOOST_ROOT=/opt/boost
 # GLFW below), and RHEL8's own dnf package (`tbb-devel`, checked directly:
 # 2018.2) predates oneTBB's own CMake-config support entirely (that
 # 2018-era API isn't the oneapi::tbb:: surface this project's own
-# tbb_core.hpp uses either) - genuinely "NOT-yet-solved" until this stage,
-# per CMakeLists.txt's own TBB_DIR comment. v2023.1.0 matches the macOS
-# dev machine's own Homebrew tbb version for parity. TBB_TEST=OFF skips
+# tbb_core.hpp uses either) - so it's built here. Pinned to v2023.1.0. TBB_TEST=OFF skips
 # building its own test suite (not needed, meaningfully faster).
 #
 # -DTBB_ENABLE_IPO=OFF, not -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF (an

@@ -18,8 +18,8 @@
 // window (src/gui/le_gui.hpp) sharing this process's session state. A
 // batch script can't open one and runs on the main thread. A blocking
 // stdin-reading loop and a native GUI's event loop can't share one
-// thread, and GLFW requires window/context creation on the true main
-// thread on macOS, so the main thread runs le::gui::run_main_thread_loop()
+// thread, and GLFW's window and event calls belong on the main thread
+// (GLFW's threading rules), so the main thread runs le::gui::run_main_thread_loop()
 // and the console runs on a spawned thread - injecting the LeHandle the
 // main thread created via set_session_handle (le_tcl_shim.hpp) right
 // after `load`-ing le_tcl, so the window and the console mutate the exact

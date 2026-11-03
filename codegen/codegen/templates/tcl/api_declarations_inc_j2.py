@@ -129,8 +129,8 @@ Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if kla
 {% endfor %}
 
 // --- update_<type> - the *only* way any TCL-readable class's fields are
-// ever mutated after creation (no per-field setter, generated or hand-
-// written, exists anymore - see this round's own plan/commit message).
+// ever mutated after creation (there is no per-field setter, generated
+// or hand-written).
 // Same flag set as create_<type> (same compound/enum/dbu conventions),
 // but every field's own has_<field>/nullptr signal here means "leave
 // unchanged" when omitted, the opposite of create_<type>'s "omitted

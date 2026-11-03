@@ -199,7 +199,7 @@ namespace
     // minor grid dot's own analogous ratio (~0.5 - kMinorGridColor's
     // RGB is roughly half its own alpha) and above background/edge
     // antialiasing noise, while still well below the dot's typical
-    // partially-covered value (~160 at 2x zoom, confirmed empirically).
+    // partially-covered value (~160 at 2x zoom).
     bool region_has_major_grid_pixel(const LePixelBuffer &buffer, int x0, int y0, int x1, int y1)
     {
         for (int y = y0; y <= y1; ++y)

@@ -1,17 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
 
-# Must be set before project() to take effect. Pins the minimum macOS
-# version rather than letting clang target whatever SDK the build machine
-# currently runs (which drifts upward over time). Apple's libc++ has
-# __API_AVAILABLE-gated differences in synchronization primitives across
-# SDK versions, so object code built for different minimums can disagree
-# about std::mutex at link time (seen as Tracy's profiler thread throwing
-# `std::mutex::lock()` "Invalid argument"). It's also why filter.hpp
-# carries a strtod fallback for std::from_chars on doubles.
-if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version - see comment above")
-endif()
-
 project(layout_engine_backend VERSION 0.3.0 LANGUAGES C CXX)
 
 # The extension SDK's version (src/extension/le/extension.hpp): bumped on any
@@ -56,12 +44,10 @@ cmake_policy(SET CMP0135 NEW)
 # io/render/api/lef_lib - on Linux, a static library linked into a .so
 # needs to have been compiled with -fPIC, or the final link fails with
 # "relocation ... can not be used when making a shared object; recompile
-# with -fPIC" (ld64 on macOS doesn't enforce this the same way, so this
-# went unnoticed there). Applying it globally is simplest and has no real
-# cost - PIC is already macOS's default for everything.
+# with -fPIC". Applying it globally is simplest.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(ENABLE_COVERAGE "Instrument io/backend_tests with Clang source-based line+branch coverage" OFF)
+option(ENABLE_COVERAGE "Instrument every first-party target with Clang source-based line+branch coverage" OFF)
 
 if(ENABLE_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -70,13 +56,18 @@ if(ENABLE_COVERAGE)
 
     find_program(LLVM_PROFDATA_EXE llvm-profdata)
     find_program(LLVM_COV_EXE llvm-cov)
-    if(APPLE AND (NOT LLVM_PROFDATA_EXE OR NOT LLVM_COV_EXE))
-        # Xcode's toolchain doesn't put these on PATH directly.
-        execute_process(COMMAND xcrun -f llvm-profdata OUTPUT_VARIABLE LLVM_PROFDATA_EXE OUTPUT_STRIP_TRAILING_WHITESPACE)
-        execute_process(COMMAND xcrun -f llvm-cov OUTPUT_VARIABLE LLVM_COV_EXE OUTPUT_STRIP_TRAILING_WHITESPACE)
-    endif()
     if(NOT LLVM_PROFDATA_EXE OR NOT LLVM_COV_EXE)
-        message(FATAL_ERROR "ENABLE_COVERAGE requires llvm-profdata and llvm-cov (on PATH, or via xcrun on macOS)")
+        message(FATAL_ERROR "ENABLE_COVERAGE requires llvm-profdata and llvm-cov (on PATH)")
+    endif()
+
+    # Clang's profiling runtime is a separate package on some distributions
+    # (Ubuntu's libclang-rt-<N>-dev); without it every link fails. Another
+    # copy of the same LLVM version's runtime can stand in, through
+    # -resource-dir=<its lib/clang/N> in the CMAKE_*_LINKER_FLAGS.
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-runtime-dir OUTPUT_VARIABLE clang_runtime_dir OUTPUT_STRIP_TRAILING_WHITESPACE)
+    file(GLOB clang_profile_runtime "${clang_runtime_dir}/libclang_rt.profile*.a")
+    if(NOT clang_profile_runtime AND NOT CMAKE_EXE_LINKER_FLAGS MATCHES "-resource-dir")
+        message(FATAL_ERROR "ENABLE_COVERAGE: ${CMAKE_CXX_COMPILER} has no profiling runtime in ${clang_runtime_dir} - install it (e.g. libclang-rt-<version>-dev) or link with -resource-dir=<another copy's lib/clang/<version>>")
     endif()
 endif()
 
@@ -106,7 +97,7 @@ ExternalProject_Add(
     # so they pass through from this env untouched, same as the
     # CMAKE_POSITION_INDEPENDENT_CODE setting above and for the same
     # reason - le_tcl.so statically links liblef.a, which GNU ld (Linux)
-    # refuses without -fPIC object code (ld64/macOS doesn't enforce this).
+    # refuses without -fPIC object code.
     # CC/CXX/AR on make's command line override template.mk's hard-coded
     # gcc/g++ and make's default ar, so these libraries build with the same
     # toolchain as the rest.
@@ -126,12 +117,9 @@ ExternalProject_Add(
 # Wrapping liblef.a as a proper IMPORTED target (rather than a raw file path
 # in target_link_libraries) lets CMake re-order/re-emit it correctly for
 # each generator's actual linker - a raw path is just inserted verbatim
-# wherever it falls in topological order. Apple's ld64 tolerates a static
-# archive appearing "out of order" relative to the objects that need its
-# symbols; GNU ld (Linux) does one left-to-right pass and does not, so a
-# raw path silently linked fine on macOS while failing on Linux with
-# "undefined reference" for every LefDefParser:: symbol - found via a real
-# Linux build (see docker-compose.yml), not anticipated in advance.
+# wherever it falls in topological order. GNU ld does one left-to-right
+# pass, so an archive placed before the objects that need its symbols fails
+# with "undefined reference" for every LefDefParser:: symbol.
 add_library(lef_static STATIC IMPORTED)
 set_target_properties(lef_static PROPERTIES
     IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/lib/liblef.a")
@@ -186,9 +174,9 @@ endif()
 
 # spdlog falls back to FetchContent (same pattern as googletest/
 # googlebenchmark below) when no system install is found - it doesn't
-# ship in RHEL8 BaseOS/AppStream/CRB by default. macOS/Ubuntu (where find_package
-# already succeeds via Homebrew/apt) are unaffected - this only activates
-# when the system copy is missing, on any platform.
+# ship in RHEL8 BaseOS/AppStream/CRB by default. Ubuntu (where find_package
+# already succeeds via apt) is unaffected - this only activates when the
+# system copy is missing.
 #
 # Version-gated at >= 1.14 (not a plain unversioned find_package) for a
 # reason discovered only after fmt above was pinned EXACT/deterministic
@@ -246,12 +234,10 @@ endif()
 # declared and populated "fmt" as 11.0.2 by the time this line runs,
 # slang's own FetchContent_MakeAvailable(fmt) call becomes a no-op reuse
 # of that already-populated 11.0.2, rather than either colliding with it
-# or fetching a second, separately-versioned copy. This is a real,
-# accepted risk (flagged in the linked plan's own build-spike step):
-# slang's source is nominally tested against 12.1, and building it
-# against 11.0.2 instead depends on slang's own use of fmt being
-# API-compatible across that gap - verified empirically by this build
-# actually succeeding, not assumed on paper.
+# or fetching a second, separately-versioned copy. slang's source is
+# nominally tested against 12.1, so building it against 11.0.2 depends on
+# slang's use of fmt being API-compatible across that gap; it is, as far
+# as this build goes.
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER)
 set(SLANG_INCLUDE_TESTS OFF CACHE BOOL "" FORCE)
 set(SLANG_INCLUDE_TOOLS OFF CACHE BOOL "" FORCE)
@@ -276,8 +262,7 @@ if(NOT slang_external MATCHES "mimalloc\\.git[ \t\r\n]+GIT_TAG[ \t]+${LE_SLANG_M
         "set LE_SLANG_MIMALLOC_TAG to the tag it uses")
 endif()
 
-# find_package(Boost REQUIRED) runs *after* the slang block above -
-# discovered empirically during the slang build spike, the mirror image
+# find_package(Boost REQUIRED) runs *after* the slang block above - the mirror image
 # of the fmt situation: slang's own external/CMakeLists.txt does its own
 # internal find_package(Boost 1.87.0 CONFIG QUIET), and only when that
 # fails (this dev machine's system Boost is 1.83.0 - too old to satisfy
@@ -353,29 +338,20 @@ le_fetch_declare(
 FetchContent_MakeAvailable(blend2d)
 
 # --- oneTBB (src/pipelines' flow graph; `api` depends on it
-# unconditionally - see le_handle.hpp). TBB_DIR is a Homebrew-macOS-
-# specific hint. REQUIRED: api - and therefore le_tcl, le_shell,
+# unconditionally - see le_handle.hpp). REQUIRED: api - and therefore le_tcl, le_shell,
 # backend_tests - can't build without it. Both Docker-based Linux paths
 # provide it (Dockerfile.linux-ci's `libtbb-dev` package - Ubuntu 24.04's
 # has real CMake config support; Dockerfile.linux-release's `tbb` stage
 # builds oneTBB from source, since Rocky 8's dnf `tbb-devel` predates that
 # support); le's toolchain (toolchain/pixi.toml) has tbb-devel. ---
-if(APPLE)
-    set(TBB_DIR "/opt/homebrew/opt/tbb/lib/cmake/TBB" CACHE PATH
-        "Path to a oneTBB CMake package config (Homebrew tbb keg)")
-endif()
 find_package(TBB REQUIRED CONFIG)
 
 # Tracy - the sibling oneTBB_test project's own src/core.hpp (copied into
 # src/pipelines/tbb_core.hpp) hard-depends on its ZoneScoped/ZoneName/
 # ZoneText/FrameMark profiling macros. Pinned to v0.13.1 to match that
-# project's own CMakeLists.txt (kept in lockstep with the Homebrew-bottled
-# Tracy GUI viewer's own protocol version, per that project's own
-# CLAUDE.md).
+# project's own CMakeLists.txt (kept in lockstep with the Tracy GUI
+# viewer's protocol version).
 #
-# TRACY_ENABLE ON - Tracy's profiler thread depends on every object file
-# sharing one macOS deployment target (see CMAKE_OSX_DEPLOYMENT_TARGET at
-# the top of this file).
 # LE_ENABLE_TRACY defaults ON only for the Profile build type (see the top of
 # this file); any build can still set it explicitly.
 if(CMAKE_BUILD_TYPE STREQUAL "Profile")
@@ -420,11 +396,9 @@ if(NOT glfw3_FOUND)
     # tries to configure a Wayland backend alongside X11 and hard-errors
     # ("Failed to find wayland-scanner") if wayland-scanner isn't on the
     # system, even though this project only ever needs X11 (le_gui's own
-    # GLFW usage has no Wayland-specific code) - confirmed by hitting
-    # exactly that configure failure on a minimal X11-only Linux image
-    # (Dockerfile.linux-ci/Dockerfile.linux-release, neither of which
-    # installs Wayland dev packages on purpose, matching le_gui's own
-    # X11-only scope). GLFW_BUILD_X11 stays at its own default (ON).
+    # GLFW usage has no Wayland-specific code), as on the X11-only
+    # Dockerfile.linux-ci/Dockerfile.linux-release images, which don't
+    # install Wayland dev packages on purpose. GLFW_BUILD_X11 stays at its own default (ON).
     set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
     le_fetch_declare(glfw URL https://github.com/glfw/glfw/archive/refs/tags/3.5.1.zip)
     FetchContent_MakeAvailable(glfw)
@@ -476,7 +450,7 @@ le_fetch_declare(
 FetchContent_MakeAvailable(nlohmann_json_header)
 
 # zstd - block compression for the native database file format
-# (src/io/native_format.cpp, plans/NATIVE_FILE_FORMAT_RESEARCH.md §3). Pinned release
+# (src/io/native_format.cpp). Pinned release
 # tarball; zstd's CMake project lives under build/cmake. Static library
 # only - no programs, tests or shared build.
 set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
@@ -495,8 +469,7 @@ FetchContent_MakeAvailable(zstd)
 
 # portable-file-dialogs - le_gui's Settings panel's Save As/Load dialogs.
 # Header-only; at runtime it drives the platform's own dialog
-# (zenity/kdialog on Linux, osascript on macOS, the Win32 API on Windows)
-# - no build-time GTK/Qt dependency. Pinned to a commit.
+# (zenity/kdialog) - no build-time GTK/Qt dependency. Pinned to a commit.
 le_fetch_declare(
     portable_file_dialogs_header
     URL https://raw.githubusercontent.com/samhocevar/portable-file-dialogs/7f852d88a480020d7f91957cbcefe514fc95000c/portable-file-dialogs.h
@@ -621,11 +594,9 @@ add_dependencies(database le_codegen)
 # so geometry/io silently built against slang's own tiny vendored
 # boost_unordered shim (no boost/geometry.hpp at all) even though
 # find_package's own status message correctly reported finding real
-# Boost. Confirmed via a minimal local repro reproducing the exact
-# compile line (-DSLANG_BOOST_SINGLE_HEADER, no -I for real Boost) -
-# never hit on the macOS/Ubuntu dev machines, which have a real Boost
-# CMake CONFIG package installed system-wide (a different, apparently
-# collision-free code path). Boost_INCLUDE_DIRS itself is unaffected by
+# Boost (the compile line has -DSLANG_BOOST_SINGLE_HEADER and no -I for
+# real Boost). A machine with a real Boost CMake CONFIG package installed
+# system-wide takes a different, collision-free code path. Boost_INCLUDE_DIRS itself is unaffected by
 # any of this target-aliasing, so using it directly sidesteps the whole
 # landmine on every platform uniformly.
 add_library(geometry INTERFACE)
@@ -644,8 +615,7 @@ add_library(core INTERFACE)
 target_include_directories(core INTERFACE src)
 target_link_libraries(core INTERFACE database geometry)
 
-# --- pipelines: the Cold/Warm/Hot ViewRenderPipeline
-# (plans/PIPELINE_REFACTOR.md), built on oneTBB's flow::graph
+# --- pipelines: the Cold/Warm/Hot ViewRenderPipeline, built on oneTBB's flow::graph
 # (tbb_core.hpp's MemoizingStage). Rasterize/Compose are Blend2D-native.
 # STATIC because pipelines.cpp defines default_blend2d_font_face() (see
 # that file's own comment); everything else is header-only.
@@ -691,7 +661,6 @@ target_link_libraries(io
     PUBLIC database geometry spdlog::spdlog slang::slang
     PRIVATE fmt::fmt lef_static def_static libzstd_static TBB::tbb
 )
-le_enable_coverage_instrumentation(io)
 
 # --- api: the C API every front end calls (the GUI, the Tcl shim).
 # Compiled (not header-only): the opaque LeHandle's real definition must
@@ -718,7 +687,6 @@ target_link_libraries(extension_sdk INTERFACE api database geometry blend2d::ble
 target_compile_definitions(extension_sdk INTERFACE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
 
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
-le_enable_coverage_instrumentation(api)
 
 # --- gui: Dear ImGui prototype - le_shell's own `show_gui` window,
 # unconditional (le_shell requires it). Depends on `api` (LeHandle*/le_*
@@ -785,29 +753,16 @@ target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE
 # project's own fmt::v11 library), same class of bug io's own PUBLIC
 # spdlog::spdlog dependency exists to avoid.
 target_link_libraries(gui PUBLIC api le::extension_sdk imgui_lib spdlog::spdlog)
-if(APPLE)
-    target_link_libraries(gui PRIVATE "-framework Cocoa" "-framework IOKit" "-framework OpenGL")
-else()
-    find_package(OpenGL REQUIRED)
-    target_link_libraries(gui PRIVATE OpenGL::GL)
-endif()
+find_package(OpenGL REQUIRED)
+target_link_libraries(gui PRIVATE OpenGL::GL)
 
 # --- le_tcl: SWIG-wraps src/tcl/le_tcl_shim.{hpp,cpp} (a thin
 # Tcl-ergonomics layer over api.hpp - hidden session handle, domain-verb
 # command names) into a loadable Tcl extension, which le_shell `load`s.
 # Optional: only built if SWIG and Tcl are both found, so a machine not
-# provisioned for it still configures/builds everything else. Pinned to
-# Homebrew's tcl-tk@8 (Tcl 8.6), not the also-installed tcl-tk 9.0 -
-# SWIG 4.5's Tcl support is battle-tested against 8.x, and Tcl 9's C ABI
-# isn't yet a safe default target. Override TCL_TK_ROOT for a different
-# Tcl 8.x install. ---
-set(TCL_TK_ROOT "/opt/homebrew/opt/tcl-tk@8" CACHE PATH
-    "Path to a Tcl 8.6 install (Homebrew tcl-tk@8 keg) used for the SWIG Tcl spike")
-if(EXISTS "${TCL_TK_ROOT}/include/tcl-tk/tcl.h")
-    set(TCL_INCLUDE_PATH "${TCL_TK_ROOT}/include/tcl-tk" CACHE PATH "" FORCE)
-    set(TCL_LIBRARY "${TCL_TK_ROOT}/lib/libtcl8.6.dylib" CACHE FILEPATH "" FORCE)
-    set(TCL_TCLSH "${TCL_TK_ROOT}/bin/tclsh8.6" CACHE FILEPATH "" FORCE)
-endif()
+# provisioned for it still configures/builds everything else. Tcl 8.6:
+# SWIG 4's Tcl support targets 8.x, and Tcl 9's C ABI isn't yet a safe
+# default target. ---
 
 find_package(SWIG 4.0)
 find_package(TCL)
@@ -838,49 +793,10 @@ if(SWIG_FOUND AND TCL_FOUND)
     # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own
     # BLImage::write_to_file PNG export.
     target_link_libraries(le_tcl PRIVATE api le_extensions_tcl blend2d::blend2d ${TCL_LIBRARY})
-    # Hide this module's own copies of symbols that are also statically
-    # linked into the process that loads it (src/tcl/le_tcl_unexported_symbols.txt).
-    # On macOS, le_shell links `api` (and transitively io/liblef.a,
-    # pipelines, TracyClient) and then `load`s le_tcl.so, which links its
-    # own copies of the same static code. dyld's flat-namespace
-    # coalescing can then bind a call inside this module to the *other*
-    # image's differently-initialized copy of a function-local static or
-    # singleton - reading through a garbage pointer, or tripping a
-    # `std::mutex::lock()` "Invalid argument". The list covers:
-    #   - `LefDefParser::` - lefGetKeyword's keyword-table std::map
-    #     (ReadLefThroughTclFirstDoesNotCrash, session_handle_test.cpp).
-    #   - `le::Root::` (`2le4Root`, the exact Itanium mangling of that
-    #     scope) - generated accessors' `static const ... empty;` sentinels.
-    #   - `tracy::` - Tracy's global Profiler singleton and its worker
-    #     threads (TracyClient is STATIC, so each image gets its own copy).
-    #   - `tbb::detail::d1::global_control` (`2d114global_control`) - its
-    #     constructor/destructor are header-inline, so compiled into both
-    #     images, while `tbb::detail::r1::` stays shared via libtbb.
-    #
-    # A *denylist* (-unexported_symbols_list), not CXX_VISIBILITY_PRESET or
-    # an -exported_symbols_list allowlist: the visibility preset only
-    # affects this target's own two sources, not the .a archives linked in;
-    # and an allowlist also hides libc++ typeinfo that must stay
-    # coalescable, so a std::system_error thrown inside the parser would
-    # stop matching `catch (const std::exception&)` in the calling image.
-    #
-    # Editing le_tcl_unexported_symbols.txt alone doesn't trigger a relink
-    # (it's passed as a raw path, not a build dependency) - delete
-    # build*/le_tcl.so or touch src/tcl/le_tcl_shim.cpp first.
-    #
     # session_handle_test.cpp's TEST()s must each run in a fresh process
     # (`ctest -R SessionHandle`, not the raw binary): chaining several
     # handle-inject/destroy sequences in one process corrupts le_tcl_shim's
-    # process-wide session state, independent of this list.
-    #
-    # -unexported_symbols_list is an Apple ld64 flag and the list uses
-    # Mach-O's underscore-prefixed names; the flat-namespace coalescing it
-    # works around is macOS-specific, so there's no GNU-ld equivalent.
-    if(APPLE)
-        target_link_options(le_tcl PRIVATE
-            "-Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_unexported_symbols.txt"
-        )
-    endif()
+    # process-wide session state.
 
     # Smoke test (src/tcl/tests/smoke_test.tcl) -
     # loads the built module under tclsh, sources le_tcl_procs.tcl, and
@@ -1055,20 +971,15 @@ if(SWIG_FOUND AND TCL_FOUND)
 
     # GNU readline (GPL - this project carries no LICENSE file/
     # redistribution requirement of its own, so that's not a blocker
-    # here) rather than macOS's own BSD-licensed libedit: modern macOS no
-    # longer ships libedit's readline-compatible headers under
-    # /usr/include at all (checked directly on this dev machine), so
-    # there's no zero-dependency system option left to prefer over an
-    # explicit one either way. REQUIRED, same as e.g. Boost above - a
-    # missing readline keg is a configure-time error, not a silent
-    # feature downgrade.
-    set(READLINE_ROOT "/opt/homebrew/opt/readline" CACHE PATH
-        "Path to a readline install (Homebrew readline keg) for le_shell's own interactive editing/history/Tab-completion")
+    # here). REQUIRED, same as e.g. Boost above - a missing readline is a
+    # configure-time error, not a silent feature downgrade.
+    set(READLINE_ROOT "" CACHE PATH
+        "Path to a readline install for le_shell's own interactive editing/history/Tab-completion, if not on the default search path")
     find_path(READLINE_INCLUDE_DIR readline/readline.h HINTS ${READLINE_ROOT}/include)
     find_library(READLINE_LIBRARY NAMES readline HINTS ${READLINE_ROOT}/lib)
     find_library(READLINE_HISTORY_LIBRARY NAMES history HINTS ${READLINE_ROOT}/lib)
     if(NOT (READLINE_INCLUDE_DIR AND READLINE_LIBRARY AND READLINE_HISTORY_LIBRARY))
-        message(FATAL_ERROR "readline not found (checked ${READLINE_ROOT}) - install it (e.g. `brew install readline`) or set READLINE_ROOT")
+        message(FATAL_ERROR "readline not found (checked ${READLINE_ROOT}) - install it (e.g. libreadline-dev) or set READLINE_ROOT")
     endif()
     target_include_directories(le_shell PRIVATE ${READLINE_INCLUDE_DIR})
     target_link_libraries(le_shell PRIVATE ${READLINE_LIBRARY} ${READLINE_HISTORY_LIBRARY})
@@ -1091,16 +1002,10 @@ if(SWIG_FOUND AND TCL_FOUND)
     # referencing binary itself lives in, not cwd) to that default
     # build-tree rpath rather than replacing it - so both the in-tree
     # /opt/tbb/lib64 entry ctest still needs today and the bundle's own
-    # "look next to me" fallback stay intact simultaneously. $ORIGIN is a
-    # Linux/ELF-only token (macOS's Mach-O equivalent is @loader_path,
-    # spelled differently), and macOS dev builds never need this at all
-    # (le_shell always runs straight from the build tree there) - Apple
-    # gated accordingly.
-    if(NOT APPLE)
-        set_target_properties(le_shell le_tcl PROPERTIES
-            BUILD_RPATH "$ORIGIN"
-        )
-    endif()
+    # "look next to me" fallback stay intact simultaneously.
+    set_target_properties(le_shell le_tcl PROPERTIES
+        BUILD_RPATH "$ORIGIN"
+    )
 
     # --- install: the release bundle, one flat directory -
     # `cmake --install <build> --component bundle --prefix <dir>`. The
@@ -1110,9 +1015,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     # (find_resource, le_tcl_procs.tcl), so the bundle runs from anywhere and
     # never uses a build tree's files; libtbb goes alongside, found through
     # the $ORIGIN runpath.
-    if(NOT APPLE)
-        set_target_properties(le_shell le_tcl PROPERTIES INSTALL_RPATH "$ORIGIN")
-    endif()
+    set_target_properties(le_shell le_tcl PROPERTIES INSTALL_RPATH "$ORIGIN")
     install(TARGETS le_shell RUNTIME DESTINATION . COMPONENT bundle)
     install(TARGETS le_tcl LIBRARY DESTINATION . COMPONENT bundle)
     install(FILES
@@ -1399,7 +1302,6 @@ target_compile_definitions(backend_tests PRIVATE
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
-le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
 # codegen's own unit tests (codegen/tests).
@@ -1455,8 +1357,7 @@ gtest_discover_tests(pipelines_tests)
 # --- benchmarks ---
 # --- pipeline_benchmarks: per-stage benchmarks, standalone against
 # database/pipelines/io - see aes_scaling_fixture.hpp for the shared
-# 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark uses
-# (plans/PIPELINE_REFACTOR.md's "Benchmarking" section). No `api`
+# 1x1/2x1/2x2/3x2/3x3 tiling fixture every stage benchmark uses. No `api`
 # dependency. ---
 add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/benchmark_main.cpp
@@ -1473,12 +1374,6 @@ target_link_libraries(pipeline_benchmarks PRIVATE database geometry pipelines io
 target_compile_definitions(pipeline_benchmarks PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )
-# Not instrumented for its own coverage (benchmarks aren't run under the
-# `coverage` target) - but it links `io`, which IS instrumented when
-# ENABLE_COVERAGE is on, and that instrumentation pulls in a profiling
-# runtime symbol that only gets linked into the final executable if this
-# target also passes -fprofile-instr-generate, or the link fails.
-le_enable_coverage_instrumentation(pipeline_benchmarks)
 
 # --- generate_tiled_design: dev-only data-generation tool - tiles a
 # real LEF+DEF design's own
@@ -1488,7 +1383,6 @@ le_enable_coverage_instrumentation(pipeline_benchmarks)
 # (no geometry/pipelines) - it never renders anything itself.
 add_executable(generate_tiled_design src/pipelines/benchmarks/generate_tiled_design.cpp)
 target_link_libraries(generate_tiled_design PRIVATE database io)
-le_enable_coverage_instrumentation(generate_tiled_design)
 
 # profile_tiled_render (headless Tracy-profiling driver for
 # HierarchyResolver::render_layout_frame) is out for the same reason
@@ -1507,7 +1401,6 @@ le_enable_coverage_instrumentation(generate_tiled_design)
 # ctest or the coverage target.
 add_executable(pipeline_stage_benchmark src/pipelines/benchmarks/pipeline_stage_benchmark.cpp)
 target_link_libraries(pipeline_stage_benchmark PRIVATE api pipelines database geometry io)
-le_enable_coverage_instrumentation(pipeline_stage_benchmark)
 
 # --- resolver_profile: dev-only tool (incremental HierarchyResolver plan,
 # step 0) - per-phase cold-resolve timing, output size, and downstream
@@ -1519,11 +1412,10 @@ target_link_libraries(resolver_profile PRIVATE database geometry pipelines io)
 target_compile_definitions(resolver_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )
-le_enable_coverage_instrumentation(resolver_profile)
 
 # --- native_format_profile: dev-only tool - native .led save/load time and
-# size against reading the DEF, for one aes_scaling design per process
-# (plans/NATIVE_FILE_FORMAT_RESEARCH.md §7). Not run by ctest. ---
+# size against reading the DEF, for one aes_scaling design per process.
+# Not run by ctest. ---
 add_executable(native_format_profile src/io/benchmarks/native_format_profile.cpp)
 target_link_libraries(native_format_profile PRIVATE database io TBB::tbb)
 target_compile_definitions(native_format_profile PRIVATE
@@ -1537,7 +1429,6 @@ target_link_libraries(selection_profile PRIVATE api)
 target_compile_definitions(selection_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )
-le_enable_coverage_instrumentation(selection_profile)
 
 # --- spatial_index_benchmark: dev-only benchmark - quantifies a
 # Boost.Geometry Index rtree's query cost against a linear per-placement
@@ -1545,7 +1436,6 @@ le_enable_coverage_instrumentation(selection_profile)
 # Not run by ctest or the coverage target.
 add_executable(spatial_index_benchmark src/pipelines/benchmarks/spatial_index_benchmark.cpp)
 target_link_libraries(spatial_index_benchmark PRIVATE database geometry io)
-le_enable_coverage_instrumentation(spatial_index_benchmark)
 
 # --- delete_benchmark: dev-only benchmark - deleting many children of one
 # parent through the generated edit ops, and a delete_layout cascade.
@@ -1553,7 +1443,6 @@ le_enable_coverage_instrumentation(spatial_index_benchmark)
 add_executable(delete_benchmark src/api/benchmarks/delete_benchmark.cpp)
 target_link_libraries(delete_benchmark PRIVATE database geometry editing pipelines io api le::extension_sdk benchmark::benchmark)
 target_include_directories(delete_benchmark PRIVATE ${nlohmann_json_header_SOURCE_DIR})
-le_enable_coverage_instrumentation(delete_benchmark)
 
 # --- blend2d_smoke_test: throwaway build/link verification for the
 # Blend2D FetchContent chain above - see that block's own comment and
@@ -1576,40 +1465,68 @@ target_compile_definitions(lef_roundtrip_diff PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     LEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/bin/lefdiff"
 )
-le_enable_coverage_instrumentation(lef_roundtrip_diff)
 
-# --- coverage: `cmake --build build --target coverage` (requires -DENABLE_COVERAGE=ON at configure time) ---
-if(ENABLE_COVERAGE)
-    set(COVERAGE_DIR ${PROJECT_BINARY_DIR}/coverage)
-    # LE_GENERATED_DIR is codegen output (mostly boilerplate getters/to_string);
-    # excluded for now rather than chasing coverage on generated code.
-    set(COVERAGE_IGNORE_REGEX "${FETCHCONTENT_BASE_DIR}|${PROJECT_SOURCE_DIR}/src/lefdef|${LE_GENERATED_DIR}")
-
-    add_custom_target(coverage
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${COVERAGE_DIR}
-        COMMAND ${CMAKE_COMMAND} -E env LLVM_PROFILE_FILE=${COVERAGE_DIR}/backend_tests.profraw $<TARGET_FILE:backend_tests>
-        COMMAND ${LLVM_PROFDATA_EXE} merge -sparse ${COVERAGE_DIR}/backend_tests.profraw -o ${COVERAGE_DIR}/backend_tests.profdata
-        COMMAND sh -c "${LLVM_COV_EXE} report $<TARGET_FILE:backend_tests> -instr-profile=${COVERAGE_DIR}/backend_tests.profdata --show-branch-summary --ignore-filename-regex='${COVERAGE_IGNORE_REGEX}' | tee ${COVERAGE_DIR}/report.txt"
-        COMMAND sh -c "${LLVM_COV_EXE} export $<TARGET_FILE:backend_tests> -instr-profile=${COVERAGE_DIR}/backend_tests.profdata -format=lcov --ignore-filename-regex='${COVERAGE_IGNORE_REGEX}' > ${COVERAGE_DIR}/lcov.info"
-        DEPENDS backend_tests
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
-        COMMENT "Running backend_tests with coverage instrumentation, then reporting line+branch coverage"
-        USES_TERMINAL
-        VERBATIM
-    )
-endif()
 
 # LE_COMPILE_OPTIONS on every target this file defines (core, le_shell,
 # le_tcl, the tests and tools, extensions' targets), but not imgui_lib,
 # which compiles Dear ImGui's own sources. Fetched dependencies are defined
 # in their own directories and keep their own options.
 get_property(le_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(le_coverage_targets "")
+set(le_coverage_binaries "")
 foreach(target IN LISTS le_targets)
     get_target_property(type ${target} TYPE)
     if(type MATCHES "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY|EXECUTABLE)$" AND NOT target STREQUAL "imgui_lib")
         target_compile_options(${target} PRIVATE ${LE_COMPILE_OPTIONS})
+        le_enable_coverage_instrumentation(${target})
+        list(APPEND le_coverage_targets ${target})
+        if(type MATCHES "^(SHARED_LIBRARY|MODULE_LIBRARY|EXECUTABLE)$")
+            list(APPEND le_coverage_binaries "$<TARGET_FILE:${target}>")
+        endif()
     endif()
 endforeach()
+
+# --- coverage: `cmake --build build --target coverage` (configure with
+# -DENABLE_COVERAGE=ON). Builds every instrumented target, runs the whole
+# ctest suite, and reports line+branch coverage over every instrumented
+# binary, generated code included, into coverage/report.txt and lcov.info.
+# `coverage-python` does the same for codegen's and le's Python unit tests
+# (coverage.py, one of codegen's dev dependencies; LE_COVERAGE_PYTHON picks
+# an interpreter that has it and codegen's packages), into coverage/python/. ---
+if(ENABLE_COVERAGE)
+    set(COVERAGE_DIR ${PROJECT_BINARY_DIR}/coverage)
+    set(COVERAGE_IGNORE_REGEX "${FETCHCONTENT_BASE_DIR}|${PROJECT_SOURCE_DIR}/src/lefdef")
+    file(GENERATE OUTPUT ${COVERAGE_DIR}/binaries.txt CONTENT "$<JOIN:${le_coverage_binaries},\n>\n")
+    add_custom_target(coverage
+        COMMAND ${CMAKE_COMMAND} -DBUILD_DIR=${PROJECT_BINARY_DIR} -DCOVERAGE_DIR=${COVERAGE_DIR}
+            -DCTEST=${CMAKE_CTEST_COMMAND} -DLLVM_PROFDATA=${LLVM_PROFDATA_EXE} -DLLVM_COV=${LLVM_COV_EXE}
+            "-DIGNORE_REGEX=${COVERAGE_IGNORE_REGEX}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/coverage_report.cmake
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+        COMMENT "Running every test with coverage instrumentation, then reporting line+branch coverage"
+        USES_TERMINAL
+        VERBATIM
+    )
+    add_dependencies(coverage ${le_coverage_targets})
+
+    set(LE_COVERAGE_PYTHON ${Python3_EXECUTABLE} CACHE FILEPATH "Python with coverage.py for the coverage-python target")
+    set(COVERAGE_PYTHON_DATA ${COVERAGE_DIR}/python/.coverage)
+    add_custom_target(coverage-python
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${COVERAGE_DIR}/python
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage erase --data-file=${COVERAGE_PYTHON_DATA}
+        COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_SOURCE_DIR}/codegen ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER}
+            ${LE_COVERAGE_PYTHON} -m coverage run --data-file=${COVERAGE_PYTHON_DATA} --parallel-mode --branch --source=codegen -m unittest discover -s tests -t .
+        COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_SOURCE_DIR}/tools/le
+            ${LE_COVERAGE_PYTHON} -m coverage run --data-file=${COVERAGE_PYTHON_DATA} --parallel-mode --branch --source=le -m unittest discover -s tests -t .
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage combine --data-file=${COVERAGE_PYTHON_DATA}
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage report --data-file=${COVERAGE_PYTHON_DATA}
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage html --data-file=${COVERAGE_PYTHON_DATA} -d ${COVERAGE_DIR}/python/html
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+        COMMENT "Running the codegen and le unit tests under coverage.py"
+        USES_TERMINAL
+        VERBATIM
+    )
+endif()
 
 # Some of those targets carry LE_COMPILE_OPTIONS, and imgui_lib doesn't.
 if(LE_COMPILE_OPTIONS)

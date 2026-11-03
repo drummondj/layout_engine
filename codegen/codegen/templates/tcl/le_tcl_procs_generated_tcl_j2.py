@@ -240,8 +240,7 @@ register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "Creates a
 
 # --- update_<type> - `update_<type> <id> -flag value...` - mutates an
 # *existing* object in place; the *only* way any field is ever updated
-# (no per-field setter, generated or hand-written, exists anymore - see
-# this round's own plan/commit message). Same flag set as create_<type>
+# (there is no per-field setter, generated or hand-written). Same flag set as create_<type>
 # (same compound/enum/dbu conventions - see api_declarations_inc_j2's
 # own comment), but every flag here means "leave unchanged" when
 # omitted, the opposite of create_<type>'s "omitted means unset" - so,

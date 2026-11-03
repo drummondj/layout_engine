@@ -171,7 +171,7 @@ fails on a temp path that isn't unique to its process.
   every readable class (see TCL codegen). `le_repl_eval` is the bracket
   point that makes a typed command undoable and recallable. `le_shell.cpp`
   is the shell: readline console on a spawned thread, the GUI loop on the
-  main thread (GLFW requires it on macOS), one shared `LeHandle` injected
+  main thread (where GLFW wants it), one shared `LeHandle` injected
   via `set_session_handle`.
 - `src/gui/` — the Dear ImGui GUI (`le_gui.cpp`, `gui_provider.*`,
   `panels.*`, `components/`). `GuiProvider` is its only contact with the C
@@ -427,8 +427,12 @@ Gotchas:
   `-DENABLE_COVERAGE=OFF` explicitly (or use a fresh tree) for real
   numbers.
 
-Coverage: `-DENABLE_COVERAGE=ON`, then `cmake --build build --target
-coverage` (Clang source-based; report in `build/coverage/`).
+Coverage: a Clang tree with `-DENABLE_COVERAGE=ON` (plus `LLVM_PROFDATA_EXE`/
+`LLVM_COV_EXE` if they aren't on PATH) instruments every first-party target;
+`cmake --build build_cov --target coverage` runs the whole ctest suite and
+reports over every binary, generated code included (`build_cov/coverage/`).
+`coverage-python` runs codegen's and le's unit tests under coverage.py
+(`LE_COVERAGE_PYTHON`).
 
 Benchmarks (Release builds only): `pipeline_benchmarks` (per-stage, over
 the `aes_scaling_*` tiling fixture in `test_data/`), `pipeline_stage_benchmark`
