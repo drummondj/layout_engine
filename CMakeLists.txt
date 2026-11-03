@@ -47,7 +47,7 @@ cmake_policy(SET CMP0135 NEW)
 # with -fPIC". Applying it globally is simplest.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(ENABLE_COVERAGE "Instrument io/backend_tests with Clang source-based line+branch coverage" OFF)
+option(ENABLE_COVERAGE "Instrument every first-party target with Clang source-based line+branch coverage" OFF)
 
 if(ENABLE_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -58,6 +58,16 @@ if(ENABLE_COVERAGE)
     find_program(LLVM_COV_EXE llvm-cov)
     if(NOT LLVM_PROFDATA_EXE OR NOT LLVM_COV_EXE)
         message(FATAL_ERROR "ENABLE_COVERAGE requires llvm-profdata and llvm-cov (on PATH)")
+    endif()
+
+    # Clang's profiling runtime is a separate package on some distributions
+    # (Ubuntu's libclang-rt-<N>-dev); without it every link fails. Another
+    # copy of the same LLVM version's runtime can stand in, through
+    # -resource-dir=<its lib/clang/N> in the CMAKE_*_LINKER_FLAGS.
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-runtime-dir OUTPUT_VARIABLE clang_runtime_dir OUTPUT_STRIP_TRAILING_WHITESPACE)
+    file(GLOB clang_profile_runtime "${clang_runtime_dir}/libclang_rt.profile*.a")
+    if(NOT clang_profile_runtime AND NOT CMAKE_EXE_LINKER_FLAGS MATCHES "-resource-dir")
+        message(FATAL_ERROR "ENABLE_COVERAGE: ${CMAKE_CXX_COMPILER} has no profiling runtime in ${clang_runtime_dir} - install it (e.g. libclang-rt-<version>-dev) or link with -resource-dir=<another copy's lib/clang/<version>>")
     endif()
 endif()
 
@@ -651,7 +661,6 @@ target_link_libraries(io
     PUBLIC database geometry spdlog::spdlog slang::slang
     PRIVATE fmt::fmt lef_static def_static libzstd_static TBB::tbb
 )
-le_enable_coverage_instrumentation(io)
 
 # --- api: the C API every front end calls (the GUI, the Tcl shim).
 # Compiled (not header-only): the opaque LeHandle's real definition must
@@ -678,7 +687,6 @@ target_link_libraries(extension_sdk INTERFACE api database geometry blend2d::ble
 target_compile_definitions(extension_sdk INTERFACE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
 
 target_include_directories(api PRIVATE ${nlohmann_json_header_SOURCE_DIR})
-le_enable_coverage_instrumentation(api)
 
 # --- gui: Dear ImGui prototype - le_shell's own `show_gui` window,
 # unconditional (le_shell requires it). Depends on `api` (LeHandle*/le_*
@@ -1294,7 +1302,6 @@ target_compile_definitions(backend_tests PRIVATE
     DEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/def/bin/defdiff"
 )
 add_dependencies(backend_tests lef_lib def_lib)
-le_enable_coverage_instrumentation(backend_tests)
 gtest_discover_tests(backend_tests)
 
 # codegen's own unit tests (codegen/tests).
@@ -1367,12 +1374,6 @@ target_link_libraries(pipeline_benchmarks PRIVATE database geometry pipelines io
 target_compile_definitions(pipeline_benchmarks PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )
-# Not instrumented for its own coverage (benchmarks aren't run under the
-# `coverage` target) - but it links `io`, which IS instrumented when
-# ENABLE_COVERAGE is on, and that instrumentation pulls in a profiling
-# runtime symbol that only gets linked into the final executable if this
-# target also passes -fprofile-instr-generate, or the link fails.
-le_enable_coverage_instrumentation(pipeline_benchmarks)
 
 # --- generate_tiled_design: dev-only data-generation tool - tiles a
 # real LEF+DEF design's own
@@ -1382,7 +1383,6 @@ le_enable_coverage_instrumentation(pipeline_benchmarks)
 # (no geometry/pipelines) - it never renders anything itself.
 add_executable(generate_tiled_design src/pipelines/benchmarks/generate_tiled_design.cpp)
 target_link_libraries(generate_tiled_design PRIVATE database io)
-le_enable_coverage_instrumentation(generate_tiled_design)
 
 # profile_tiled_render (headless Tracy-profiling driver for
 # HierarchyResolver::render_layout_frame) is out for the same reason
@@ -1401,7 +1401,6 @@ le_enable_coverage_instrumentation(generate_tiled_design)
 # ctest or the coverage target.
 add_executable(pipeline_stage_benchmark src/pipelines/benchmarks/pipeline_stage_benchmark.cpp)
 target_link_libraries(pipeline_stage_benchmark PRIVATE api pipelines database geometry io)
-le_enable_coverage_instrumentation(pipeline_stage_benchmark)
 
 # --- resolver_profile: dev-only tool (incremental HierarchyResolver plan,
 # step 0) - per-phase cold-resolve timing, output size, and downstream
@@ -1413,7 +1412,6 @@ target_link_libraries(resolver_profile PRIVATE database geometry pipelines io)
 target_compile_definitions(resolver_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )
-le_enable_coverage_instrumentation(resolver_profile)
 
 # --- native_format_profile: dev-only tool - native .led save/load time and
 # size against reading the DEF, for one aes_scaling design per process.
@@ -1431,7 +1429,6 @@ target_link_libraries(selection_profile PRIVATE api)
 target_compile_definitions(selection_profile PRIVATE
     REAL_DESIGN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test_data"
 )
-le_enable_coverage_instrumentation(selection_profile)
 
 # --- spatial_index_benchmark: dev-only benchmark - quantifies a
 # Boost.Geometry Index rtree's query cost against a linear per-placement
@@ -1439,7 +1436,6 @@ le_enable_coverage_instrumentation(selection_profile)
 # Not run by ctest or the coverage target.
 add_executable(spatial_index_benchmark src/pipelines/benchmarks/spatial_index_benchmark.cpp)
 target_link_libraries(spatial_index_benchmark PRIVATE database geometry io)
-le_enable_coverage_instrumentation(spatial_index_benchmark)
 
 # --- delete_benchmark: dev-only benchmark - deleting many children of one
 # parent through the generated edit ops, and a delete_layout cascade.
@@ -1447,7 +1443,6 @@ le_enable_coverage_instrumentation(spatial_index_benchmark)
 add_executable(delete_benchmark src/api/benchmarks/delete_benchmark.cpp)
 target_link_libraries(delete_benchmark PRIVATE database geometry editing pipelines io api le::extension_sdk benchmark::benchmark)
 target_include_directories(delete_benchmark PRIVATE ${nlohmann_json_header_SOURCE_DIR})
-le_enable_coverage_instrumentation(delete_benchmark)
 
 # --- blend2d_smoke_test: throwaway build/link verification for the
 # Blend2D FetchContent chain above - see that block's own comment and
@@ -1470,40 +1465,68 @@ target_compile_definitions(lef_roundtrip_diff PRIVATE
     LEFDEF_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/TEST"
     LEFDIFF_BIN="${CMAKE_CURRENT_SOURCE_DIR}/src/lefdef/lef/bin/lefdiff"
 )
-le_enable_coverage_instrumentation(lef_roundtrip_diff)
 
-# --- coverage: `cmake --build build --target coverage` (requires -DENABLE_COVERAGE=ON at configure time) ---
-if(ENABLE_COVERAGE)
-    set(COVERAGE_DIR ${PROJECT_BINARY_DIR}/coverage)
-    # LE_GENERATED_DIR is codegen output (mostly boilerplate getters/to_string);
-    # excluded for now rather than chasing coverage on generated code.
-    set(COVERAGE_IGNORE_REGEX "${FETCHCONTENT_BASE_DIR}|${PROJECT_SOURCE_DIR}/src/lefdef|${LE_GENERATED_DIR}")
-
-    add_custom_target(coverage
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${COVERAGE_DIR}
-        COMMAND ${CMAKE_COMMAND} -E env LLVM_PROFILE_FILE=${COVERAGE_DIR}/backend_tests.profraw $<TARGET_FILE:backend_tests>
-        COMMAND ${LLVM_PROFDATA_EXE} merge -sparse ${COVERAGE_DIR}/backend_tests.profraw -o ${COVERAGE_DIR}/backend_tests.profdata
-        COMMAND sh -c "${LLVM_COV_EXE} report $<TARGET_FILE:backend_tests> -instr-profile=${COVERAGE_DIR}/backend_tests.profdata --show-branch-summary --ignore-filename-regex='${COVERAGE_IGNORE_REGEX}' | tee ${COVERAGE_DIR}/report.txt"
-        COMMAND sh -c "${LLVM_COV_EXE} export $<TARGET_FILE:backend_tests> -instr-profile=${COVERAGE_DIR}/backend_tests.profdata -format=lcov --ignore-filename-regex='${COVERAGE_IGNORE_REGEX}' > ${COVERAGE_DIR}/lcov.info"
-        DEPENDS backend_tests
-        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
-        COMMENT "Running backend_tests with coverage instrumentation, then reporting line+branch coverage"
-        USES_TERMINAL
-        VERBATIM
-    )
-endif()
 
 # LE_COMPILE_OPTIONS on every target this file defines (core, le_shell,
 # le_tcl, the tests and tools, extensions' targets), but not imgui_lib,
 # which compiles Dear ImGui's own sources. Fetched dependencies are defined
 # in their own directories and keep their own options.
 get_property(le_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(le_coverage_targets "")
+set(le_coverage_binaries "")
 foreach(target IN LISTS le_targets)
     get_target_property(type ${target} TYPE)
     if(type MATCHES "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY|EXECUTABLE)$" AND NOT target STREQUAL "imgui_lib")
         target_compile_options(${target} PRIVATE ${LE_COMPILE_OPTIONS})
+        le_enable_coverage_instrumentation(${target})
+        list(APPEND le_coverage_targets ${target})
+        if(type MATCHES "^(SHARED_LIBRARY|MODULE_LIBRARY|EXECUTABLE)$")
+            list(APPEND le_coverage_binaries "$<TARGET_FILE:${target}>")
+        endif()
     endif()
 endforeach()
+
+# --- coverage: `cmake --build build --target coverage` (configure with
+# -DENABLE_COVERAGE=ON). Builds every instrumented target, runs the whole
+# ctest suite, and reports line+branch coverage over every instrumented
+# binary, generated code included, into coverage/report.txt and lcov.info.
+# `coverage-python` does the same for codegen's and le's Python unit tests
+# (coverage.py, one of codegen's dev dependencies; LE_COVERAGE_PYTHON picks
+# an interpreter that has it and codegen's packages), into coverage/python/. ---
+if(ENABLE_COVERAGE)
+    set(COVERAGE_DIR ${PROJECT_BINARY_DIR}/coverage)
+    set(COVERAGE_IGNORE_REGEX "${FETCHCONTENT_BASE_DIR}|${PROJECT_SOURCE_DIR}/src/lefdef")
+    file(GENERATE OUTPUT ${COVERAGE_DIR}/binaries.txt CONTENT "$<JOIN:${le_coverage_binaries},\n>\n")
+    add_custom_target(coverage
+        COMMAND ${CMAKE_COMMAND} -DBUILD_DIR=${PROJECT_BINARY_DIR} -DCOVERAGE_DIR=${COVERAGE_DIR}
+            -DCTEST=${CMAKE_CTEST_COMMAND} -DLLVM_PROFDATA=${LLVM_PROFDATA_EXE} -DLLVM_COV=${LLVM_COV_EXE}
+            "-DIGNORE_REGEX=${COVERAGE_IGNORE_REGEX}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/coverage_report.cmake
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+        COMMENT "Running every test with coverage instrumentation, then reporting line+branch coverage"
+        USES_TERMINAL
+        VERBATIM
+    )
+    add_dependencies(coverage ${le_coverage_targets})
+
+    set(LE_COVERAGE_PYTHON ${Python3_EXECUTABLE} CACHE FILEPATH "Python with coverage.py for the coverage-python target")
+    set(COVERAGE_PYTHON_DATA ${COVERAGE_DIR}/python/.coverage)
+    add_custom_target(coverage-python
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${COVERAGE_DIR}/python
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage erase --data-file=${COVERAGE_PYTHON_DATA}
+        COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_SOURCE_DIR}/codegen ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER}
+            ${LE_COVERAGE_PYTHON} -m coverage run --data-file=${COVERAGE_PYTHON_DATA} --parallel-mode --branch --source=codegen -m unittest discover -s tests -t .
+        COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_CURRENT_SOURCE_DIR}/tools/le
+            ${LE_COVERAGE_PYTHON} -m coverage run --data-file=${COVERAGE_PYTHON_DATA} --parallel-mode --branch --source=le -m unittest discover -s tests -t .
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage combine --data-file=${COVERAGE_PYTHON_DATA}
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage report --data-file=${COVERAGE_PYTHON_DATA}
+        COMMAND ${LE_COVERAGE_PYTHON} -m coverage html --data-file=${COVERAGE_PYTHON_DATA} -d ${COVERAGE_DIR}/python/html
+        WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+        COMMENT "Running the codegen and le unit tests under coverage.py"
+        USES_TERMINAL
+        VERBATIM
+    )
+endif()
 
 # Some of those targets carry LE_COMPILE_OPTIONS, and imgui_lib doesn't.
 if(LE_COMPILE_OPTIONS)
