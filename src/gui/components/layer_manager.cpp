@@ -285,13 +285,13 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += "set_layer_visible {" + layer.name + "} " + tcl_bool(value);
+                    script += "set_layer_visible " + tcl_quote(layer.name) + " " + tcl_bool(value);
                 }
                 for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_visible ") + purpose.name + " " + tcl_bool(value);
+                    script += std::string("set_purpose_visible ") + tcl_quote(purpose.name) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -303,7 +303,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += "set_layer_selectable {" + layer.name + "} " + tcl_bool(value);
+                    script += "set_layer_selectable " + tcl_quote(layer.name) + " " + tcl_bool(value);
                 }
                 for (const GuiProvider::PurposeRow &purpose : purposes)
                 {
@@ -311,7 +311,7 @@ namespace le::gui
                         continue;
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_selectable ") + purpose.name + " " + tcl_bool(value);
+                    script += std::string("set_purpose_selectable ") + tcl_quote(purpose.name) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -332,7 +332,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_visible ") + purpose.name + " " + tcl_bool(value);
+                    script += std::string("set_purpose_visible ") + tcl_quote(purpose.name) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -346,7 +346,7 @@ namespace le::gui
                         continue;
                     if (!script.empty())
                         script += "; ";
-                    script += std::string("set_purpose_selectable ") + purpose.name + " " + tcl_bool(value);
+                    script += std::string("set_purpose_selectable ") + tcl_quote(purpose.name) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -397,7 +397,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += "set_layer_visible {" + layer.name + "} " + tcl_bool(value);
+                    script += "set_layer_visible " + tcl_quote(layer.name) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);
@@ -409,7 +409,7 @@ namespace le::gui
                 {
                     if (!script.empty())
                         script += "; ";
-                    script += "set_layer_selectable {" + layer.name + "} " + tcl_bool(value);
+                    script += "set_layer_selectable " + tcl_quote(layer.name) + " " + tcl_bool(value);
                 }
                 if (!script.empty())
                     provider.run_tcl_command(script);

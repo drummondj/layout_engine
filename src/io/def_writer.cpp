@@ -6,8 +6,10 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <cstdio>
+#include <utility>
 
 // See lef_writer.cpp's own USE_LEFDEF_PARSER_NAMESPACE comment - same
 // reasoning, defwWriter.hpp wraps every defw* declaration in namespace
@@ -537,7 +539,7 @@ namespace le
                     const ShapeData *stored = root.get_shape(shape_id);
                     if (!stored)
                         continue;
-                    const ShapeData local = Geometry::transform(*stored, to_pin);
+                    const ShapeData local = Geometry::transform_geometry_and_vias(*stored, to_pin);
                     const ShapeData *shape = &local;
                     const LayerData *layer = root.get_layer(shape->layer);
                     const std::string layer_name = layer ? layer->name : std::string{};
@@ -1140,139 +1142,38 @@ namespace le
         // written here even though real 5.8 files (e.g. complete.5.8.def)
         // still carry it; defdiff's own normalization doesn't appear to
         // require it back (see the roundtrip fidelity test).
-        int status = defwInitCbk(file.get());
-        if (status)
+        // Each step in file order; the first to fail stops the write. A
+        // step that doesn't apply returns 0.
+        const std::pair<const char *, std::function<int()>> steps[] = {
+            {"defwInitCbk", [&] { return defwInitCbk(file.get()); }},
+            {"defwVersion", [] { return defwVersion(5, 8); }},
+            // DIVIDERCHAR/BUSBITCHARS reuse the same shared Technology
+            // fields LEF already writes (see LEFWriter::write_lef) - same
+            // DEF/LEF convention.
+            {"defwDividerChar", [&] { return defwDividerChar(technology && technology->divider_char ? technology->divider_char->c_str() : "/"); }},
+            {"defwBusBitChars", [&] { return defwBusBitChars(technology && technology->bus_bit_chars ? technology->bus_bit_chars->c_str() : "[]"); }},
+            {"defwDesignName", [&] { return defwDesignName(design->name.c_str()); }},
+            {"defwUnits", [&] { return technology ? defwUnits(static_cast<int>(technology->database_units_microns)) : 0; }},
+            {"Writing DIEAREA", [&] { return write_die_area(root, layout_id); }},
+            {"Writing ROWs", [&] { return write_rows(root, layout_id); }},
+            {"Writing TRACKS", [&] { return write_tracks(root, layout_id); }},
+            {"Writing GCELLGRID", [&] { return write_gcell_grids(root, layout_id); }},
+            {"Writing VIAS", [&] { return write_vias(root, layout_id); }},
+            {"Writing NONDEFAULTRULES", [&] { return technology_id.valid() ? write_non_default_rules(root, technology_id) : 0; }},
+            {"Writing REGIONS", [&] { return write_regions(root, layout_id); }},
+            {"Writing COMPONENTS", [&] { return write_placements(root, layout_id); }},
+            {"Writing PINS", [&] { return write_physical_ports(root, layout_id); }},
+            {"Writing BLOCKAGES", [&] { return write_blockages(root, layout_id); }},
+            {"Writing NETS/SPECIALNETS", [&] { return write_routes(file.get(), root, layout_id); }},
+            {"defwEnd", [] { return defwEnd(); }},
+        };
+        for (const auto &[what, step] : steps)
         {
-            log_error(fmt::format("defwInitCbk failed with status {}.", status));
-            return status;
-        }
-
-        status = defwVersion(5, 8);
-        if (status)
-        {
-            log_error(fmt::format("defwVersion failed with status {}.", status));
-            return status;
-        }
-
-        // DIVIDERCHAR/BUSBITCHARS reuse the same shared Technology fields
-        // LEF already writes (see LEFWriter::write_lef) - same DEF/LEF
-        // convention.
-        status = defwDividerChar(technology && technology->divider_char ? technology->divider_char->c_str() : "/");
-        if (status)
-        {
-            log_error(fmt::format("defwDividerChar failed with status {}.", status));
-            return status;
-        }
-
-        status = defwBusBitChars(technology && technology->bus_bit_chars ? technology->bus_bit_chars->c_str() : "[]");
-        if (status)
-        {
-            log_error(fmt::format("defwBusBitChars failed with status {}.", status));
-            return status;
-        }
-
-        status = defwDesignName(design->name.c_str());
-        if (status)
-        {
-            log_error(fmt::format("defwDesignName failed with status {}.", status));
-            return status;
-        }
-
-        if (technology)
-        {
-            status = defwUnits(static_cast<int>(technology->database_units_microns));
-            if (status)
+            if (const int status = step())
             {
-                log_error(fmt::format("defwUnits failed with status {}.", status));
+                log_error(fmt::format("{} failed with status {}.", what, status));
                 return status;
             }
-        }
-
-        status = write_die_area(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing DIEAREA failed with status {}.", status));
-            return status;
-        }
-
-        status = write_rows(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing ROWs failed with status {}.", status));
-            return status;
-        }
-
-        status = write_tracks(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing TRACKS failed with status {}.", status));
-            return status;
-        }
-
-        status = write_gcell_grids(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing GCELLGRID failed with status {}.", status));
-            return status;
-        }
-
-        status = write_vias(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing VIAS failed with status {}.", status));
-            return status;
-        }
-
-        if (technology_id.valid())
-        {
-            status = write_non_default_rules(root, technology_id);
-            if (status)
-            {
-                log_error(fmt::format("Writing NONDEFAULTRULES failed with status {}.", status));
-                return status;
-            }
-        }
-
-        status = write_regions(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing REGIONS failed with status {}.", status));
-            return status;
-        }
-
-        status = write_placements(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing COMPONENTS failed with status {}.", status));
-            return status;
-        }
-
-        status = write_physical_ports(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing PINS failed with status {}.", status));
-            return status;
-        }
-
-        status = write_blockages(root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing BLOCKAGES failed with status {}.", status));
-            return status;
-        }
-
-        status = write_routes(file.get(), root, layout_id);
-        if (status)
-        {
-            log_error(fmt::format("Writing NETS/SPECIALNETS failed with status {}.", status));
-            return status;
-        }
-
-        status = defwEnd();
-        if (status)
-        {
-            log_error(fmt::format("defwEnd failed with status {}.", status));
-            return status;
         }
 
         spdlog::info(

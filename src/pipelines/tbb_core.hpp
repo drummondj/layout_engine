@@ -171,13 +171,18 @@ namespace le
         }
 
         // --- pipeline_stage_benchmark instrumentation (per-stage wall/
-        // CPU time, memory, cache size) - all populated only on a real
-        // compute() call (see execute()'s own comment for why a cache
-        // hit deliberately skips the sampling work); stay at whatever
+        // CPU time, memory, cache size) - the timings and memory are
+        // sampled only while set_sampling(true) and only on a real
+        // compute() call; they stay at whatever
         // the previous real compute() left them on a cache hit, so a
         // caller distinguishes "fresh this call" from "stale, carried
         // over" via last_call_recomputed() rather than these silently
         // reading as zero. ---
+
+        /// @brief Turns per-compute timing and memory sampling on or off
+        /// (off by default: it reads /proc/self/status twice per compute).
+        /// Set before running the graph, not while it runs.
+        void set_sampling(bool on) { sampling_ = on; }
 
         /// @brief Whether the most recent execute() call actually ran
         /// compute() (true) or was a cache hit (false) - set on every
@@ -282,13 +287,13 @@ namespace le
                 last_data_version_ != in.data_version || options_did_change(last_options_, in.options);
 
             last_call_recomputed_ = should_recompute;
-            if (should_recompute)
+            if (should_recompute && !sampling_)
             {
-                // Sampling (clock_gettime x2, /proc/self/status read x2)
-                // only happens on a real recompute - the hot cache-hit
-                // path (the common case in real interactive use) pays
-                // none of this, matching would_recompute()'s own "avoid
-                // overhead on the hot path" philosophy above.
+                last_result_ = std::make_shared<const OutputData>(compute(in.data, in.options));
+                ++version_;
+            }
+            else if (should_recompute)
+            {
                 const ProcMemSample mem_before = read_proc_mem_sample();
                 const std::int64_t cpu_before = thread_cpu_time_ns();
                 const auto wall_before = std::chrono::steady_clock::now();
@@ -327,6 +332,7 @@ namespace le
 
         // pipeline_stage_benchmark instrumentation - see the public
         // accessors above for what each of these means.
+        bool sampling_{false};
         bool last_call_recomputed_{false};
         std::int64_t last_compute_wall_ns_{0};
         std::int64_t last_compute_cpu_ns_{0};
@@ -334,119 +340,5 @@ namespace le
         long last_rss_after_kb_{0};
         long last_swap_before_kb_{0};
         long last_swap_after_kb_{0};
-    };
-
-    /// @brief Generic parallel many-in/one-out fan-in accumulator for a flow graph.
-    ///
-    /// Gathers exactly `fan_in_count` inputs per round into one `OutputData`, forwarding the
-    /// merged result only if at least one input's `data_version` actually differed from what
-    /// that same input slot reported last round - a round simply completing isn't sufficient on
-    /// its own. Runs at `unlimited` concurrency: unlike a `serial` node, multiple inputs can be
-    /// dispatched to it at once instead of queueing behind a single in-flight slot, so
-    /// accumulator state is guarded by a `spin_mutex` instead of being safely lock-free.
-    ///
-    /// Which input slot a given message belongs to (e.g. a fan-out index like layer_id) can't be
-    /// recovered from which edge it arrived on - the fan-in loses that - so `slot_fn` must
-    /// recover it directly from the payload, and `merge_fn` folds that payload into the round's
-    /// accumulator.
-    ///
-    /// @tparam InputData Input payload type (arrives once per fan-in edge per round).
-    /// @tparam OutputData Output payload type, built up by repeated merge_fn calls.
-    /// @tparam PipelineOptions Options type threaded through this pipeline (unused by the
-    ///         accumulation logic itself, but required to match the upstream producer's
-    ///         StageData shape for make_edge).
-    ///
-    /// @note Must be constructed via std::make_unique and never moved or copied.
-    template <typename InputData, typename OutputData, typename PipelineOptions>
-    class FanInCollectStage
-    {
-    public:
-        /// @brief Recovers the stable fan-in slot index (e.g. layer_id) for an input, in
-        ///        [0, fan_in_count). Used to track each slot's last-seen data_version.
-        using SlotFn = std::function<std::size_t(const InputData &)>;
-        /// @brief Merges one input's data into the round's accumulator.
-        using MergeFn = std::function<void(OutputData &, const InputData &)>;
-
-        /// @brief Constructs the stage and its underlying node.
-        /// @param g Flow graph this stage's node belongs to.
-        /// @param fan_in_count Number of inputs gathered per round before emitting.
-        /// @param slot_fn Recovers an input's fan-in slot index.
-        /// @param merge_fn Merges one input's data into the round's accumulator.
-        /// @param label Optional label identifying this instance in Tracy traces.
-        FanInCollectStage(
-            oneapi::tbb::flow::graph &g, std::size_t fan_in_count, SlotFn slot_fn, MergeFn merge_fn,
-            std::string label = {})
-            : node_(
-                  g, oneapi::tbb::flow::unlimited,
-                  [this](StageData<InputData, PipelineOptions> in)
-                  { return execute(std::move(in)); }),
-              fan_in_count_(fan_in_count), slot_fn_(std::move(slot_fn)), merge_fn_(std::move(merge_fn)),
-              last_versions_(fan_in_count), label_(std::move(label)) {}
-
-        FanInCollectStage(const FanInCollectStage &) = delete;
-        FanInCollectStage &operator=(const FanInCollectStage &) = delete;
-
-        /// @brief The underlying function_node, for wiring with make_edge.
-        oneapi::tbb::flow::function_node<StageData<InputData, PipelineOptions>, OutputData> &node() { return node_; }
-
-        /// @brief Submits one round's input to this stage's node.
-        /// @param v Input message.
-        /// @return Whether the node accepted the input.
-        bool try_put(StageData<InputData, PipelineOptions> v)
-        {
-            return node_.try_put(std::move(v));
-        }
-
-    private:
-        /// @brief Merges `in` into the current round; once `fan_in_count_` inputs have arrived,
-        ///        resets for the next round and returns the merged result - but only if some
-        ///        input's data_version actually changed this round, otherwise an empty OutputData.
-        OutputData execute(StageData<InputData, PipelineOptions> in)
-        {
-            ZoneScoped;
-            if (!label_.empty())
-            {
-                ZoneName(label_.data(), label_.size());
-            }
-
-            oneapi::tbb::spin_mutex::scoped_lock lock(mutex_);
-
-            std::size_t slot = slot_fn_(in.data);
-            if (last_versions_[slot] != in.data_version)
-            {
-                any_changed_ = true;
-                last_versions_[slot] = in.data_version;
-            }
-            merge_fn_(accumulated_, in.data);
-
-            if (++received_ < fan_in_count_)
-            {
-                ZoneText("accumulating", 12);
-                return {};
-            }
-
-            received_ = 0;
-            OutputData result = std::exchange(accumulated_, OutputData{});
-            if (!std::exchange(any_changed_, false))
-            {
-                ZoneText("no change", 9);
-                return {};
-            }
-
-            return result;
-        }
-
-        oneapi::tbb::flow::function_node<StageData<InputData, PipelineOptions>, OutputData> node_;
-        std::size_t fan_in_count_;
-        SlotFn slot_fn_;
-        MergeFn merge_fn_;
-
-        oneapi::tbb::spin_mutex mutex_;
-        std::size_t received_{0};
-        OutputData accumulated_{};
-        bool any_changed_{false};
-        std::vector<std::optional<std::uint64_t>> last_versions_;
-
-        std::string label_;
     };
 }

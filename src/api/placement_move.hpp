@@ -144,14 +144,6 @@ namespace le
         return type.size() == 4 || std::isspace(static_cast<unsigned char>(type[4]));
     }
 
-    /// @brief `v` rounded to the nearest `offset + k * pitch`.
-    inline int64_t snap_to_grid(int64_t v, int64_t pitch, int64_t offset = 0)
-    {
-        if (pitch <= 0)
-            return v;
-        return offset + static_cast<int64_t>(std::llround(static_cast<double>(v - offset) / static_cast<double>(pitch))) * pitch;
-    }
-
     /// @brief Where one moving Placement would land - its new location
     /// (placed-bbox lower-left) and orientation, plus the local bbox the
     /// placed transform is built from (for ghost drawing).

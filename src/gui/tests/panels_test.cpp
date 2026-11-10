@@ -369,3 +369,12 @@ TEST(LibraryBrowser, ADesignWithoutPhysicalViewsShowsOnlyWhenAskedFor)
     EXPECT_TRUE(le::gui::design_shown_in_browser(cell, "", false));
     EXPECT_TRUE(le::gui::design_shown_in_browser(cell, "abstract", false)) << "matched by its view";
 }
+
+// A layer or purpose name, put into a queued Tcl command, stays one word
+// whatever it holds.
+TEST(TclQuote, KeepsAnyNameOneWord)
+{
+    EXPECT_EQ(le::gui::tcl_quote("M1"), "\"M1\"");
+    EXPECT_EQ(le::gui::tcl_quote("a}b{c"), "\"a}b{c\"");
+    EXPECT_EQ(le::gui::tcl_quote("x [y] $z \"q\" \\"), "\"x \\[y\\] \\$z \\\"q\\\" \\\\\"");
+}

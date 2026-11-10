@@ -8,6 +8,11 @@
 
 namespace le::gui
 {
+    /// @brief `text` as one Tcl word: double-quoted, with every character
+    /// Tcl substitutes inside quotes escaped. For any name or path put into
+    /// a queued Tcl command.
+    std::string tcl_quote(const std::string &text);
+
     // The single point of contact between this whole module (le_gui.cpp's
     // own per-frame loop and every src/gui/components/*.cpp file) and the
     // C API (api.hpp)/LeHandle - no other file in src/gui/ may call a

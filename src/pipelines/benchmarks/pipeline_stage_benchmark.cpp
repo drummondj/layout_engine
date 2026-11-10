@@ -213,6 +213,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    handle->view_render_pipeline.set_stage_sampling(true);
     le_set_hierarchy_depth(handle, args.hierarchy_depth);
     le_set_viewport_size(handle, args.viewport_width_px, args.viewport_height_px);
 

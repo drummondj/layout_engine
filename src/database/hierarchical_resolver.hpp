@@ -189,6 +189,17 @@ namespace le::hierarchy
         return std::ranges::find(reached, parent) != reached.end();
     }
 
+    /// @brief The Schematic of `schematic`'s Instance named exactly
+    /// `segment`, or an invalid id if there's no such Instance or it
+    /// reaches no Schematic.
+    inline SchematicId exact_child_schematic(const Root &root, SchematicId schematic, const std::string &segment)
+    {
+        const InstanceData *inst = root.get_instance(root.get_instance_by_name(schematic, segment));
+        if (!inst || !inst->reference_design.valid())
+            return {};
+        return root.get_design_schematic(inst->reference_design);
+    }
+
     /// @brief Descends one hierarchy level: for every Schematic in
     /// `frontier`, resolves `segment` (exact/glob/"**") against that
     /// Schematic's own Instances, collecting the Schematic reached via
@@ -234,15 +245,7 @@ namespace le::hierarchy
             return;
         }
         for (const SchematicId schematic : frontier)
-        {
-            const InstanceId inst_id = root.get_instance_by_name(schematic, segment);
-            if (!inst_id.valid())
-                continue;
-            const InstanceData *inst = root.get_instance(inst_id);
-            if (!inst || !inst->reference_design.valid())
-                continue;
-            add(root.get_design_schematic(inst->reference_design));
-        }
+            add(exact_child_schematic(root, schematic, segment));
     }
 
     /// @brief The shared resolver itself. `leaf_kind` is entirely
@@ -351,10 +354,7 @@ namespace le::hierarchy
         SchematicId schematic = start;
         for (const std::string &segment : segments)
         {
-            const InstanceData *inst = root.get_instance(root.get_instance_by_name(schematic, segment));
-            if (!inst || !inst->reference_design.valid())
-                return {};
-            schematic = root.get_design_schematic(inst->reference_design);
+            schematic = exact_child_schematic(root, schematic, segment);
             if (!schematic.valid())
                 return {};
         }

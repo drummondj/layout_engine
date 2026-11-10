@@ -1,5 +1,6 @@
 TEMPLATE = """
 #pragma once
+#include <array>
 #include <optional>
 #include <string_view>
 
@@ -10,6 +11,13 @@ namespace {{schema.namespace}} {
     {%- for field in klass.fields %}
         /// @brief {{field.description}}
         {{field.name}} = {{field.value}},
+    {%- endfor %}
+    };
+
+    /// @brief Every {{klass.name}} value, in declaration order.
+    inline constexpr std::array<{{schema.namespace}}::{{klass.name}}, {{klass.fields|length}}> all_{{klass.to_snake_case()}}_values{
+    {%- for field in klass.fields %}
+        {{schema.namespace}}::{{klass.name}}::{{field.name}},
     {%- endfor %}
     };
 
