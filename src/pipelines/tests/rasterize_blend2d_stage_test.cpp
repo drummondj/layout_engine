@@ -189,10 +189,10 @@ TEST_F(RasterizeBlend2DStageFixture, NullInputProducesEmptyOutput)
     EXPECT_EQ(output.culled, nullptr);
 }
 
-// A PhysicalPort's direction marker
-// draws under everything, so a port label running over its own marker (a
-// port on the right edge, label drawn left to right) stays readable.
-TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)
+// A label is recorded for ComposeStage to draw upright, not drawn into the
+// node's image: a port label running over its own direction marker (a port
+// on the right edge, label drawn left to right) leaves just the marker.
+TEST_F(RasterizeBlend2DStageFixture, APortLabelIsRecordedNotDrawn)
 {
     const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
     const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
@@ -212,11 +212,14 @@ TEST_F(RasterizeBlend2DStageFixture, PortLabelDrawsOverItsOwnMarker)
     const BLImage &image = output.images.at(HierarchyId{top_layout}).image;
     ASSERT_EQ(image.width(), 600);
 
-    // Inside the marker, x 1003..1008 / y 498..502 dbu: the label's ink
-    // (the M1 outline color) shows through the solid gray.
+    const std::vector<NodeLabel> &labels = output.images.at(HierarchyId{top_layout}).labels;
+    ASSERT_EQ(labels.size(), 1u);
+    EXPECT_EQ(*labels[0].text, "PORT_WITH_A_LONG_NAME");
+    EXPECT_FALSE(labels[0].placement_box.has_value());
+
+    // Inside the marker, x 1003..1008 / y 498..502 dbu: only the marker.
     const Color label_color = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL))->style.outline_color;
-    EXPECT_TRUE(region_contains_color_near(image, 406, 196, 416, 204, label_color, 30));
-    // And the marker itself is still drawn there.
+    EXPECT_FALSE(region_contains_color_near(image, 406, 196, 416, 204, label_color, 30));
     EXPECT_TRUE(region_contains_color_near(image, 406, 196, 416, 204, Color{200, 200, 200, 255}, 10));
 }
 
@@ -265,14 +268,48 @@ TEST_F(RasterizeBlend2DStageFixture, ChunkVisibilityMasksHideRouteShapesAndPlace
     }
 
     RasterizeBlend2DRunner rasterizer{"RasterizeBlend2DMaskTest"};
-    const BLImage &image = rasterizer.run(std::make_shared<const HierarchyResolverOutput>(std::move(masked)), 0, options).images.at(HierarchyId{top}).image;
+    const RasterizedImage &rasterized = rasterizer.run(std::make_shared<const HierarchyResolverOutput>(std::move(masked)), 0, options).images.at(HierarchyId{top});
+    const BLImage &image = rasterized.image;
 
     const Color route_ink = view_layers.get(route_layer)->style.outline_color;
     const Color placement_ink = view_layers.get(view_layers.placement_view_layer())->style.outline_color;
     EXPECT_FALSE(region_contains_color_near(image, 9, 79, 32, 91, route_ink, 30)); // hidden route shape (1,1)-(3,2)
-    EXPECT_TRUE(region_contains_color_near(image, 9, 49, 32, 61, route_ink, 30));  // its sibling (1,4)-(3,5)
+    EXPECT_TRUE(region_contains_color_near(image, 9, 49, 32, 61, Color{route_ink.r, route_ink.g, route_ink.b, 128}, 30)); // its sibling (1,4)-(3,5)
     EXPECT_FALSE(region_contains_color_near(image, 59, 69, 82, 91, placement_ink, 30)); // hidden p0 (6,1)-(8,3)
-    EXPECT_TRUE(region_contains_color_near(image, 59, 39, 82, 61, placement_ink, 30));  // p1 (6,4)-(8,6)
+    EXPECT_TRUE(region_contains_color_near(image, 59, 39, 82, 61, Color{placement_ink.r, placement_ink.g, placement_ink.b, 128}, 30));  // p1 (6,4)-(8,6)
+
+    // A hidden placement's name isn't recorded either.
+    std::vector<std::string> names;
+    for (const NodeLabel &label : rasterized.labels)
+        if (label.placement_box)
+            names.push_back(*label.text);
+    EXPECT_EQ(names, std::vector<std::string>{"p1"});
+}
+
+// A placement name is recorded only if its rect's longer on-screen side
+// can hold the whole name or four of its characters.
+TEST_F(RasterizeBlend2DStageFixture, APlacementNameThatCantFitIsNotRecorded)
+{
+    const LibraryId library_id = root.create_library(LibraryData{.name = "TOPLIB"});
+    const LayoutId top = root.create_layout(LayoutData{.design = root.create_design(DesignData{.library = library_id, .name = "TOP"})});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::layout(top), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{100, 100}}}});
+    const DesignId leaf_design = root.get_abstract(leaf_abstract)->design;
+    // LEAF is 10 dbu square: 100 px at scale 10, 20 px at scale 2.
+    root.create_placement(PlacementData{.layout = top, .name = "a_long_instance_name", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{10, 10}, .orientation = Orientation::N});
+
+    const auto names_at = [&](double scale)
+    {
+        const ViewRenderOptions options = options_for(HierarchyId{top}, 0, Rect{.ll = Point{0, 0}, .ur = Point{100, 100}}, scale);
+        HierarchyResolverRunner resolver{"HierarchyResolver"};
+        resolver.run(view_layers_handle, 0, options);
+        RasterizeBlend2DRunner rasterizer{"Rasterize"};
+        std::size_t names = 0;
+        for (const NodeLabel &label : rasterizer.run(resolver.last_handle(), 0, options).images.at(HierarchyId{top}).labels)
+            names += label.placement_box.has_value() ? 1 : 0;
+        return names;
+    };
+    EXPECT_EQ(names_at(10.0), 1u);
+    EXPECT_EQ(names_at(2.0), 0u) << "16 px holds two 12 px characters";
 }
 
 TEST_F(RasterizeBlend2DStageFixture, PortMarkerIsCappedAtSixteenPixels)

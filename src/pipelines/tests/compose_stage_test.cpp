@@ -126,6 +126,30 @@ namespace
             return false;
         }
 
+        // The frame without any labels, so geometry checks can't match a
+        // label's ink.
+        const RasterizedFrame &frame_without_labels()
+        {
+            RasterizeOutput output = *rasterize_runner.last_handle();
+            for (auto &[id, image] : output.images)
+                image.labels.clear();
+            return label_free_compose_runner.run(std::make_shared<const RasterizeOutput>(std::move(output)), 0, options);
+        }
+
+        // Mostly-opaque pixels of `expected`'s color: a pattern-filled
+        // rect's stripes, not its antialiased edges.
+        static bool region_has_ink(const RasterizedFrame &frame, int x0, int y0, int x1, int y1, Color expected)
+        {
+            for (int y = y0; y < y1; ++y)
+                for (int x = x0; x < x1; ++x)
+                {
+                    const SampledColor c = sample(frame, x, y);
+                    if (c.a >= 192 && std::abs(c.r - expected.r) <= 5 && std::abs(c.g - expected.g) <= 5 && std::abs(c.b - expected.b) <= 5)
+                        return true;
+                }
+            return false;
+        }
+
         static constexpr double kScale = 4.0;
 
         Root root;
@@ -138,6 +162,7 @@ namespace
         HierarchyResolverRunner hierarchy_resolver_runner{"HierarchyResolver"};
         RasterizeRunner rasterize_runner{"Rasterize"};
         ComposeRunner compose_runner{"Compose"};
+        ComposeRunner label_free_compose_runner{"ComposeNoLabels"};
         ViewRenderOptions options;
         const RasterizedFrame *frame = nullptr;
     };
@@ -199,7 +224,7 @@ TEST_F(ComposeStageFixture, ComposesA90DegreeRotatedChildAtTheCorrectlyTransform
     // real diagonal-stripe FillPattern now (see this fixture's own
     // ComposesUnrotatedChildAtItsOwnGlobalOffset comment) - scan the rect
     // rather than one exact pixel.
-    EXPECT_TRUE(region_contains_color_near(*frame, 204, 564, 208, 576, expected_color, 5));
+    EXPECT_TRUE(region_has_ink(frame_without_labels(), 204, 564, 208, 576, expected_color));
 
     // The UNROTATED (Orientation::N) test's own sample point should now
     // be empty - if this test only "passed" because the whole image is
@@ -207,6 +232,23 @@ TEST_F(ComposeStageFixture, ComposesA90DegreeRotatedChildAtTheCorrectlyTransform
     // it.
     const SampledColor unrotated_position = sample(*frame, 210, 594);
     EXPECT_EQ(unrotated_position.a, 0u);
+}
+
+// FW maps LEAF-local (x, y) to (y, x): the terminal (1,1)-(4,2) lands at
+// BLOCK-local (21,21)-(22,24), TOP-local (51,51)-(52,54).
+TEST_F(ComposeStageFixture, ComposesAMirrored90DegreeChildAtTheCorrectlyTransformedOffset)
+{
+    build_fixture(Orientation::FW);
+    ASSERT_NE(frame, nullptr);
+    ASSERT_FALSE(frame->empty);
+
+    const ViewLayerSet view_layers = ViewLayerSet::build_for_technology(root, technology_id);
+    const Color expected_color = view_layers.get(view_layers.find(m1, ViewLayerPurpose::TERMINAL))->style.outline_color;
+    // x 204..208, y 800-54*4=584 to 800-51*4=596.
+    const RasterizedFrame &geometry = frame_without_labels();
+    EXPECT_TRUE(region_has_ink(geometry, 204, 584, 208, 596, expected_color));
+    // E's position, (51,56)-(52,59), is empty.
+    EXPECT_FALSE(region_has_ink(geometry, 204, 566, 208, 574, expected_color));
 }
 
 TEST_F(ComposeStageFixture, NullInputProducesEmptyFrame)
@@ -533,4 +575,138 @@ TEST(OverlayFrame, PixelMapsDbuThroughTheViewsMirror)
     EXPECT_EQ(frame.pixel(p), (std::array<double, 2>{90.0, 70.0}));
     frame.flip = ViewFlip::VERTICAL;
     EXPECT_EQ(frame.pixel(p), (std::array<double, 2>{10.0, 30.0}));
+}
+
+namespace
+{
+    // TOP (0,0)-(200,200) places BLOCK (0,0)-(50,50) as "block0" at (30,30)
+    // under a caller-chosen orientation; BLOCK places LEAF (0,0)-(20,20) as
+    // "leaf0" at (10,10), N. LEAF has a pin "A" at its centre, its label clear
+    // of leaf0's name in any orientation.
+    struct ComposeLabelFixture : public ::testing::Test
+    {
+        void SetUp() override
+        {
+            technology_id = root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+            m1 = root.create_layer(LayerData{.technology = technology_id, .name = "M1", .type = "ROUTING"});
+            view_layers_handle = std::make_shared<const ViewLayerSet>(ViewLayerSet::build_for_technology(root, technology_id));
+
+            const LibraryId library_id = root.create_library(LibraryData{.name = "LIB"});
+            const DesignId leaf_design = root.create_design(DesignData{.library = library_id, .name = "LEAF"});
+            leaf = root.create_abstract(AbstractData{.design = leaf_design});
+            root.create_shape(ShapeData{.owner = ShapeOwner::abstract(leaf), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{{0, 0}, {20, 20}}}});
+            const TerminalId terminal = root.create_terminal(TerminalData{.abstract = leaf, .name = "A", .direction = SignalDirection::INPUT});
+            const TerminalPortId port = root.create_terminal_port(TerminalPortData{.terminal = terminal});
+            root.create_shape(ShapeData{.owner = ShapeOwner::terminal_port(port), .layer = m1, .rects = {Rect{{9, 9}, {11, 11}}}});
+
+            const DesignId block_design = root.create_design(DesignData{.library = library_id, .name = "BLOCK"});
+            block = root.create_layout(LayoutData{.design = block_design});
+            root.create_shape(ShapeData{.owner = ShapeOwner::layout(block), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{{0, 0}, {50, 50}}}});
+            root.create_placement(PlacementData{.layout = block, .name = "leaf0", .reference_design = leaf_design, .placement_status = PlacementStatus::PLACED, .location = Point{10, 10}, .orientation = Orientation::N});
+
+            const DesignId top_design = root.create_design(DesignData{.library = library_id, .name = "TOP"});
+            top = root.create_layout(LayoutData{.design = top_design});
+            root.create_shape(ShapeData{.owner = ShapeOwner::layout(top), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{{0, 0}, {200, 200}}}});
+            block0 = root.create_placement(PlacementData{.layout = top, .name = "block0", .reference_design = block_design, .placement_status = PlacementStatus::PLACED, .location = Point{30, 30}, .orientation = Orientation::N});
+        }
+
+        const RasterizedFrame &render(Orientation orientation, ViewFlip flip = ViewFlip::NONE, double scale = kScale)
+        {
+            root.update_placement(block0, top, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, orientation, std::nullopt, std::nullopt);
+            options = ViewRenderOptions{
+                .root = &root, .root_mutation_version = root.mutation_version(), .top_level = HierarchyId{top},
+                .hierarchy_depth = 2, .viewport = Rect{{0, 0}, {200, 200}}, .scale = scale,
+            };
+            options.view_flip = flip;
+            options.minor_grid_spacing_dbu = 0;
+            ++version;
+            hierarchy_resolver_runner.run(view_layers_handle, version, options);
+            rasterize_runner.run(hierarchy_resolver_runner.last_handle(), version, options);
+            return compose_runner.run(rasterize_runner.last_handle(), version, options);
+        }
+
+        // leaf0's box on screen at kScale: x0, y0 (top-left), x1, y1.
+        static std::array<int, 4> leaf_box_px(Orientation orientation, ViewFlip flip = ViewFlip::NONE)
+        {
+            const Geometry::InstanceTransform t = Geometry::instance_transform(orientation, Rect{{0, 0}, {50, 50}}, Point{30, 30});
+            const Rect box = Geometry::transform_bbox(t, Rect{{10, 10}, {30, 30}});
+            const int s = static_cast<int>(kScale);
+            std::array<int, 4> px{static_cast<int>(box.ll.x) * s, 800 - static_cast<int>(box.ur.y) * s, static_cast<int>(box.ur.x) * s, 800 - static_cast<int>(box.ll.y) * s};
+            if (flip == ViewFlip::HORIZONTAL)
+                px = {800 - px[2], px[1], 800 - px[0], px[3]};
+            return px;
+        }
+
+        // Which pixels of `box`'s bottom 16 px rows (where leaf0's name
+        // sits), inside its outline, carry the placement color: a mask
+        // relative to the box, so two boxes' masks compare directly.
+        std::vector<bool> name_mask(const RasterizedFrame &frame, std::array<int, 4> box) const
+        {
+            const ViewLayerSet &view_layers = *view_layers_handle;
+            const Color color = view_layers.get(view_layers.placement_view_layer())->style.outline_color;
+            std::vector<bool> mask;
+            for (int y = box[3] - 16; y < box[3] - 1; ++y)
+                for (int x = box[0] + 2; x < box[2] - 2; ++x)
+                {
+                    const uint8_t *p = frame.buffer.data + static_cast<std::size_t>(y) * frame.buffer.row_bytes + static_cast<std::size_t>(x) * 4;
+                    const SampledColor c = unpremultiply(p[0], p[1], p[2], p[3]);
+                    mask.push_back(c.a > 128 && std::abs(c.r - color.r) <= 40 && std::abs(c.g - color.g) <= 40 && std::abs(c.b - color.b) <= 40);
+                }
+            return mask;
+        }
+
+        static constexpr double kScale = 4.0;
+
+        Root root;
+        TechnologyId technology_id;
+        LayerId m1;
+        ViewLayerSetHandle view_layers_handle;
+        AbstractId leaf;
+        LayoutId block;
+        LayoutId top;
+        PlacementId block0;
+        HierarchyResolverRunner hierarchy_resolver_runner{"HierarchyResolver"};
+        RasterizeRunner rasterize_runner{"Rasterize"};
+        ComposeRunner compose_runner{"Compose"};
+        ViewRenderOptions options;
+        uint64_t version = 0;
+    };
+}
+
+// A name inside a rotated or mirrored placement reads exactly as it does
+// inside an unrotated one: upright, in its box's on-screen bottom-left.
+TEST_F(ComposeLabelFixture, ANameInsideARotatedOrMirroredPlacementStaysUpright)
+{
+    const std::vector<bool> upright = name_mask(render(Orientation::N), leaf_box_px(Orientation::N));
+    ASSERT_GT(std::ranges::count(upright, true), 20) << "leaf0's name is drawn";
+    for (const Orientation orientation : {Orientation::E, Orientation::S, Orientation::FN, Orientation::FW})
+    {
+
+        EXPECT_EQ(name_mask(render(orientation), leaf_box_px(orientation)), upright) << "orientation " << static_cast<int>(orientation);
+    }
+}
+
+// The same in a mirrored view.
+TEST_F(ComposeLabelFixture, ANameInAMirroredViewStaysUpright)
+{
+    const std::vector<bool> upright = name_mask(render(Orientation::N), leaf_box_px(Orientation::N));
+    for (const ViewFlip flip : {ViewFlip::HORIZONTAL, ViewFlip::VERTICAL})
+    {
+        std::array<int, 4> box = leaf_box_px(Orientation::N, flip);
+        if (flip == ViewFlip::VERTICAL)
+            box = {box[0], 800 - box[3], box[2], 800 - box[1]};
+        EXPECT_EQ(name_mask(render(Orientation::N, flip), box), upright) << "flip " << static_cast<int>(flip);
+    }
+}
+
+// Labels draw once per visible instance; an instance too small on screen to
+// hold a legible label gets none, though its node still records them.
+TEST_F(ComposeLabelFixture, AnInstanceTooSmallToReadGetsNoLabels)
+{
+    render(Orientation::N);
+    EXPECT_EQ(compose_runner.stage().labels_drawn(), 3u) << "block0, leaf0 and pin A";
+
+    render(Orientation::N, ViewFlip::NONE, 0.5); // leaf0 is 10 px across, under the 12 px minimum label
+    EXPECT_FALSE(rasterize_runner.last_handle()->images.at(HierarchyId{leaf}).labels.empty());
+    EXPECT_EQ(compose_runner.stage().labels_drawn(), 0u);
 }
