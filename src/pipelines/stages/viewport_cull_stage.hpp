@@ -23,7 +23,7 @@ namespace le
 {
     namespace bgi = boost::geometry::index;
 
-    /// @brief Warm-tier stage 1 (plans/PIPELINE_REFACTOR.md): prunes
+    /// @brief Warm-tier stage 1: prunes
     /// HierarchyResolverOutput down to what actually overlaps
     /// ViewRenderOptions::viewport, so downstream Rasterization/Compose
     /// never touch content that isn't visible. Output is the exact same

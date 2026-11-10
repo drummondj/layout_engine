@@ -162,8 +162,7 @@ namespace le
     /// Topmost-selectable-ViewLayer-first (`view_layers.all()` is
     /// bottom-to-top insertion order - see that method's own doc comment -
     /// so reverse means topmost first), first-match-within-a-layer wins
-    /// for two overlapping shapes on the same layer (an accepted
-    /// limitation). Every
+    /// for two overlapping shapes on the same layer. Every
     /// Terminal-port/Obstruction Shape always carries a real, valid
     /// `Shape.layer` (unlike a BOUNDARY/PLACEMENT_BLOCKAGE Shape, which
     /// resolves its own ViewLayer via `Shape.purpose` instead - see

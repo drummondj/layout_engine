@@ -167,13 +167,12 @@ namespace le
             if (!track)
                 continue;
 
-            // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): DEF's own
-            // TRACKS grammar has an optional LAYER clause (confirmed
-            // against complete.5.8.def itself, e.g. "TRACKS Y 52 DO 857
+            // Vendored-writer gap: DEF's TRACKS grammar has an optional
+            // LAYER clause (complete.5.8.def has "TRACKS Y 52 DO 857
             // STEP 104 MASK 1 ;" with no LAYER at all), but
             // defwTracks(...) unconditionally writes the literal token
-            // "LAYER" regardless of num_layers (confirmed in
-            // defwWriter.cpp - no num_layers==0 guard exists), producing
+            // "LAYER" regardless of num_layers (defwWriter.cpp has no
+            // num_layers==0 guard), producing
             // an empty, unparseable "... LAYER ;" for a Track with no
             // layers. No alternate API exists. Skipped entirely (not
             // written as broken output) - same "vendored writer literally
@@ -238,7 +237,7 @@ namespace le
             // LayoutVia.foreign (populated only via the multi-parent
             // Foreign klass's own reuse) has no write site here - DEF's
             // own VIAS section grammar has no FOREIGN clause at all
-            // (confirmed against defwWriter.hpp: no defwViaForeign* exists,
+            // (per defwWriter.hpp: no defwViaForeign* exists,
             // unlike LEF's VIA), and DEFReader itself never populates it
             // either - not a vendored-writer gap, just DEF format not
             // having this LEF-only construct.
@@ -309,16 +308,15 @@ namespace le
         if (rule_ids.empty())
             return 0;
 
-        // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): unlike every
+        // Vendored-writer gap: unlike every
         // other DEF geometry statement (raw database-unit integers - see
         // def_writer.hpp's own class comment), NONDEFAULTRULES LAYER
         // WIDTH/DIAGWIDTH/SPACING/WIREEXT are written as real MICRON
-        // decimal values (e.g. "WIDTH 10.1", confirmed against
-        // complete.5.8.def itself - matches DEFReader::defrNonDefaultCbkFn's
+        // decimal values (e.g. "WIDTH 10.1" in complete.5.8.def - matches DEFReader::defrNonDefaultCbkFn's
         // own comment: "WIDTH/SPACING/WIREEXT/DIAGWIDTH are written in
         // real microns"). But defwNonDefaultRuleLayer's own width/
         // diagWidth/spacing/wireExt params are plain `int`, printed with
-        // a bare "%d" (confirmed in defwWriter.cpp - no decimal point,
+        // a bare "%d" (defwWriter.cpp - no decimal point,
         // no unit-scale awareness at all) - there is no way to write a
         // fractional micron value through this function. Converting back
         // to a truncated micron int (dividing by dbu_per_micron) is the
@@ -361,7 +359,7 @@ namespace le
 
             // Unlike LEF's own inline NONDEFAULTRULE VIA (a full embedded
             // via definition, NonDefaultRuleVia), DEF's own NONDEFAULTRULES
-            // VIA is just a plain name reference (confirmed against
+            // VIA is just a plain name reference (per
             // defwWriter.hpp: no defwNonDefaultRuleStartVia/EndVia exists,
             // unlike LEF's lefwNonDefaultRuleStartVia) - matches
             // DEFReader::defrNonDefaultCbkFn, which populates
@@ -1121,11 +1119,10 @@ namespace le
         const TechnologyId technology_id = technology_ids.empty() ? TechnologyId{} : technology_ids.front();
         const TechnologyData *technology = technology_id.valid() ? root.get_technology(technology_id) : nullptr;
 
-        // KNOWN VENDORED-WRITER GAP (see plans/LEFDEF_BUGS.md): defwInit's own
+        // Vendored-writer gap: defwInit's own
         // vers1/vers2 parameter writes "VERSION x.y ;" to the file
         // directly, but never updates the writer's internal defVersionNum
-        // (confirmed against defwWriter.cpp - only defwVersion() itself
-        // does), which several later calls gate on (e.g. defwTracks'
+        // (in defwWriter.cpp only defwVersion() itself does), which several later calls gate on (e.g. defwTracks'
         // MASK/SAMEMASK, 5.8-only, checks `defVersionNum < 5.8`). The
         // "proper" fix, calling defwVersion() to set it, requires
         // defwState == DEFW_INIT, but defwInit() itself always leaves

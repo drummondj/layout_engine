@@ -235,7 +235,7 @@ def remove_entry(text: str, section: str, key: str) -> str:
 
 def template(name: str, layout_engine: Dict[str, object]) -> str:
     return f"""# A Layout Engine project: `le install` builds Layout Engine with these
-# extensions into .le/, and `le shell` runs it. See plans/PACKAGE_MANAGER_RESEARCH.md.
+# extensions into .le/, and `le shell` runs it.
 
 [project]
 name = {_quote(name)}

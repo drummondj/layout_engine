@@ -50,7 +50,7 @@ check "open_design returns a friendly design id" design:TESTCELL [open_design TE
 
 # create_terminal/create_obstruction (generated) take a friendly-id
 # token for -abstract, not the raw packed id above - update_abstract_boundary
-# still takes the packed form (out of this round's scope), so both are
+# still takes the packed form, so both are
 # kept around under separate names.
 set abstract_token [get_abstracts]
 check_true "abstract_token is a friendly id" [expr {$abstract_token ne {}}]
@@ -255,8 +255,8 @@ check "shape_layer_name" M1 [shape_layer_name $shape]
 check "update_shape -layer_name returns the (unchanged, non-name-based) friendly id" $shape [update_shape $shape -layer layer:M1]
 
 # Shape has multiple parent fields (terminal_port/obstruction) -
-# update_shape gets no parent-reassignment flag at all (decision 5 -
-# reassigning one alone would violate "exactly one parent set").
+# update_shape gets no parent-reassignment flag at all (reassigning one
+# alone would violate "exactly one parent set").
 if {![catch {update_shape $shape -terminal_port $port}]} {
     puts stderr "FAIL: update_shape -terminal_port did not raise a Tcl error (multi-parent classes get no reparent flag)"
     exit 1

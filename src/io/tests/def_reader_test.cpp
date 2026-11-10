@@ -284,10 +284,9 @@ namespace le
         // P0: 5.7+ multi-port pin - 3 PORTs, each independently placed
         // (FIXED/COVER/PLACED at 3 different locations) with its own
         // single-layer rect. Note: each PORT also has a "+ VIA ..." entry
-        // this round doesn't model yet (via placements standalone within
+        // that isn't modeled (via placements standalone within
         // a PORT, not nested under a "+ LAYER" the way Shape.vias
-        // represents a VIA within a LEF PIN/OBS geometry stream - a
-        // different shape needing its own schema support later).
+        // represents a VIA within a LEF PIN/OBS geometry stream).
         const PhysicalPortId p0_id = find_id_by_name("P0");
         ASSERT_TRUE(p0_id.valid());
         const PhysicalPortData *p0 = root.get_physical_port(p0_id);

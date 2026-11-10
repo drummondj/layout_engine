@@ -40,7 +40,7 @@ namespace le
         // own defw* API (defwDieArea, defwRow, defwTracks, defwComponent,
         // defwViaRect, defwNetPathPoint, defwNonDefaultRuleLayer, ...)
         // takes every coordinate as a raw database-unit integer directly
-        // (confirmed against defwWriter.cpp's own implementation, e.g.
+        // (per defwWriter.cpp's own implementation, e.g.
         // printPoints()'s "%.11g" formatting of a whole-number double) -
         // DEF files themselves have no per-value micron form the way LEF
         // files do, only the single UNITS DISTANCE MICRONS scale factor

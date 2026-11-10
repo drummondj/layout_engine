@@ -447,6 +447,19 @@ namespace le
             return Rect{.ll = lo, .ur = hi};
         }
 
+        /// @brief The identity InstanceTransform (maps every point to
+        /// itself) - the correct starting point for composing down from a
+        /// hierarchy's own top level (e.g. viewport culling's own running
+        /// accumulated transform before any placement has been applied).
+        /// Deliberately not just `InstanceTransform{}` - a default-
+        /// constructed one has `linear = LinearTransform2D{0, 0, 0, 0}`
+        /// (every point collapses to the origin), not the identity matrix
+        /// `orientation_linear(Orientation::N)` produces.
+        static InstanceTransform identity_transform()
+        {
+            return InstanceTransform{.linear = orientation_linear(Orientation::N), .translation = Point{0, 0}};
+        }
+
         /// @brief Composes two InstanceTransforms into one equivalent to
         /// applying `inner` first, then `outer` - i.e.
         /// apply_linear(compose(outer, inner).linear, p) + compose(outer,
@@ -461,19 +474,6 @@ namespace le
         /// transform while recursing top-down), that ancestor's own
         /// transform must be composed with each descendant's own, one
         /// level at a time, exactly as this function does.
-        /// @brief The identity InstanceTransform (maps every point to
-        /// itself) - the correct starting point for composing down from a
-        /// hierarchy's own top level (e.g. viewport culling's own running
-        /// accumulated transform before any placement has been applied).
-        /// Deliberately not just `InstanceTransform{}` - a default-
-        /// constructed one has `linear = LinearTransform2D{0, 0, 0, 0}`
-        /// (every point collapses to the origin), not the identity matrix
-        /// `orientation_linear(Orientation::N)` produces.
-        static InstanceTransform identity_transform()
-        {
-            return InstanceTransform{.linear = orientation_linear(Orientation::N), .translation = Point{0, 0}};
-        }
-
         static InstanceTransform compose(const InstanceTransform &outer, const InstanceTransform &inner)
         {
             const LinearTransform2D &a = outer.linear;
@@ -773,10 +773,8 @@ namespace le
         /// path_to_polygons call, for the same measured reason - see that
         /// function's own doc comment.
         ///
-        /// If `point` falls inside none of the shape's pieces (e.g. it
-        /// came from get_label_location's own last-resort raw-centroid
-        /// fallback, which can land outside every piece for disjoint
-        /// geometry - see its own tests), falls back to whichever
+        /// If `point` falls inside none of the shape's pieces (a label
+        /// location can, for disjoint geometry), falls back to whichever
         /// individual piece's own bbox center is nearest to `point`, and
         /// returns that piece's width by the same rules above - a
         /// meaningful per-piece answer, not the whole shape's bbox (which
@@ -883,11 +881,6 @@ namespace le
             return std::move(hits.front());
         }
 
-        /// @brief Every rect/polygon/path piece of `shape` containing
-        /// `point`, in rects/polygons/paths order (find_hit_piece's own
-        /// priority) - for click-cycling through overlapping pieces
-        /// (le_mouse_up). `first_only` stops at the first, which is what
-        /// find_hit_piece returns.
         /// @brief Whether `point` is strictly inside `path`'s area, exactly
         /// as path_to_polygons would say (the flat-ended, mitred buffer of
         /// its end-extended centerline), without buffering - for the common
@@ -998,6 +991,11 @@ namespace le
             return false;
         }
 
+        /// @brief Every rect/polygon/path piece of `shape` containing
+        /// `point`, in rects/polygons/paths order (find_hit_piece's own
+        /// priority) - for click-cycling through overlapping pieces
+        /// (le_mouse_up). `first_only` stops at the first, which is what
+        /// find_hit_piece returns.
         static std::vector<HitPiece> find_hit_pieces(const ShapeData &shape, const Point &point, bool first_only = false)
         {
             std::vector<HitPiece> hits;
