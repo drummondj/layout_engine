@@ -7,8 +7,6 @@
 namespace le
 {
     // Defined in placement_move_test.cpp (same test binary).
-    bool operator==(const Point &a, const Point &b);
-    bool operator==(const Rect &a, const Rect &b);
     void PrintTo(const Point &p, std::ostream *os);
 }
 

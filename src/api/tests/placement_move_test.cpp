@@ -4,12 +4,8 @@
 
 #include <ostream>
 
-// The generated Point/Rect have no operator== - test-local ones (found
-// by ADL, so std::vector<Point> comparisons work too).
 namespace le
 {
-    bool operator==(const Point &a, const Point &b) { return a.x == b.x && a.y == b.y; }
-    bool operator==(const Rect &a, const Rect &b) { return a.ll == b.ll && a.ur == b.ur; }
     void PrintTo(const Point &p, std::ostream *os) { *os << "(" << p.x << "," << p.y << ")"; }
 }
 

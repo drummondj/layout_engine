@@ -188,7 +188,7 @@ def shares_sources_only(source: Path, root: Path, first_build: Path) -> None:
         raise SystemExit(f"the second project downloaded {downloaded} instead of using the shared sources")
 
 
-AUTHOR_FIELD = '                Field(name="author", description="Who wrote the note", type="str", is_optional=True),\n'
+AUTHOR_FIELD = '                Field(name="author", description="Who wrote the note", type="str", is_optional=True, example="Ada"),\n'
 
 
 def authoring(project: Path, my_ext: Path) -> None:

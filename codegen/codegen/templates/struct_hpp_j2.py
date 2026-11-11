@@ -81,6 +81,10 @@ namespace {{schema.namespace}}
             return owner.kind == {{klass.name}}OwnerKind::{{field.owner_kind()}} ? {{field.type}}Id{owner.index, owner.generation} : {{field.type}}Id{};
         }
     {%- endfor %}
+    {%- if not klass.has_pool %}
+
+        friend bool operator==(const {{klass.name}} &, const {{klass.name}} &) = default;
+    {%- endif %}
     };
 
     inline std::string to_string(const {{schema.namespace}}::{{klass.name}}{{"Data" if klass.has_pool}} &value)

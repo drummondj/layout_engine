@@ -570,9 +570,11 @@ include(cmake/le_extension_manifests.cmake)
 # history and migrations, beside its schema file.
 set(LE_CODEGEN_EXTENSION_ARGS "")
 set(LE_EXTENSION_SCHEMA_FILES "")
+set(LE_GENERATED_TESTS ${PROJECT_BINARY_DIR}/generated/api/edit_ops_generated_test.cpp)
 foreach(name IN LISTS LE_EXTENSIONS)
     if(LE_EXTENSION_${name}_SCHEMA)
         list(APPEND LE_CODEGEN_EXTENSION_ARGS --extension ${LE_EXTENSION_${name}_DIR})
+        list(APPEND LE_GENERATED_TESTS ${PROJECT_BINARY_DIR}/generated/api/edit_ops_generated_${name}_test.cpp)
         get_filename_component(schema_dir ${LE_EXTENSION_${name}_SCHEMA} DIRECTORY)
         file(GLOB extension_history CONFIGURE_DEPENDS ${schema_dir}/schema_history/*.json ${LE_EXTENSION_${name}_MIGRATIONS}/*.py)
         list(APPEND LE_EXTENSION_SCHEMA_FILES ${LE_EXTENSION_${name}_SCHEMA} ${LE_EXTENSION_${name}_MANIFEST} ${extension_history})
@@ -594,6 +596,7 @@ add_custom_command(
     COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR} --target tcl ${LE_CODEGEN_EXTENSION_ARGS}
     COMMAND ${LE_CODEGEN} --schema ${LE_SCHEMA} --output ${LE_GENERATED_DIR}/pipelines --target render ${LE_CODEGEN_EXTENSION_ARGS}
     COMMAND ${CMAKE_COMMAND} -E touch ${LE_GENERATED_DIR}/codegen.stamp
+    BYPRODUCTS ${LE_GENERATED_TESTS}
     DEPENDS ${LE_SCHEMA} ${LE_CODEGEN_SOURCES} ${LE_SCHEMA_HISTORY} ${LE_EXTENSION_SCHEMA_FILES}
     COMMENT "Generating database, C API, Tcl and render code from schema.py"
     VERBATIM
@@ -1313,6 +1316,7 @@ add_executable(backend_tests
     src/api/tests/wire_edit_test.cpp
     src/api/tests/mutation_cascade_test.cpp
     src/api/tests/edit_ops_test.cpp
+    ${LE_GENERATED_DIR}/api/edit_ops_generated_test.cpp
     src/api/tests/placement_move_test.cpp
     src/core/tests/flightlines_test.cpp
     src/api/tests/shape_resize_test.cpp

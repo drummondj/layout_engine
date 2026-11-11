@@ -418,6 +418,13 @@ def extend(schema):
 
 - **Names:** every class starts with your prefix (`MyExt...`), and no
   class or generated name may collide with another class's.
+- **Examples:** every field `create_<type>` takes a value for needs an
+  `example`: a scalar, an enum value's name (`"OUTPUT"`), a dict of an
+  embedded struct's fields (`{"x": 100, "y": 200}`), or one element of a
+  list. It must differ from the value the field has when left out (its
+  `default`, else 0, `""`, `False` or the enum's first value). The build
+  fails on a missing one, and generates tests from them (see
+  [Testing](#testing)).
 - **Classes you don't own are read-only.** You can't add, change or
   remove fields of core classes or another extension's classes. Keep
   per-object data in a class of your own with `parent=` on theirs. The
@@ -729,6 +736,10 @@ none named).
   `<name>.<Suite>.<Test>`. They link every extension, so
   `le::ext::register_all()` works in them.
   Make sessions with `le_create()`/`le_destroy()`, as `hello_ext`'s tests do.
+- **Generated:** an extension with database classes also gets
+  `<name>_generated_tests`, built from the fields' examples:
+  `<name>.GeneratedEditOps.<Class>_CreateDeleteUndoRedo` and one
+  `<Class>_Update_<field>` per field (set it, undo, redo).
 - **Tcl:** each `tcl_tests` script (`<name>.<script>`) runs through
   `le_shell`, with every extension loaded. It passes if the script
   finishes, and fails if it raises an error:
@@ -812,7 +823,8 @@ The first version.
 - Database classes: `schema_ext.py` (`VERSION`, `extend(schema)`), its
   `schema_history/` and `migrations/` (`Migration(extension=...,
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`
-  entry in `.led` files.
+  entry in `.led` files. Every create field needs an `example`, from
+  which `<name>_generated_tests` is built.
 - C API: `le_extension_count`, `le_extension_name`, `le_extension_version`.
 - `extensions.json` format 1.
 - Tcl help: an extension's commands are tagged as its own
