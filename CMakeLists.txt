@@ -611,6 +611,54 @@ add_custom_command(
 )
 add_custom_target(le_codegen DEPENDS ${LE_GENERATED_DIR}/codegen.stamp)
 
+# Which files codegen writes depends on the schema, so they can't be listed
+# as BYPRODUCTS. Ninja then treats them as sources, statting them before
+# codegen rewrites them, and keeps objects built against the old ones. So
+# in a Ninja tree every object of a target that reaches `database` through
+# its links depends on the stamp, which also recompiles the few that don't
+# include generated code. Make checks a target's header dependencies only
+# after le_codegen has run, so it needs none of this.
+function(le_links_database target out)
+    set(pending ${target})
+    set(seen "")
+    while(pending)
+        list(POP_FRONT pending current)
+        if(current STREQUAL "database")
+            set(${out} TRUE PARENT_SCOPE)
+            return()
+        endif()
+        if(NOT TARGET ${current} OR current IN_LIST seen)
+            continue()
+        endif()
+        list(APPEND seen ${current})
+        get_target_property(imported ${current} IMPORTED)
+        if(imported)
+            continue()
+        endif()
+        get_target_property(type ${current} TYPE)
+        get_target_property(interface_links ${current} INTERFACE_LINK_LIBRARIES)
+        if(interface_links)
+            list(APPEND pending ${interface_links})
+        endif()
+        if(NOT type STREQUAL "INTERFACE_LIBRARY")
+            get_target_property(links ${current} LINK_LIBRARIES)
+            if(links)
+                list(APPEND pending ${links})
+            endif()
+        endif()
+    endwhile()
+    set(${out} FALSE PARENT_SCOPE)
+endfunction()
+
+function(le_depend_on_codegen target)
+    get_target_property(sources ${target} SOURCES)
+    list(FILTER sources EXCLUDE REGEX "^\\$<")
+    if(sources)
+        set_property(SOURCE ${sources} TARGET_DIRECTORY ${target}
+            APPEND PROPERTY OBJECT_DEPENDS ${LE_GENERATED_DIR}/codegen.stamp)
+    endif()
+endfunction()
+
 # --- database: header-only, generated from src/database/schema.py via codegen ---
 add_library(database INTERFACE)
 # Generated code is included as "generated/<module>/...", from the build
@@ -813,10 +861,13 @@ include(cmake/le_extensions.cmake)
 if(SWIG_FOUND AND TCL_FOUND)
     include(UseSWIG)
     set_property(SOURCE src/tcl/le_api.i PROPERTY CPLUSPLUS ON)
-    # SWIG's own depfile tracks generated/tcl/le_api_generated.i, so a codegen
-    # rewrite re-runs SWIG. SWIG then runs inside le_tcl, after codegen
-    # (le_tcl links api, which depends on le_codegen).
+    # SWIG's own depfile tracks the files le_api.i includes. Ninja reads the
+    # generated ones' timestamps before codegen rewrites them, so SWIG also
+    # depends on codegen's stamp (it reads generated/tcl/le_api_generated.i,
+    # so a codegen run always re-runs it). SWIG runs inside le_tcl, after
+    # codegen (le_tcl links api, which depends on le_codegen).
     set_property(SOURCE src/tcl/le_api.i PROPERTY USE_SWIG_DEPENDENCIES TRUE)
+    set_property(SOURCE src/tcl/le_api.i PROPERTY DEPENDS ${LE_GENERATED_DIR}/codegen.stamp)
     swig_add_library(le_tcl
         LANGUAGE tcl
         SOURCES src/tcl/le_api.i src/tcl/le_tcl_shim.cpp
@@ -1523,6 +1574,10 @@ foreach(target IN LISTS le_targets)
     if(type MATCHES "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY|EXECUTABLE)$" AND NOT target STREQUAL "imgui_lib")
         target_compile_options(${target} PRIVATE ${LE_COMPILE_OPTIONS})
         le_enable_coverage_instrumentation(${target})
+        le_links_database(${target} links_database)
+        if(links_database AND CMAKE_GENERATOR MATCHES "Ninja")
+            le_depend_on_codegen(${target})
+        endif()
         list(APPEND le_coverage_targets ${target})
         if(type MATCHES "^(SHARED_LIBRARY|MODULE_LIBRARY|EXECUTABLE)$")
             list(APPEND le_coverage_binaries "$<TARGET_FILE:${target}>")
