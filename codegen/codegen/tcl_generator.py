@@ -40,6 +40,7 @@ from codegen.tcl_scope import (
     render_default_scope_cpp,
     render_of_check_cpp,
 )
+from codegen import edit_op_tests
 from codegen.validation import SchemaRuleSet
 
 
@@ -89,6 +90,11 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
     for klass in unknown:
         logger.error(f"{klass.name}: tcl_category {klass.tcl_category!r} must be one of {', '.join(TCL_CATEGORIES)}")
     if unknown:
+        return 1
+    missing_examples = edit_op_tests.example_errors(classes)
+    for error in missing_examples:
+        logger.error(error)
+    if missing_examples:
         return 1
     current_access_classes = get_current_access_classes(schema)
     search_scopes = get_search_scopes(classes, current_access_classes)
@@ -159,5 +165,8 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
         )
         with open(path, "w") as f:
             f.write(content)
+
+    for name, source in edit_op_tests.test_files(classes).items():
+        (api_dir / name).write_text(source)
 
     return 0

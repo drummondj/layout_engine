@@ -1779,18 +1779,15 @@ class Klass:
         """
         The full statement-list body of `inline bool apply_<snake>_snapshot
         (Root &root, <Klass>Id id, const <Klass>Data &data)`
-        (api_snapshot_appliers_hpp_j2.py) - reduces a *whole* field
-        snapshot to one real Root::update_<klass>() call, reusing exactly
-        the same field list/single-parent handling update_root_params()
-        does. Every create field is wrapped in `std::optional<T>(data.
-        <field>)` (T = root_value_cpp_type()) - this constructs correctly
-        whether `data.<field>` is itself a bare T or already a
-        std::optional<T> (Field.root_value_cpp_type()'s own comment
-        explains why Root::update_<klass>() never double-wraps an
-        is_optional-in-storage field), so no is_optional branching is
-        needed here unlike update_api_body()'s enum/str/dbu handling -
-        this operates on already-typed C++ values, not TCL C-string
-        arguments, so none of that parsing applies.
+        (api_snapshot_appliers_hpp_j2.py) - restores a *whole* field
+        snapshot through one real Root::update_<klass>() call, reusing the
+        same field list/single-parent handling update_root_params() does,
+        so every index stays consistent. Each create field is passed as
+        `std::optional<T>(data.<field>)` (T = root_value_cpp_type()). For
+        an is_optional field that is unset in the snapshot that's an empty
+        optional, which update_<klass>() reads as "leave unchanged", so
+        those fields are then copied directly. None is indexed, and the
+        update already logged the object as changed.
         """
         indent = "        "
         lines: List[str] = []
@@ -1811,7 +1808,16 @@ class Klass:
         for f in create_fields:
             call_args.append(f"std::optional<{f.root_value_cpp_type(qualified=False)}>(data.{f.name})")
 
-        add(f"return root.update_{snake}({', '.join(call_args)});")
+        optional_fields = [f for f in create_fields if f.is_optional]
+        if not optional_fields:
+            add(f"return root.update_{snake}({', '.join(call_args)});")
+            return "\n".join(lines)
+        add(f"if (!root.update_{snake}({', '.join(call_args)}))")
+        add("    return false;")
+        add(f"{self.name}Data *stored = root.get_{snake}(id);")
+        for f in optional_fields:
+            add(f"stored->{f.name} = data.{f.name};")
+        add("return true;")
 
         return "\n".join(lines)
 

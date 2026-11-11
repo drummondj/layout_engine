@@ -382,6 +382,13 @@ enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
   `get_parent_fields()` (ownership).
 - The only hand-written CRUD left is `remove_shape_rect/_polygon/_path`
   (`le::edit::remove_shape_piece`).
+- Every create field needs an `example` (a scalar, an enum value's name, a
+  dict of an embedded struct's fields, or one list element), differing
+  from the value it has when left out; codegen fails without one
+  (`codegen/codegen/edit_op_tests.py`). From them it generates
+  `GeneratedEditOps` tests (`generated/api/edit_ops_generated_test.cpp`
+  in `backend_tests`; an extension's in `<name>_generated_tests`): per
+  class create/delete/undo/redo, and per field update/undo/redo.
 
 ## Build
 
