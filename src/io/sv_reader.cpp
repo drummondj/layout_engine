@@ -343,27 +343,27 @@ namespace le
         }
     }
 
-    SignalDirection SVReader::signal_direction_from_parser(slang::ast::ArgumentDirection direction)
-    {
-        switch (direction)
-        {
-        case slang::ast::ArgumentDirection::In:
-            return SignalDirection::INPUT;
-        case slang::ast::ArgumentDirection::Out:
-            return SignalDirection::OUTPUT;
-        case slang::ast::ArgumentDirection::InOut:
-            return SignalDirection::INOUT;
-        case slang::ast::ArgumentDirection::Ref:
-            // Not a real signal direction (used for task/function ref
-            // arguments, not module ports) - InOut is the closest
-            // conservative stand-in this database's own vocabulary has.
-            return SignalDirection::INOUT;
-        }
-        return SignalDirection::INOUT;
-    }
-
     namespace
     {
+        SignalDirection signal_direction_from_parser(slang::ast::ArgumentDirection direction)
+        {
+            switch (direction)
+            {
+            case slang::ast::ArgumentDirection::In:
+                return SignalDirection::INPUT;
+            case slang::ast::ArgumentDirection::Out:
+                return SignalDirection::OUTPUT;
+            case slang::ast::ArgumentDirection::InOut:
+                return SignalDirection::INOUT;
+            case slang::ast::ArgumentDirection::Ref:
+                // Not a real signal direction (used for task/function ref
+                // arguments, not module ports) - InOut is the closest
+                // conservative stand-in this database's own vocabulary has.
+                return SignalDirection::INOUT;
+            }
+            return SignalDirection::INOUT;
+        }
+
         void populate_ports(Root &root, SchematicId schematic_id, const slang::ast::InstanceBodySymbol &body)
         {
             for (const auto *port_symbol : body.getPortList())
@@ -379,7 +379,7 @@ namespace le
                 bit_range_from_type(port.getType(), msb, lsb);
 
                 const std::string name(port.name);
-                const SignalDirection direction = SVReader::signal_direction_from_parser(port.direction);
+                const SignalDirection direction = signal_direction_from_parser(port.direction);
 
                 if (msb.has_value() && lsb.has_value())
                 {
@@ -531,7 +531,7 @@ namespace le
                 const std::string port_name(connection->port.name);
                 const auto *port_symbol = connection->port.as_if<slang::ast::PortSymbol>();
                 const std::optional<SignalDirection> direction =
-                    port_symbol ? std::optional<SignalDirection>(SVReader::signal_direction_from_parser(port_symbol->direction))
+                    port_symbol ? std::optional<SignalDirection>(signal_direction_from_parser(port_symbol->direction))
                                 : std::nullopt;
                 std::optional<int> port_msb, port_lsb;
                 if (port_symbol)

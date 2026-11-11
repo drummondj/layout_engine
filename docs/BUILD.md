@@ -79,7 +79,7 @@ aren't instrumented.
 
 ## Coverage
 
-A Clang tree with `-DENABLE_COVERAGE=ON` instruments every Layout Engine
+A Clang (19+) tree with `-DENABLE_COVERAGE=ON` instruments every Layout Engine
 target (libraries, `le_shell`, `le_tcl.so`, the tests and the example
 extensions) and builds them at `-O0`:
 
@@ -101,7 +101,7 @@ codegen's and `le`'s unit tests under coverage.py into
 ## With the machine's own packages
 
 `le doctor --source` checks each item: a C++23 compiler (GCC 13+ or
-Clang 17+), CMake 3.25+, make, bison, SWIG 4+, Python 3.11-3.13 and the
+Clang 19+), CMake 3.25+, make, bison, SWIG 4+, Python 3.11-3.13 and the
 Boost, zlib, oneTBB, Tcl 8.6, readline, X11 and OpenGL development
 packages. Install codegen's packages for the Python CMake will use, then
 configure as usual:

@@ -38,6 +38,25 @@ jobs:
       - name: Build and test (le_shell/le_tcl included)
         run: docker compose run --rm ci
 
+  # The same Debug build and tests with Clang, so the tree keeps building
+  # with it (the coverage target needs Clang).
+  clang-build:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test with Clang 19
+        run: >-
+          docker compose run --rm ci bash -c '
+          python3 -m pip install --no-cache-dir --break-system-packages ./codegen &&
+          cmake -S . -B /build/clang -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+          -DLE_EXTENSION_DIRS="$PWD/examples/extensions/hello_ext;$PWD/examples/extensions/hello_script"
+          -DLE_TEST_READLINE_DIRS=/opt/readline-8.3-unpatched/lib &&
+          cmake --build /build/clang -j "$BUILD_JOBS" &&
+          ctest --test-dir /build/clang --output-on-failure'
+
   # Whether this change touches anything the `le` end-to-end test depends on.
   changes:
     runs-on: ubuntu-latest

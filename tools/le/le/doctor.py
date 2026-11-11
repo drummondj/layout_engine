@@ -24,7 +24,7 @@ GIT_MINIMUM = (2, 34)
 CMAKE_MINIMUM = (3, 25)  # the superbuild's cmake_minimum_required
 SWIG_MINIMUM = (4, 0)
 GCC_MINIMUM = 13
-CLANG_MINIMUM = 17
+CLANG_MINIMUM = 19
 
 # Package names per distribution family, for the fix hints.
 PACKAGES: Dict[str, Tuple[str, str]] = {  # check name -> (apt, dnf)
