@@ -81,11 +81,16 @@ if(ENABLE_COVERAGE)
     # Clang's profiling runtime is a separate package on some distributions
     # (Ubuntu's libclang-rt-<N>-dev); without it every link fails. Another
     # copy of the same LLVM version's runtime can stand in, through
-    # -resource-dir=<its lib/clang/N> in the CMAKE_*_LINKER_FLAGS.
-    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-runtime-dir OUTPUT_VARIABLE clang_runtime_dir OUTPUT_STRIP_TRAILING_WHITESPACE)
-    file(GLOB clang_profile_runtime "${clang_runtime_dir}/libclang_rt.profile*.a")
-    if(NOT clang_profile_runtime AND NOT CMAKE_EXE_LINKER_FLAGS MATCHES "-resource-dir")
-        message(FATAL_ERROR "ENABLE_COVERAGE: ${CMAKE_CXX_COMPILER} has no profiling runtime in ${clang_runtime_dir} - install it (e.g. libclang-rt-<version>-dev) or link with -resource-dir=<another copy's lib/clang/<version>>")
+    # -resource-dir=<its lib/clang/N> in the CMAKE_*_LINKER_FLAGS. Linking
+    # a program finds it wherever that Clang's layout puts it; the check
+    # reruns on every configure, so installing the runtime is enough.
+    include(CheckCXXSourceCompiles)
+    unset(LE_CLANG_PROFILE_RUNTIME_LINKS CACHE)
+    set(CMAKE_REQUIRED_LINK_OPTIONS -fprofile-instr-generate)
+    check_cxx_source_compiles("int main() { return 0; }" LE_CLANG_PROFILE_RUNTIME_LINKS)
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+    if(NOT LE_CLANG_PROFILE_RUNTIME_LINKS)
+        message(FATAL_ERROR "ENABLE_COVERAGE: ${CMAKE_CXX_COMPILER} can't link with -fprofile-instr-generate, so its profiling runtime is missing - install it (e.g. libclang-rt-<version>-dev) or link with -resource-dir=<another copy's lib/clang/<version>>")
     endif()
 endif()
 
