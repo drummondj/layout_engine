@@ -606,6 +606,69 @@ namespace le
         ASSERT_EQ(std::system(command.c_str()), 0) << "defdiff itself failed to run: " << command;
     }
 
+    // Constructs complete.5.8.def doesn't have: an UNPLACED component, a
+    // pin VIA (on the via's first routing layer, in design coordinates,
+    // its MASK kept), and a tristate output pin, which DEF can only write
+    // as OUTPUT.
+    TEST(DEFWriterPinsAndComponents, UnplacedTristateAndPinViaRoundTrip)
+    {
+        const std::string def_path = test::scratch_path("le_def_pins_components.def");
+        {
+            std::ofstream out(def_path);
+            out << "VERSION 5.8 ;\nDIVIDERCHAR \"/\" ;\nBUSBITCHARS \"[]\" ;\nDESIGN pins ;\nUNITS DISTANCE MICRONS 1000 ;\n"
+                   "DIEAREA ( 0 0 ) ( 5000 5000 ) ;\n"
+                   "COMPONENTS 2 ;\n- u1 A + PLACED ( 0 0 ) N ;\n- u2 A + UNPLACED ;\nEND COMPONENTS\n"
+                   "PINS 2 ;\n"
+                   "- Z + NET Z + DIRECTION OUTPUT + LAYER M2 ( 0 0 ) ( 30 30 ) + PLACED ( 1000 1000 ) N ;\n"
+                   "- V + NET V + DIRECTION INOUT + VIA TECH_VIA MASK 021 ( 10 20 ) + PLACED ( 2000 2000 ) N ;\n"
+                   "END PINS\n"
+                   "END DESIGN\n";
+        }
+        auto read = [](Root &root, const std::string &path)
+        {
+            populate_technology_and_designs(root);
+            const TechnologyId technology_id = root.get_technology_ids().front();
+            const ViaId tech_via = root.create_via(ViaData{.technology = technology_id, .name = "TECH_VIA"});
+            for (const char *layer : {"M1", "M2"})
+                root.create_via_layer(ViaLayerData{.via = tech_via, .layer_name = layer});
+            EXPECT_EQ(DEFReader().read_def(path, root, "test_lib"), 0);
+            return root.get_design_layout(find_design_by_name(root, "pins"));
+        };
+        auto expect_constructs = [](const Root &root, LayoutId layout_id, SignalDirection z_direction)
+        {
+            ASSERT_TRUE(layout_id.valid());
+            const PlacementData *u2 = root.get_placement(root.get_placement_by_name(layout_id, "u2"));
+            ASSERT_NE(u2, nullptr);
+            EXPECT_EQ(u2->placement_status, PlacementStatus::UNPLACED);
+
+            const PhysicalPortData *z = root.get_physical_port(root.get_physical_port_by_name(layout_id, "Z"));
+            ASSERT_NE(z, nullptr);
+            EXPECT_EQ(z->direction, z_direction);
+
+            const PhysicalPortId v = root.get_physical_port_by_name(layout_id, "V");
+            ASSERT_TRUE(v.valid());
+            const ShapeData *shape = root.get_shape(root.get_physical_port_segment_shapes(root.get_physical_port_segments(v)[0])[0]);
+            ASSERT_NE(shape, nullptr);
+            EXPECT_EQ(root.get_layer(shape->layer)->name, "M1");
+            ASSERT_EQ(shape->vias.size(), 1u);
+            EXPECT_EQ(shape->vias[0].via_name, "TECH_VIA");
+            EXPECT_EQ(shape->vias[0].origin, (Point{.x = 2010, .y = 2020}));
+            EXPECT_EQ(shape->vias[0].mask, 21);
+        };
+
+        Root root;
+        const LayoutId layout_id = read(root, def_path);
+        expect_constructs(root, layout_id, SignalDirection::OUTPUT);
+        const PhysicalPortId z = root.get_physical_port_by_name(layout_id, "Z");
+        ASSERT_TRUE(z.valid());
+        root.get_physical_port(z)->direction = SignalDirection::OUTPUT_TRISTATE;
+
+        const std::string written_path = test::scratch_path("le_def_pins_components_written.def");
+        ASSERT_EQ(DEFWriter().write_def(written_path, root, layout_id), 0);
+        Root reread;
+        expect_constructs(reread, read(reread, written_path), SignalDirection::OUTPUT);
+    }
+
     // Wires and the Shapes beside them come back from a write and re-read
     // as the same Wires and Shapes.
     TEST(DEFWriterRouteWires, WiresAndTheirFallbackShapesRoundTrip)

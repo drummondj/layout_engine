@@ -2083,13 +2083,13 @@ schema = Schema(
             fields=[
                 Field(
                     name="via",
-                    description="Owning Via, if this Foreign belongs to one",
+                    description="Owning Via, if this Foreign belongs to one. LEF before 5.6 only: write_lef leaves it out",
                     type="Via",
                     parent="foreign",
                 ),
                 Field(
                     name="non_default_rule_via",
-                    description="Owning NonDefaultRuleVia, if this Foreign belongs to one",
+                    description="Owning NonDefaultRuleVia, if this Foreign belongs to one. LEF before 5.6 only: write_lef leaves it out",
                     type="NonDefaultRuleVia",
                     parent="foreign",
                 ),

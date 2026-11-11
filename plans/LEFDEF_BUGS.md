@@ -366,3 +366,9 @@ first suspecting a bug in this project's own reader/writer code.
   `Terminal.max_load`/`max_delay` are kept, genuinely readable, just
   read-only for writing (no `lefwMacroPinMaxdelay`/`*Maxload` function
   exists at all, a plain missing-API gap, not a version gate).
+- **`FOREIGN` in a `VIA`** (top-level or inside a `NONDEFAULTRULE`) is the
+  one version-gated statement with a write side too: `lef.y` reads it only
+  below LEF 5.6 (a warning otherwise), and `lefwViaForeignStr` returns
+  `LEFW_OBSOLETE` at version 5.6 and later. `LEFWriter` always writes 5.8,
+  so a via `Foreign` read from an older file is left out with a warning
+  rather than failing the whole write (`LEFWriterViaForeign`).

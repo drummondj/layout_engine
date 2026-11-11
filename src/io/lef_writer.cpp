@@ -1190,22 +1190,6 @@ namespace le
         return 0;
     }
 
-    int LEFWriter::write_via_foreign(const ForeignData &foreign, double dbu_per_micron)
-    {
-        // lefwViaForeignStr treats xl==0.0 && yl==0.0 as "no point" (unless
-        // orient is also set, in which case it assumes the point really is
-        // (0,0) and writes both) and an empty orient string as "no
-        // orientation" - see its own lefwWriter.cpp implementation. That
-        // convention already matches exactly what "unset" should mean here,
-        // so passing origin/orient's value_or(...) defaults straight
-        // through (rather than special-casing has_value() ourselves) is
-        // correct, not just convenient.
-        const double xl = foreign.origin ? to_microns(foreign.origin->x, dbu_per_micron) : 0.0;
-        const double yl = foreign.origin ? to_microns(foreign.origin->y, dbu_per_micron) : 0.0;
-        const std::string orient = foreign.orient ? orientation_to_string(*foreign.orient) : "";
-        return lefwViaForeignStr(foreign.name.c_str(), xl, yl, orient.c_str());
-    }
-
     int LEFWriter::write_vias(const Root &root, TechnologyId technology_id)
     {
         const TechnologyData *technology = root.get_technology(technology_id);
@@ -1225,21 +1209,10 @@ namespace le
             if (status)
                 return status;
 
-            // foreign/via_rule/layers are pooled classes - materialized
-            // from the pool here rather than read as plain fields on via.
-            const ForeignId foreign_id = root.get_via_foreign(via_id);
-            const ForeignData *foreign = root.get_foreign(foreign_id);
-            if (foreign)
-            {
-                // lefwViaForeignStr's own xl/yl/orient are each independently
-                // optional(0)/optional("") - see write_via_foreign's own
-                // comment (shared by every FOREIGN write site) for why 0.0/""
-                // is passed through untouched rather than mapped to some
-                // other sentinel.
-                status = write_via_foreign(*foreign, dbu_per_micron);
-                if (status)
-                    return status;
-            }
+            // FOREIGN in a VIA is obsolete from LEF 5.6 (lefwViaForeignStr
+            // refuses it, and readers ignore it), and this file is 5.8.
+            if (root.get_foreign(root.get_via_foreign(via_id)))
+                spdlog::warn("VIA {}: FOREIGN is obsolete in LEF 5.6 and later - not written.", via->name);
 
             // Mutually exclusive per lefwViaResistance/lefwViaViarule's
             // own "either...or" contract - the reader only ever sets one
@@ -1564,12 +1537,9 @@ namespace le
                 if (status)
                     return status;
 
-                if (const ForeignData *foreign = root.get_foreign(root.get_non_default_rule_via_foreign(via_id)))
-                {
-                    status = write_via_foreign(*foreign, dbu_per_micron);
-                    if (status)
-                        return status;
-                }
+                // Obsolete from LEF 5.6, as in write_vias.
+                if (root.get_foreign(root.get_non_default_rule_via_foreign(via_id)))
+                    spdlog::warn("NONDEFAULTRULE {} VIA {}: FOREIGN is obsolete in LEF 5.6 and later - not written.", rule->name, via->name);
                 if (via->resistance)
                 {
                     status = lefwViaResistance(*via->resistance);
@@ -2061,11 +2031,9 @@ namespace le
                 return status;
         }
 
-        // lefwMacroForeignStr's own xl/yl/orient are each independently
-        // optional(0.0)/optional("") - same convention write_via_foreign
-        // relies on for the VIA-context FOREIGN sites, just a different
-        // vendored function (a MACRO can have several FOREIGNs, a VIA only
-        // one, so there's no single shared call site to factor this into).
+        // lefwMacroForeignStr treats xl == yl == 0.0 as no point (unless
+        // orient is set, when it writes 0 0) and "" as no orientation, which
+        // is what an unset origin/orient means.
         for (const ForeignId foreign_id : root.get_abstract_foreigns(abstract_id))
         {
             const ForeignData *foreign = root.get_foreign(foreign_id);

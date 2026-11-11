@@ -89,6 +89,25 @@ namespace
         return true;
     }
 
+    // The layer a PIN or SPECIALNETS "+ VIA" placement is stored on: the first
+    // ROUTING layer of the via it names (a design via before a technology
+    // one, or a VIARULE reference's bottom layer).
+    std::optional<std::string> via_routing_layer(const le::Root &root, le::LayoutId layout_id, const std::string &via_name)
+    {
+        const le::WireViaTarget target = le::resolve_wire_via(root, layout_id, via_name);
+        const std::vector<le::ViaLayerId> &layer_ids =
+            target.layout_via.valid() ? root.get_layout_via_layers(target.layout_via) : root.get_via_layers(target.via);
+        for (const le::ViaLayerId id : layer_ids)
+            if (const le::ViaLayerData *via_layer = root.get_via_layer(id))
+                if (const le::LayerData *layer = root.get_layer(root.get_layer_by_name(via_layer->layer_name)); layer && layer->type == "ROUTING")
+                    return via_layer->layer_name;
+        const le::ViaRuleReferenceId rule =
+            target.layout_via.valid() ? root.get_layout_via_via_rule(target.layout_via) : root.get_via_via_rule(target.via);
+        if (const le::ViaRuleReferenceData *reference = root.get_via_rule_reference(rule))
+            return reference->bot_layer_name;
+        return std::nullopt;
+    }
+
     // Shared by defiPin and defiPinPort (5.7+ multi-port pins) - both
     // expose the identical numLayer()/layer()/bounds() and numPolygons()/
     // polygonName()/getPolygon() accessor shape (no common base class,
@@ -100,7 +119,7 @@ namespace
     // matching layer_name into one Shape per distinct layer, not walk an
     // itemType() stream like LEFReader::shapes_from_parser does.
     template <typename PinLike>
-    std::vector<le::ShapeData> shapes_from_pin_like(le::Root &root, PinLike *pin, double unit_scale)
+    std::vector<le::ShapeData> shapes_from_pin_like(le::Root &root, le::LayoutId layout_id, PinLike *pin, double unit_scale)
     {
         std::vector<le::ShapeData> shapes;
         // Returns nullptr (logging once) for a layer name that doesn't
@@ -140,6 +159,23 @@ namespace
             for (int j = 0; j < points.numPoints; j++)
                 polygon.points.push_back(le::Point{.x = scale_dbu(points.x[j], unit_scale), .y = scale_dbu(points.y[j], unit_scale)});
             shape->polygons.push_back(std::move(polygon));
+        }
+        for (int i = 0; i < pin->numVias(); i++)
+        {
+            const std::string via_name = pin->viaName(i);
+            const std::optional<std::string> layer_name = via_routing_layer(root, layout_id, via_name);
+            if (!layer_name)
+            {
+                log_error("PIN VIA {} has no routing layer - ignored.", via_name);
+                continue;
+            }
+            le::ShapeData *shape = find_or_create(*layer_name);
+            if (!shape)
+                continue;
+            const int mask = combine_via_mask(pin->viaTopMask(i), pin->viaCutMask(i), pin->viaBottomMask(i));
+            shape->vias.push_back(le::ShapeVia{.via_name = via_name,
+                                               .origin = {.x = scale_dbu(pin->viaPtX(i), unit_scale), .y = scale_dbu(pin->viaPtY(i), unit_scale)},
+                                               .mask = mask != 0 ? std::optional<int>(mask) : std::nullopt});
         }
         return shapes;
     }
@@ -187,25 +223,6 @@ namespace
         fallback.shield_index = wiring.shield_index;
         fallback.is_special = wiring.is_special;
         return &layers.emplace_back(RoutedLayer{.name = layer_name, .wiring = wiring, .wire = le::WireBuilder(root, layer_id), .fallback = std::move(fallback)});
-    }
-
-    // The layer a SPECIALNETS "+ VIA" placement is stored on: the first
-    // ROUTING layer of the via it names (a design via before a technology
-    // one, or a VIARULE reference's bottom layer).
-    std::optional<std::string> via_routing_layer(const le::Root &root, le::LayoutId layout_id, const std::string &via_name)
-    {
-        const le::WireViaTarget target = le::resolve_wire_via(root, layout_id, via_name);
-        const std::vector<le::ViaLayerId> &layer_ids =
-            target.layout_via.valid() ? root.get_layout_via_layers(target.layout_via) : root.get_via_layers(target.via);
-        for (const le::ViaLayerId id : layer_ids)
-            if (const le::ViaLayerData *via_layer = root.get_via_layer(id))
-                if (const le::LayerData *layer = root.get_layer(root.get_layer_by_name(via_layer->layer_name)); layer && layer->type == "ROUTING")
-                    return via_layer->layer_name;
-        const le::ViaRuleReferenceId rule =
-            target.layout_via.valid() ? root.get_layout_via_via_rule(target.layout_via) : root.get_via_via_rule(target.via);
-        if (const le::ViaRuleReferenceData *reference = root.get_via_rule_reference(rule))
-            return reference->bot_layer_name;
-        return std::nullopt;
     }
 
     // A SHAPE keyword as a RouteShape; unset (logged) for an unknown one.
@@ -744,7 +761,7 @@ namespace le
                 // needs no pin transform - DEFWriter converts back.
                 const Geometry::InstanceTransform to_design = Geometry::pin_transform(segment_data.location, segment_data.orientation);
                 const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(std::move(segment_data));
-                for (ShapeData &shape : shapes_from_pin_like(*reader->root_, port, reader->unit_scale_))
+                for (ShapeData &shape : shapes_from_pin_like(*reader->root_, reader->layout_id_, port, reader->unit_scale_))
                 {
                     shape = Geometry::transform_geometry_and_vias(shape, to_design);
                     shape.owner = le::ShapeOwner::physical_port_segment(segment_id);
@@ -759,7 +776,7 @@ namespace le
             const PhysicalPortData *port = reader->root_->get_physical_port(physical_port_id);
             const Geometry::InstanceTransform to_design = Geometry::pin_transform(port->location, port->orientation);
             const PhysicalPortSegmentId segment_id = reader->root_->create_physical_port_segment(PhysicalPortSegmentData{.physical_port = physical_port_id});
-            for (ShapeData &shape : shapes_from_pin_like(*reader->root_, pin, reader->unit_scale_))
+            for (ShapeData &shape : shapes_from_pin_like(*reader->root_, reader->layout_id_, pin, reader->unit_scale_))
             {
                 shape = Geometry::transform_geometry_and_vias(shape, to_design);
                 shape.owner = le::ShapeOwner::physical_port_segment(segment_id);

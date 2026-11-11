@@ -25,13 +25,9 @@ namespace
     // rather than int* purely for formatting convenience; this just casts.
     double as_dbu(int64_t v) { return static_cast<double>(v); }
 
-    // DEF's PINS DIRECTION grammar (defwPin/defwPinStr's own doc comment)
-    // only lists INPUT/OUTPUT/INOUT/FEEDTHRU - no OUTPUT TRISTATE, unlike
-    // LEF's PIN DIRECTION. Mirrors LEFWriter's own
-    // signal_direction_to_string precedent (same "OUTPUT TRISTATE"
-    // two-token spelling) since defwPin doesn't validate the string
-    // against a fixed keyword set - it's just printed - so this is a
-    // reasonable, low-risk choice rather than a hard requirement.
+    // DEF's PINS DIRECTION is INPUT/OUTPUT/INOUT/FEEDTHRU: no OUTPUT
+    // TRISTATE, unlike LEF's, and a reader rejects the file if it's there.
+    // A tristate output is written as OUTPUT (the caller warns).
     const char *signal_direction_to_string(le::SignalDirection direction)
     {
         switch (direction)
@@ -43,7 +39,7 @@ namespace
         case le::SignalDirection::INOUT:
             return "INOUT";
         case le::SignalDirection::OUTPUT_TRISTATE:
-            return "OUTPUT TRISTATE";
+            return "OUTPUT";
         case le::SignalDirection::FEEDTHRU:
             return "FEEDTHRU";
         default:
@@ -489,6 +485,8 @@ namespace le
             const bool is_placed = port->location.has_value();
             const Point location = port->location.value_or(Point{});
             const std::string orient = port->orientation ? le::to_string(*port->orientation) : std::string{};
+            if (port->direction == SignalDirection::OUTPUT_TRISTATE)
+                spdlog::warn("PIN {}: DEF has no OUTPUT TRISTATE direction - written as OUTPUT.", port->name);
 
             status = defwPinStr(port->name.c_str(), port->net_name ? port->net_name->c_str() : "",
                                  0, // special
