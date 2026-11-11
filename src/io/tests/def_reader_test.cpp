@@ -313,7 +313,7 @@ namespace le
         ASSERT_TRUE(segment0->orientation.has_value());
         EXPECT_EQ(*segment0->orientation, Orientation::N);
         const std::vector<ShapeId> segment0_shape_ids = root.get_physical_port_segment_shapes(p0_segments[0]);
-        ASSERT_EQ(segment0_shape_ids.size(), 1u);
+        ASSERT_EQ(segment0_shape_ids.size(), 2u);
         const ShapeData *segment0_shape = root.get_shape(segment0_shape_ids[0]);
         ASSERT_NE(segment0_shape, nullptr);
         EXPECT_EQ(root.get_layer(segment0_shape->layer)->name, "M2");
@@ -324,6 +324,14 @@ namespace le
         EXPECT_EQ(segment0_shape->rects[0].ll.y, -2160);
         EXPECT_EQ(segment0_shape->rects[0].ur.x, 75);
         EXPECT_EQ(segment0_shape->rects[0].ur.y, -2025);
+        // + VIA VIAGEN12_0 ( 0 100 ): on the via's first routing layer, also
+        // in design coordinates.
+        const ShapeData *segment0_via_shape = root.get_shape(segment0_shape_ids[1]);
+        ASSERT_NE(segment0_via_shape, nullptr);
+        EXPECT_EQ(root.get_layer(segment0_via_shape->layer)->name, "METAL1");
+        ASSERT_EQ(segment0_via_shape->vias.size(), 1u);
+        EXPECT_EQ(segment0_via_shape->vias[0].via_name, "VIAGEN12_0");
+        EXPECT_EQ(segment0_via_shape->vias[0].origin, (Point{.x = 45, .y = -2060}));
 
         const PhysicalPortSegmentData *segment1 = root.get_physical_port_segment(p0_segments[1]);
         ASSERT_NE(segment1, nullptr);

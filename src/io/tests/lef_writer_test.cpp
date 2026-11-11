@@ -1258,6 +1258,27 @@ TEST(LEFWriterErrorHandling, FailsGracefullyWhenTheOutputPathCannotBeOpened)
     ASSERT_FALSE(writer.messages().empty());
 }
 
+// FOREIGN in a VIA is LEF 5.5 only; a file written as 5.8 can't hold it,
+// so it's left out rather than failing the whole write.
+TEST(LEFWriterViaForeign, LeavesOutAViasForeignFromAnOlderLefButWritesTheVia)
+{
+    Root root;
+    LEFReader reader;
+    ASSERT_EQ(reader.read_lef(fixture_path("via_foreign_5_5.lef"), root, "test_lib"), 0);
+    ASSERT_EQ(root.get_foreign_ids().size(), 2u);
+
+    const std::string out_path = le::test::scratch_path("le_lef_writer_via_foreign.lef");
+    LEFWriter writer;
+    ASSERT_EQ(writer.write_lef(out_path, root, AbstractId{}, LEFWriter::LayerWriteMode::TechnologyOnly), 0)
+        << (writer.messages().empty() ? "" : writer.messages().front());
+
+    std::ifstream in(out_path);
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(text.find("FOREIGN"), std::string::npos);
+    EXPECT_NE(text.find("VIA VIA1"), std::string::npos);
+    EXPECT_NE(text.find("VIA ND_VIA1"), std::string::npos);
+}
+
 TEST(LEFWriterErrorHandling, WritesJustTheEndLibraryLineForAnEmptyRoot)
 {
     Root root;
@@ -1292,25 +1313,40 @@ namespace
 // Read a LEF file, write it back out via LEFWriter, and confirm the
 // vendored lefdiff tool's normalized dumps of the two files match - i.e.
 // the round trip lost nothing lefdiff itself can see. Each construct added
-// to writer_roundtrip.lef either round-trips clean or shows up here as a
-// real, specific diff.
-TEST(LEFWriterLefdiffFidelity, WriterRoundtripFixtureMatchesTheOriginalPerLefdiff)
+// to a fixture either round-trips clean or shows up here as a real,
+// specific diff.
+class LEFWriterLefdiffFidelity : public ::testing::TestWithParam<std::pair<const char *, const char *>>
 {
+};
+
+TEST_P(LEFWriterLefdiffFidelity, FixtureMatchesTheOriginalPerLefdiff)
+{
+    const auto [fixture, macro] = GetParam();
     Root root;
     LEFReader reader;
-    ASSERT_EQ(reader.read_lef(fixture_path("writer_roundtrip.lef"), root, "test_lib"), 0);
+    ASSERT_EQ(reader.read_lef(fixture_path(fixture), root, "test_lib"), 0);
 
-    const std::string written_path = le::test::scratch_path("le_lefdiff_written.lef");
+    const std::string written_path = le::test::scratch_path(fmt::format("le_lefdiff_written_{}.lef", macro));
     LEFWriter writer;
-    ASSERT_EQ(writer.write_lef(written_path, root, root.get_design_abstract(find_design_by_name(root, "WRITERTEST")), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0);
+    ASSERT_EQ(writer.write_lef(written_path, root, root.get_design_abstract(find_design_by_name(root, macro)), LEFWriter::LayerWriteMode::IncludeWithAbstract), 0)
+        << (writer.messages().empty() ? "" : writer.messages().front());
 
-    const std::string dump1_path = le::test::scratch_path("le_lefdiff_dump1.txt");
-    const std::string dump2_path = le::test::scratch_path("le_lefdiff_dump2.txt");
+    const std::string dump1_path = le::test::scratch_path(fmt::format("le_lefdiff_dump1_{}.txt", macro));
+    const std::string dump2_path = le::test::scratch_path(fmt::format("le_lefdiff_dump2_{}.txt", macro));
 
     const std::string command = fmt::format(
         "\"{}\" \"{}\" \"{}\" \"{}\" \"{}\" > /dev/null 2>&1",
-        LEFDIFF_BIN, fixture_path("writer_roundtrip.lef"), written_path, dump1_path, dump2_path);
+        LEFDIFF_BIN, fixture_path(fixture), written_path, dump1_path, dump2_path);
     ASSERT_EQ(std::system(command.c_str()), 0) << "lefdiff itself failed to run: " << command;
 
     EXPECT_EQ(sorted_lines(dump1_path), sorted_lines(dump2_path));
 }
+
+// writer_coverage.lef holds the constructs writer_roundtrip.lef doesn't:
+// header statements, the remaining antenna/spacing variants, FOREIGNs in
+// every orientation, R90 symmetry and POLYGON/VIA ITERATE.
+INSTANTIATE_TEST_SUITE_P(Fixtures, LEFWriterLefdiffFidelity,
+                         ::testing::Values(std::pair{"writer_roundtrip.lef", "WRITERTEST"},
+                                           std::pair{"writer_coverage.lef", "COVERAGE"}),
+                         [](const auto &info)
+                         { return std::string(info.param.second); });
