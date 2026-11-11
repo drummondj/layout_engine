@@ -912,6 +912,7 @@ namespace le
         /// Blend2D's own multithreaded-rendering docs) - 2 to 4 is that
         /// same documentation's own general guidance for most workloads.
         void set_thread_count(uint32_t thread_count) { thread_count_ = thread_count; }
+        uint32_t thread_count() const { return thread_count_; }
 
         /// @brief How often a frame started cutting a node off at
         /// kMaxImageDimensionPx (each warned once, not every frame after).
