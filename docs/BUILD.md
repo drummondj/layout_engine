@@ -77,6 +77,27 @@ as a race. Nothing else is needed; a report from such a tree is worth
 looking at. The vendored LEF/DEF parsers (built by their own Makefiles)
 aren't instrumented.
 
+## Coverage
+
+A Clang tree with `-DENABLE_COVERAGE=ON` instruments every Layout Engine
+target (libraries, `le_shell`, `le_tcl.so`, the tests and the example
+extensions) and builds them at `-O0`:
+
+```
+cmake -S . -B build_cov -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DENABLE_COVERAGE=ON
+cmake --build build_cov --target coverage -j4
+```
+
+`coverage` runs the whole ctest suite and writes a line and branch report
+over every instrumented binary, generated code included, to
+`build_cov/coverage/report.txt` (and `lcov.info`). It needs `llvm-profdata`
+and `llvm-cov` of the compiler's LLVM version; pass `-DLLVM_PROFDATA_EXE=`
+and `-DLLVM_COV_EXE=` if they aren't on `PATH`. `coverage-python` runs
+codegen's and `le`'s unit tests under coverage.py into
+`build_cov/coverage/python/`; `-DLE_COVERAGE_PYTHON=` picks a Python that has
+`coverage`, `jinja2` and `click`.
+
 ## With the machine's own packages
 
 `le doctor --source` checks each item: a C++23 compiler (GCC 13+ or
