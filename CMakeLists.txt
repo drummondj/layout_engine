@@ -26,6 +26,9 @@ endforeach()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Nothing here or in the fetched dependencies uses C++ modules; scanning for
+# them would make a Clang build need clang-scan-deps.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # Compile options for Layout Engine's own code and extensions' (never its
 # fetched dependencies'): a non-void function falling off its end is an

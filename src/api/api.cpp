@@ -2974,6 +2974,163 @@ namespace
         return owner.valid() ? by_name(root, owner, segments.back()) : Id{};
     }
 
+    // Every selectable object under dbu `p`, in click priority order: vias
+    // first (a via sits on top of the wires it joins), smallest first;
+    // then shape pieces, topmost layer first; then (Layout view)
+    // placements, topmost first, and last the Rows the placements sit on.
+    std::vector<LeHandle::SelectedObject> objects_under_point_unlocked(const LeHandle *handle, le::Point p)
+    {
+        std::vector<LeHandle::SelectedObject> objects;
+        // In a Layout view only the objects the render tree has under the
+        // click are tested (layout_candidates), not the whole design.
+        std::optional<std::vector<le::GeometryId>> shape_candidates;
+        std::optional<std::vector<le::PlacementId>> placement_candidates;
+        if (handle->current_layout().valid())
+            if (std::optional<LayoutCandidates> candidates = layout_candidates(handle, le::Rect{.ll = p, .ur = p}))
+            {
+                shape_candidates = std::move(candidates->shapes);
+                placement_candidates = std::move(candidates->placements);
+            }
+        for (const LeHandle::ShapePiece &via : hit_test_via_point_all(handle, p, shape_candidates ? &*shape_candidates : nullptr))
+            objects.emplace_back(via);
+
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
+        const auto add_pieces = [&](const std::vector<le::AbstractHitPiece> &hits)
+        {
+            for (const le::AbstractHitPiece &hit : hits)
+                objects.emplace_back(LeHandle::ShapePiece{.shape_id = hit.shape_id, .wire_id = hit.wire_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index});
+        };
+
+        if (const le::LayoutId layout_id = handle->current_layout(); layout_id.valid())
+        {
+            add_pieces(le::hit_test_layout_point_all(handle->root, handle->view_layers, layout_id, p, handle->scale(), is_selectable, false,
+                                                     shape_candidates ? &*shape_candidates : nullptr));
+            const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+            if (placements_selectable(handle))
+                for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p,
+                                                                                           placement_candidates ? &*placement_candidates : nullptr))
+                    objects.emplace_back(placement_id);
+            if (rows_selectable(handle))
+                for (const le::RowId row_id : le::hit_test_rows_point_all(handle->root, layout_id, p))
+                    objects.emplace_back(row_id);
+        }
+        else
+            add_pieces(le::hit_test_abstract_point_all(handle->root, handle->view_layers, handle->current_abstract(), p, handle->scale(), is_selectable));
+        std::erase_if(objects, [handle](const LeHandle::SelectedObject &object)
+                      { return !passes_object_filters(handle, object); });
+        return objects;
+    }
+
+    // le_mouse_up's Select-mode click. A plain click cycles through
+    // everything under the mouse: if the one object selected before the
+    // click is among them, the next one (wrapping round) is selected
+    // instead, so repeated clicks at one spot step through overlapping
+    // objects; otherwise the first. A shift-click adds the first object
+    // under the mouse that isn't selected yet, so repeated shift-clicks at
+    // one spot add the stacked objects one by one (and do nothing once
+    // they're all selected).
+    void click_select_unlocked(LeHandle *handle, le::Point p, const std::vector<LeHandle::SelectedObject> &previous, bool shift)
+    {
+        const std::vector<LeHandle::SelectedObject> candidates = objects_under_point_unlocked(handle, p);
+        if (candidates.empty())
+            return;
+
+        if (shift)
+        {
+            // The selection wasn't cleared for a shift-click, so it's the
+            // same as `previous` here.
+            for (const LeHandle::SelectedObject &candidate : candidates)
+                if (std::ranges::find(previous, candidate) == previous.end())
+                {
+                    handle->select_any(candidate);
+                    return;
+                }
+            return;
+        }
+
+        size_t next = 0;
+        if (previous.size() == 1)
+            if (const auto it = std::ranges::find(candidates, previous.front()); it != candidates.end())
+                next = (static_cast<size_t>(it - candidates.begin()) + 1) % candidates.size();
+        handle->select_any(candidates[next]);
+    }
+
+    // le_mouse_up's Select-mode, Abstract-view drag-select branch (a
+    // click goes through click_select_unlocked). Called with
+    // handle->mutex_ already held, `x`/`y` the release point le_mouse_up
+    // received. Hit-tests Root's raw ShapeData directly
+    // (hit_test.hpp's hit_test_abstract_rect) rather than
+    // rendered output - a drag is a rare, one-off query, not a per-frame
+    // cost.
+    void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
+    {
+        const le::AbstractId abstract_id = handle->current_abstract();
+        // Both visible AND selectable - see le_set_mouse_position's own
+        // comment on this same predicate shape.
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
+
+        {
+            const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
+            const le::Point end = handle->pixel_to_dbu(x, y);
+            const le::Rect drag_rect{
+                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
+                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
+            };
+
+            for (const le::AbstractHitPiece &hit : le::hit_test_abstract_rect(handle->root, handle->view_layers, abstract_id, drag_rect, handle->scale(), is_selectable))
+                handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
+            for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect))
+                handle->select(via.shape_id, via.piece_kind, via.piece_index);
+        }
+    }
+
+    // le_mouse_up's Select-mode, Layout-view drag-select branch: selects
+    // every top-level placement, Route/PhysicalPort shape piece, via and
+    // Row fully inside the rectangle, never recursing into a Placement's
+    // reference_design. Blockage and Region aren't hit-tested yet.
+    void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
+    {
+        const le::LayoutId layout_id = handle->current_layout();
+        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
+        // Both visible AND selectable - see le_set_mouse_position's own
+        // comment on this same predicate shape.
+        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
+        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
+
+        {
+            const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
+            const le::Point end = handle->pixel_to_dbu(x, y);
+            const le::Rect drag_rect{
+                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
+                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
+            };
+
+            // Only objects the render tree has overlapping the rectangle can
+            // be inside it (layout_candidates); without one, scan everything.
+            const std::optional<LayoutCandidates> candidates = layout_candidates(handle, drag_rect);
+            const std::vector<le::GeometryId> *shape_candidates = candidates ? &candidates->shapes : nullptr;
+            if (placements_selectable(handle))
+                for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect,
+                                                                                 candidates ? &candidates->placements : nullptr))
+                    if (passes_object_filters(handle, placement_id))
+                        handle->select(placement_id);
+
+            for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable, shape_candidates))
+            {
+                const LeHandle::ShapePiece piece{.shape_id = hit.shape_id, .wire_id = hit.wire_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index};
+                if (passes_object_filters(handle, piece))
+                    handle->select_any(piece);
+            }
+            for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect, shape_candidates))
+                if (passes_object_filters(handle, via))
+                    handle->select_any(via);
+            if (rows_selectable(handle))
+                for (const le::RowId row_id : le::hit_test_rows_rect(handle->root, layout_id, drag_rect))
+                    handle->select(row_id);
+        }
+    }
 }
 
 extern "C"
@@ -5377,164 +5534,6 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         handle->begin_drag(x, y, LeHandle::DragKind::ZOOM);
-    }
-
-    // Every selectable object under dbu `p`, in click priority order: vias
-    // first (a via sits on top of the wires it joins), smallest first;
-    // then shape pieces, topmost layer first; then (Layout view)
-    // placements, topmost first, and last the Rows the placements sit on.
-    std::vector<LeHandle::SelectedObject> objects_under_point_unlocked(const LeHandle *handle, le::Point p)
-    {
-        std::vector<LeHandle::SelectedObject> objects;
-        // In a Layout view only the objects the render tree has under the
-        // click are tested (layout_candidates), not the whole design.
-        std::optional<std::vector<le::GeometryId>> shape_candidates;
-        std::optional<std::vector<le::PlacementId>> placement_candidates;
-        if (handle->current_layout().valid())
-            if (std::optional<LayoutCandidates> candidates = layout_candidates(handle, le::Rect{.ll = p, .ur = p}))
-            {
-                shape_candidates = std::move(candidates->shapes);
-                placement_candidates = std::move(candidates->placements);
-            }
-        for (const LeHandle::ShapePiece &via : hit_test_via_point_all(handle, p, shape_candidates ? &*shape_candidates : nullptr))
-            objects.emplace_back(via);
-
-        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
-        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
-        const auto add_pieces = [&](const std::vector<le::AbstractHitPiece> &hits)
-        {
-            for (const le::AbstractHitPiece &hit : hits)
-                objects.emplace_back(LeHandle::ShapePiece{.shape_id = hit.shape_id, .wire_id = hit.wire_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index});
-        };
-
-        if (const le::LayoutId layout_id = handle->current_layout(); layout_id.valid())
-        {
-            add_pieces(le::hit_test_layout_point_all(handle->root, handle->view_layers, layout_id, p, handle->scale(), is_selectable, false,
-                                                     shape_candidates ? &*shape_candidates : nullptr));
-            const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
-            if (placements_selectable(handle))
-                for (const le::PlacementId placement_id : le::hit_test_placements_point_all(handle->root, layout_id, remaining_depth, p,
-                                                                                           placement_candidates ? &*placement_candidates : nullptr))
-                    objects.emplace_back(placement_id);
-            if (rows_selectable(handle))
-                for (const le::RowId row_id : le::hit_test_rows_point_all(handle->root, layout_id, p))
-                    objects.emplace_back(row_id);
-        }
-        else
-            add_pieces(le::hit_test_abstract_point_all(handle->root, handle->view_layers, handle->current_abstract(), p, handle->scale(), is_selectable));
-        std::erase_if(objects, [handle](const LeHandle::SelectedObject &object)
-                      { return !passes_object_filters(handle, object); });
-        return objects;
-    }
-
-    // le_mouse_up's Select-mode click. A plain click cycles through
-    // everything under the mouse: if the one object selected before the
-    // click is among them, the next one (wrapping round) is selected
-    // instead, so repeated clicks at one spot step through overlapping
-    // objects; otherwise the first. A shift-click adds the first object
-    // under the mouse that isn't selected yet, so repeated shift-clicks at
-    // one spot add the stacked objects one by one (and do nothing once
-    // they're all selected).
-    void click_select_unlocked(LeHandle *handle, le::Point p, const std::vector<LeHandle::SelectedObject> &previous, bool shift)
-    {
-        const std::vector<LeHandle::SelectedObject> candidates = objects_under_point_unlocked(handle, p);
-        if (candidates.empty())
-            return;
-
-        if (shift)
-        {
-            // The selection wasn't cleared for a shift-click, so it's the
-            // same as `previous` here.
-            for (const LeHandle::SelectedObject &candidate : candidates)
-                if (std::ranges::find(previous, candidate) == previous.end())
-                {
-                    handle->select_any(candidate);
-                    return;
-                }
-            return;
-        }
-
-        size_t next = 0;
-        if (previous.size() == 1)
-            if (const auto it = std::ranges::find(candidates, previous.front()); it != candidates.end())
-                next = (static_cast<size_t>(it - candidates.begin()) + 1) % candidates.size();
-        handle->select_any(candidates[next]);
-    }
-
-    // le_mouse_up's Select-mode, Abstract-view drag-select branch (a
-    // click goes through click_select_unlocked). Called with
-    // handle->mutex_ already held, `x`/`y` the release point le_mouse_up
-    // received. Hit-tests Root's raw ShapeData directly
-    // (hit_test.hpp's hit_test_abstract_rect) rather than
-    // rendered output - a drag is a rare, one-off query, not a per-frame
-    // cost.
-    void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
-    {
-        const le::AbstractId abstract_id = handle->current_abstract();
-        // Both visible AND selectable - see le_set_mouse_position's own
-        // comment on this same predicate shape.
-        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
-        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
-
-        {
-            const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
-            const le::Point end = handle->pixel_to_dbu(x, y);
-            const le::Rect drag_rect{
-                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
-                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
-            };
-
-            for (const le::AbstractHitPiece &hit : le::hit_test_abstract_rect(handle->root, handle->view_layers, abstract_id, drag_rect, handle->scale(), is_selectable))
-                handle->select(hit.shape_id, hit.piece_kind, hit.piece_index);
-            for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect))
-                handle->select(via.shape_id, via.piece_kind, via.piece_index);
-        }
-    }
-
-    // le_mouse_up's Select-mode, Layout-view drag-select branch: selects
-    // every top-level placement, Route/PhysicalPort shape piece, via and
-    // Row fully inside the rectangle, never recursing into a Placement's
-    // reference_design. Blockage and Region aren't hit-tested yet.
-    void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
-    {
-        const le::LayoutId layout_id = handle->current_layout();
-        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
-        // Both visible AND selectable - see le_set_mouse_position's own
-        // comment on this same predicate shape.
-        const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
-        { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
-
-        {
-            const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
-            const le::Point end = handle->pixel_to_dbu(x, y);
-            const le::Rect drag_rect{
-                .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
-                .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
-            };
-
-            // Only objects the render tree has overlapping the rectangle can
-            // be inside it (layout_candidates); without one, scan everything.
-            const std::optional<LayoutCandidates> candidates = layout_candidates(handle, drag_rect);
-            const std::vector<le::GeometryId> *shape_candidates = candidates ? &candidates->shapes : nullptr;
-            if (placements_selectable(handle))
-                for (le::PlacementId placement_id : le::hit_test_placements_rect(handle->root, layout_id, remaining_depth, drag_rect,
-                                                                                 candidates ? &candidates->placements : nullptr))
-                    if (passes_object_filters(handle, placement_id))
-                        handle->select(placement_id);
-
-            for (const le::AbstractHitPiece &hit : le::hit_test_layout_rect(handle->root, handle->view_layers, layout_id, drag_rect, handle->scale(), is_selectable, shape_candidates))
-            {
-                const LeHandle::ShapePiece piece{.shape_id = hit.shape_id, .wire_id = hit.wire_id, .piece_kind = hit.piece_kind, .piece_index = hit.piece_index};
-                if (passes_object_filters(handle, piece))
-                    handle->select_any(piece);
-            }
-            for (const LeHandle::ShapePiece &via : hit_test_via_rect(handle, drag_rect, shape_candidates))
-                if (passes_object_filters(handle, via))
-                    handle->select_any(via);
-            if (rows_selectable(handle))
-                for (const le::RowId row_id : le::hit_test_rows_rect(handle->root, layout_id, drag_rect))
-                    handle->select(row_id);
-        }
     }
 
     void le_mouse_up(LeHandle *handle, int32_t x, int32_t y)

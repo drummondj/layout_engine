@@ -440,6 +440,8 @@ Sanitizers: `-DLE_SANITIZER=thread|address|undefined` (e.g. a `build_tsan`
 tree); a thread tree builds oneTBB from source with TSan, since an
 uninstrumented libtbb makes every flow-graph hand-off a false race.
 
+Compilers: GCC 13+ or Clang 19+ (CI builds and tests both).
+
 Coverage: a Clang tree with `-DENABLE_COVERAGE=ON` (plus `LLVM_PROFDATA_EXE`/
 `LLVM_COV_EXE` if they aren't on PATH) instruments every first-party target;
 `cmake --build build_cov --target coverage` runs the whole ctest suite and

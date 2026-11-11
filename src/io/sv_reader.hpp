@@ -3,7 +3,6 @@
 #include <unordered_map>
 #include <vector>
 #include "../database/database.hpp"
-#include "slang/ast/SemanticFacts.h"
 #include "spdlog/spdlog.h"
 
 namespace le
@@ -76,11 +75,6 @@ namespace le
         /// at the start of every read_netlist()/read_rtl() call, same
         /// convention as LEFReader::messages().
         const std::vector<std::string> &messages() const { return messages_; }
-
-        // Pure conversion - public/static, no dependency on reader
-        // instance state, for direct unit testing (same convention as
-        // LEFReader::signal_direction_from_parser).
-        static SignalDirection signal_direction_from_parser(slang::ast::ArgumentDirection direction);
 
     private:
         // read_rtl without the rollback: may return an error with objects created.
