@@ -156,6 +156,11 @@ namespace le
             return rasterize_would_recompute || compose_.would_recompute(rasterize_.version(), options);
         }
 
+        /// @brief Blend2D's render thread count for the Rasterize stage
+        /// (RasterizeBlend2DStage::set_thread_count). It changes how fast
+        /// a frame renders, not what it shows, so nothing recomputes.
+        void set_render_thread_count(uint32_t thread_count) { rasterize_.set_thread_count(thread_count); }
+
         // --- pipeline_stage_benchmark accessors (src/pipelines/benchmarks/) -
         // read-only access to each stage's own instrumentation
         // (tbb_core.hpp's last_call_recomputed()/last_compute_wall_ns()/

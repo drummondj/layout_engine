@@ -861,6 +861,17 @@ TEST_F(ApiFixture, MaxConcurrencyDefaultsToEightAndRoundTrips)
     EXPECT_EQ(le_max_concurrency(handle), 4);
 }
 
+TEST_F(ApiFixture, MaxConcurrencySetsTheRenderThreadCount)
+{
+    const auto render_threads = [&]
+    { return handle->view_render_pipeline.rasterize_stage().thread_count(); };
+    EXPECT_EQ(render_threads(), static_cast<uint32_t>(le_max_concurrency(handle)));
+    le_set_max_concurrency(handle, 3);
+    EXPECT_EQ(render_threads(), 3u);
+    le_set_max_concurrency(handle, 0);
+    EXPECT_EQ(render_threads(), 2u);
+}
+
 TEST_F(ApiFixture, SetMaxConcurrencyClampsBelowTwoUpToTwoRatherThanRejecting)
 {
     le_set_max_concurrency(handle, 1);

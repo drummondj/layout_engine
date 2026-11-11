@@ -834,6 +834,8 @@ namespace
         // never raise the effective limit, only lower it).
         handle->concurrency_control_.reset();
         handle->concurrency_control_.emplace(oneapi::tbb::global_control::max_allowed_parallelism, static_cast<size_t>(clamped));
+        // Blend2D's render threads are its own, outside TBB's arena.
+        handle->view_render_pipeline.set_render_thread_count(static_cast<uint32_t>(clamped));
     }
 
     // Sets grid spacing given in um (a value <= 0 leaves that one alone).

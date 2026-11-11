@@ -110,6 +110,8 @@ namespace le::benchmarks
                 ->Unit(benchmark::kMillisecond);
             benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 4u)
                 ->Unit(benchmark::kMillisecond);
+            benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT8/" + std::string(config.label)).c_str(), BM_RasterizeBlend2D, config, 8u)
+                ->Unit(benchmark::kMillisecond);
         }
 
         benchmark::RegisterBenchmark(("BM_RasterizeBlend2D/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 0u)
@@ -117,6 +119,8 @@ namespace le::benchmarks
         benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT2/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 2u)
             ->Unit(benchmark::kMillisecond);
         benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT4/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 4u)
+            ->Unit(benchmark::kMillisecond);
+        benchmark::RegisterBenchmark(("BM_RasterizeBlend2D_MT8/" + std::string(kAesScalingLargeConfig.label)).c_str(), BM_RasterizeBlend2D, kAesScalingLargeConfig, 8u)
             ->Unit(benchmark::kMillisecond);
     }
 }

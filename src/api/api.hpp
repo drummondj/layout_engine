@@ -575,7 +575,8 @@ extern "C"
     /// may use at once - a process-wide
     /// oneapi::tbb::global_control cap, not a per-pipeline setting, since
     /// every pipeline/HierarchyResolver graph shares the same implicit
-    /// default TBB arena. Defaults to 8. Returns 0 if handle is null.
+    /// default TBB arena. It also sets the render's Blend2D thread count,
+    /// which TBB doesn't cap. Defaults to 8. Returns 0 if handle is null.
     int32_t le_max_concurrency(LeHandle *handle);
 
     /// @brief Sets le_max_concurrency(). Clamped to a minimum of 2 (not
