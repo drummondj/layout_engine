@@ -10,6 +10,7 @@ int main(int argc, char **argv)
     le::benchmarks::register_rasterize_blend2d_benchmarks();
     le::benchmarks::register_compose_benchmarks();
     le::benchmarks::register_warm_tier_benchmarks();
+    le::benchmarks::register_pipeline_graph_benchmarks();
     le::benchmarks::register_shape_ops_benchmarks();
     le::benchmarks::register_flightline_benchmarks();
 

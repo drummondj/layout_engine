@@ -1462,6 +1462,7 @@ add_executable(pipeline_benchmarks
     src/pipelines/benchmarks/rasterize_blend2d_benchmark.cpp
     src/pipelines/benchmarks/compose_benchmark.cpp
     src/pipelines/benchmarks/warm_tier_benchmark.cpp
+    src/pipelines/benchmarks/pipeline_graph_benchmark.cpp
     src/pipelines/benchmarks/shape_ops_benchmark.cpp
     src/pipelines/benchmarks/flightline_benchmark.cpp
 )

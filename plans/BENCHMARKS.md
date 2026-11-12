@@ -2003,3 +2003,22 @@ the batch leaves instead of one shift per object. Same setup as above.
 4× the objects costs 5× the time (hash-set lookups leave cache), against
 14-15× one at a time. Undo restores each list with one merge.
 Single deletes and the cascade are unchanged (106 ms, 16.4 ms at 40k).
+
+## 2026-11-12 — Flow graph vs direct stage calls (#256)
+
+`pipeline_graph_benchmark.cpp` runs `ViewRenderPipeline`'s five stages
+through a `flow::graph` (try_put/wait_for_all, as `run()` does) and as
+direct `execute()` calls. A no-op tick forces every stage through on a
+cache hit, so it measures the hand-off alone; a pan tick is
+`BM_WarmTier`'s (Cull, Rasterize, Compose recompute). Release, GCC,
+32-thread WSL2 host, 5 repetitions.
+
+| Benchmark | Graph | Direct |
+|---|---|---|
+| BM_PipelineNoOpTick/1x1 | 6.38 us | 1.23 us |
+| BM_PipelineNoOpTick/3x3 | 6.31 us | 1.25 us |
+| BM_PipelinePanTick/1x1 | 39.2 ms (cv 4.7%) | 40.1 ms (cv 4.0%) |
+| BM_PipelinePanTick/3x3 | 196 ms (cv 5.5%) | 200 ms (cv 8.6%) |
+
+The graph costs ~5 us per frame regardless of design size, far below
+pan-frame noise. The single graph stays.
