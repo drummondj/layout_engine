@@ -857,4 +857,12 @@ check "design:LIB/NAME resolves" DUPCELL [dict get [get_properties design:DUP_B/
 check_true "an ambiguous design:NAME resolves to nothing" [catch {get_properties design:DUPCELL}]
 check_true "a design name clash within one library fails" [catch {create_design -library $lib_a -name DUPCELL}]
 
+# A typed read is one undo step.
+le_repl_eval "read_lef -library undone_read $other_lef_path"
+check "a typed read_lef made its library" library:undone_read [get_libraries undone_read]
+check "undo removes everything the read made" 1 [undo]
+check "the library is gone after undo" {} [get_libraries undone_read]
+check "redo reads it back" 1 [redo]
+check "the library is back after redo" library:undone_read [get_libraries undone_read]
+
 puts "le_tcl CRUD test passed"

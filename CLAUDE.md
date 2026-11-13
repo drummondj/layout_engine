@@ -135,7 +135,8 @@ fails on a temp path that isn't unique to its process.
 - `src/editing/` — undo/redo: `CommandHistory` (one per handle),
   `Transaction`, `ICommand`. Every generated create/update/delete and
   shape op records itself into the recording transaction (in `le::edit`,
-  below); `le_repl_eval`, GUI edits (Move, Resize, Delete) and
+  below), and a typed LEF/DEF/Verilog read is one step over its creation
+  journal (`api/read_command.hpp`); `le_repl_eval`, GUI edits (Move, Resize, Delete) and
   `ExtensionContext::write(label)` bracket one. Ids are stable across
   undo/redo: a recorded delete retires the object (`Root::retire`, its
   slot kept off the free list) and undo/redo `restore` it at the same id
