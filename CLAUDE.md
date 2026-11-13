@@ -77,7 +77,7 @@ fails on a temp path that isn't unique to its process.
     `fill_pattern` its default style (`pipelines/render_style.hpp`), else
     the palette's. Nothing core is hand-written per class.
     Chunks carry `ChunkSources` so Layout-view selection queries the last
-    resolved render tree (`ViewRenderPipeline::resolved_output()`, api.cpp's
+    resolved render tree (`ViewRenderPipeline::resolved_output()`, selection.cpp's
     `layout_candidates`) instead of scanning the Layout.
   - `ViewportCullStage` prunes to the viewport with per-node spatial
     indexes; sub-pixel placements are culled whole.
@@ -141,8 +141,15 @@ fails on a temp path that isn't unique to its process.
   slot kept off the free list) and undo/redo `restore` it at the same id
   and child-list position; a transaction leaving the history releases
   its slots.
-- `src/api/` — `api.hpp`/`api.cpp`, the plain-C API every front end calls.
-  Its edits are a shim (C arguments, microns to dbu, locking, logging)
+- `src/api/` — `api.hpp`, the plain-C API every front end calls,
+  implemented by concern: `api.cpp` (I/O, design/library access,
+  properties and search, undo, shape ops, rendering), `input.cpp` (the
+  mouse/key state machine, modes, rulers, Move, Resize, Delete),
+  `selection.cpp` (hit candidates, click/drag select), `view_options.cpp`
+  (`ViewRenderOptions` from handle state, pan/zoom/fit, layer and filter
+  visibility), `settings.cpp` (settings JSON and its migration),
+  `session.cpp` (the `.led` session JSON); helpers they share are in
+  `api_internal.hpp` (`le::api_detail`). Its edits are a shim (C arguments, microns to dbu, locking, logging)
   over `le::edit` (`edit_ops.hpp`/`edit_ops.cpp`): the generated
   create/update/delete per class (`generated/api/edit_ops_*.inc`, with
   `<Type>Changes` in `edit_types.hpp`) and the shape ops, in native types
@@ -156,14 +163,16 @@ fails on a temp path that isn't unique to its process.
   also how Move snaps paths/vias). The C API has no `std::` types,
   default arguments or overloads in public declarations. `LeHandle` (`le_handle.hpp`, never included by `api.hpp`)
   owns one `Root`, `ViewLayerSet`, `ViewRenderPipeline`, `CommandHistory`,
-  and all view/interaction state: current Abstract *or* Layout (mutually
+  and all view/interaction state, grouped in private `view_`/
+  `interaction_`/`selection_`/`settings_` structs behind its methods:
+  current Abstract *or* Layout (mutually
   exclusive by convention), pan/scale, visibility/selectability, selection
   (`SelectedObject` = `std::variant<ShapePiece, RowId, PlacementId,
   RegionId>`), rulers, Move/Resize state, mode (`SELECT`/`EDIT`/`RULER`;
   only Select changes the selection). Every function null-checks its
   handle. Read-only calls take the handle's `shared_mutex` shared so the
   GUI stays live during a render; mutations take it exclusive. Vias and
-  via arrays are selectable pieces hit-tested in api.cpp (their geometry
+  via arrays are selectable pieces hit-tested in selection.cpp (their geometry
   comes from `pipelines/via_shapes.hpp`, which `core` can't depend on).
 - `src/tcl/` — the Tcl surface: `le_api.i` (SWIG) wraps `le_tcl_shim` into
   `le_tcl.so`; `le_tcl_procs.tcl` parses `-flag value` syntax and builds
@@ -191,7 +200,7 @@ fails on a temp path that isn't unique to its process.
   (layer visibility, hierarchy depth, ...) are queued as Tcl commands
   (`le_enqueue_tcl_command`) for le_shell's console thread to run. Settings
   persist to `~/.layout_engine/settings.json` (loaded in interactive mode
-  only; format versioned by `kSettingsVersion` in api.cpp, with a
+  only; format versioned by `kSettingsVersion` in settings.cpp, with a
   migration step and a golden file in `src/api/tests/fixtures/settings/`
   per version), the dock layout to `~/.layout_engine/window_layout.ini`. No
   automated coverage of the render/input loop itself.

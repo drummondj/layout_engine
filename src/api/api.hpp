@@ -1453,7 +1453,7 @@ extern "C"
     ///   LE_KEY_CTRL is currently held ("Ctrl-F fit selected"), fits the
     ///   viewport to the current selection's own
     ///   combined bbox instead (same fixed padding, one Shape's own bbox
-    ///   per selection entry - see api.cpp's fit_selected_unlocked),
+    ///   per selection entry - see view_options.cpp's fit_selected_unlocked),
     ///   leaving the view unchanged if nothing is selected rather than
     ///   falling back to the whole-content fit. LE_KEY_SHIFT has no
     ///   meaning for Fit - held at all (with or without Ctrl) is a

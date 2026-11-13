@@ -4,7 +4,7 @@
 // shape of a real gate-level design's signal nets.
 //
 //  - BM_Flightline_BuildIndex: NetEndpointIndex over the whole Layout -
-//    what api.cpp's flightline cache pays once per Root mutation.
+//    what view_options.cpp's flightline cache pays once per Root mutation.
 //  - BM_Flightline_Lines/S: placement_flightlines for S selected
 //    placements against a prebuilt index - what a selection change pays.
 //

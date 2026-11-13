@@ -3061,7 +3061,7 @@ schema = Schema(
     # What the renderer draws, each toggled as one column across every layer
     # (codegen --target render). Declaration order is the enum order.
     # has_selectable_objects must match what hit-testing walks (api/hit_test.hpp,
-    # api.cpp's placement/row hit-tests); vias follow their owning Shape's purpose.
+    # selection.cpp's placement/row hit-tests); vias follow their owning Shape's purpose.
     purposes=[
         Purpose(name="TERMINAL", label="terminal", description="Pin shapes of cells, and the design's port shapes", has_selectable_objects=True),
         Purpose(name="OBSTRUCTION", label="obstruction", description="Obstruction (OBS) shapes of cells", has_selectable_objects=True),

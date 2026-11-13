@@ -36,7 +36,7 @@ namespace le
     /// topmost first (hit_test_placements_point's own order) - for
     /// click-cycling through overlapping placements.
     ///
-    /// `candidates` (api.cpp's layout_candidates, in id order), when
+    /// `candidates` (selection.cpp's layout_candidates, in id order), when
     /// given, are the only placements tested - newest id first.
     inline std::vector<PlacementId> hit_test_placements_point_all(const Root &root, LayoutId layout_id, int remaining_depth, Point dbu_point,
                                                                   const std::vector<PlacementId> *candidates = nullptr)
@@ -266,7 +266,7 @@ namespace le
     /// Obstruction's own two-owner-kind scope in the Abstract view above.
     /// Blockage/Row/Region own-shape hit-testing remains a separate,
     /// still-deferred gap (see select_in_layout_view_unlocked's own
-    /// comment, api.cpp) - Row/Region in particular have no backing
+    /// comment, selection.cpp) - Row/Region in particular have no backing
     /// Shape at all (synthesized geometry only), so they'd need their
     /// own bare-id hit-test, not an extension of this function.
     ///

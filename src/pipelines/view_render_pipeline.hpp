@@ -83,7 +83,7 @@ namespace le
 
         /// @brief HierarchyResolverStage's most recent output (null before
         /// the first run) - the render tree click selection queries
-        /// (api.cpp). Read it only while run() isn't executing: api.cpp
+        /// (selection.cpp). Read it only while run() isn't executing: the C API
         /// renders under the handle's shared lock and selects under its
         /// write lock.
         HierarchyResolverStage::OutputHandle resolved_output() const { return hierarchy_resolver_.latest_result(); }

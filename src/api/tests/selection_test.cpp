@@ -5,7 +5,7 @@
 
 // Layout-view click and rubber-band selection read their candidates from
 // the render tree (the last resolver output's chunk rtrees and sources -
-// api.cpp's layout_candidates), plus anything edited since it, falling
+// selection.cpp's layout_candidates), plus anything edited since it, falling
 // back to a whole-Layout scan when there's no matching render.
 
 namespace

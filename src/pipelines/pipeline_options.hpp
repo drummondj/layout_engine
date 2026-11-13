@@ -147,7 +147,7 @@ namespace le
         /// wanting LeHandle's own long-standing "ROW/TRACK_PREFERRED/
         /// TRACK_NON_PREFERRED/GCELLGRID hidden by default" convention
         /// copies LeHandle::layer_name_visibility()/purpose_visibility()
-        /// in here directly (api.cpp's own view_render_options_for).
+        /// in here directly (view_options.cpp's view_render_options_for).
         std::unordered_map<std::string, bool> layer_name_visible;
         std::unordered_map<ViewLayerPurpose, bool> purpose_visible;
         /// @brief Placement.type/Route.use values whose objects are hidden
@@ -170,7 +170,7 @@ namespace le
         /// progress. A plain snapshot value, like every other field here,
         /// not a live LeHandle* - this struct never carries live mutable
         /// UI state, only values already resolved at the point a caller
-        /// (api.cpp's own view_render_options_for) builds one. Drawn by
+        /// (view_options.cpp's view_render_options_for) builds one. Drawn by
         /// ComposeStage directly (see that stage's own doc comment) - no
         /// separate overlay stage/node, so the ghost rectangle lives in
         /// this same graph rather than a second one.
@@ -186,7 +186,7 @@ namespace le
 
         /// @brief Every currently-selected piece's own dbu-space geometry
         /// (`LeHandle::selection()`, already resolved to plain `Shape`s by
-        /// the caller - api.cpp's own view_render_options_for - per
+        /// the caller - view_options.cpp's view_render_options_for - per
         /// `SelectedObject` kind:
         /// `ShapePiece` via `Geometry::extract_piece`, `RowId` via
         /// `row_footprint_bbox`, `RegionId` via its own `RegionData::rects`
@@ -208,7 +208,7 @@ namespace le
         std::optional<std::array<Point, 2>> resize_hover_segment_dbu;
         Color flightline_color;
 
-        /// @brief Bumped whenever `flightlines_dbu` changes (api.cpp's own
+        /// @brief Bumped whenever `flightlines_dbu` changes (view_options.cpp's own
         /// flightline cache) - `ComposeStage::options_did_change` compares
         /// this, since toggling FLIGHTLINE visibility, or `link` changing
         /// connectivity, changes nothing any upstream stage rasterizes.
@@ -327,7 +327,7 @@ namespace le
 
         /// @brief Where the current Abstract's placement point is in its
         /// own coordinates: -`AbstractData::origin` (LEF MACRO ORIGIN, 0 if
-        /// unset; `api.cpp`'s `view_render_options_for` resolves it).
+        /// unset; `view_options.cpp`'s `view_render_options_for` resolves it).
         /// nullopt when `top_level` isn't an `AbstractId` (a Layout view
         /// has no origin marker). Drawn by
         /// `RasterizeBlend2DStage` alongside the grid

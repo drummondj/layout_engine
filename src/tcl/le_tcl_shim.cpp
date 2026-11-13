@@ -650,7 +650,7 @@ const char *technology_id()
 
 namespace
 {
-    // Matches api.cpp's own kKeyFitPaddingPx and GuiProvider's open
+    // Matches input.cpp's kKeyFitPaddingPx and GuiProvider's open
     // actions - the same padding every "just opened a view" fit uses,
     // duplicated here since le_tcl_shim.cpp is a separate TU.
     constexpr int32_t kOpenDesignFitPaddingPx = 10;
