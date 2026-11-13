@@ -79,7 +79,7 @@ namespace le
     };
 
     /// @brief Everything a resize snaps against, resolved once per gesture
-    /// frame by the caller (api.cpp) - `tracks` only for a path piece: its
+    /// frame by the caller (input.cpp) - `tracks` only for a path piece: its
     /// own layer's tracks.
     struct ShapeSnapContext
     {

@@ -211,7 +211,7 @@ TEST(LeHandle, SelectDedupsCorrectlyAcrossManyDistinctShapes)
 {
     // Regression/refactor-safety test for select()'s O(1)-average dedup
     // (selected_ids_, a plain unordered_set<ShapeId>) - this matters
-    // because le_mouse_up's drag-select branch (api.cpp) calls select()
+    // because le_mouse_up's drag-select branch (selection.cpp) calls select()
     // once per enclosed piece, and a real design can put hundreds of
     // thousands of pieces under one shared Obstruction's OBS block. Mixes distinct new ids with re-selecting already-
     // selected ones (in original and reverse order) and checks the exact
@@ -1204,7 +1204,7 @@ TEST(LeHandle, ArmMoveSnapshotsSelectionAndGeometry)
 TEST(LeHandle, RefreshMoveGeometryReplacesTheGhostSnapshotWithoutTouchingAnchorOrArmedState)
 {
     // Regression: committing a move re-arms for a follow-up move (see
-    // api.cpp's move_click_unlocked), keeping the ghost snapshot from the
+    // input.cpp's move_click_unlocked), keeping the ghost snapshot from the
     // moment of that re-arm - if something *else* changes the moving
     // shapes' geometry afterward (an external undo/redo), that snapshot
     // goes stale unless explicitly refreshed. refresh_move_geometry is

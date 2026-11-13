@@ -3137,7 +3137,7 @@ TEST_F(ApiFixture, MouseUpInEditModeStillEndsDragging)
 {
     // No public le_is_dragging accessor exists, so this is verified
     // indirectly: le_mouse_up's own guard (`if (!is_dragging()) return`,
-    // api.cpp) makes a *second* mouse-up with no preceding mouse-down a
+    // input.cpp) makes a *second* mouse-up with no preceding mouse-down a
     // no-op only if the first mouse-up's end_drag() actually ran despite
     // the Edit-mode gate skipping the selection block around it.
     load_two_shapes_at_known_scale(handle);

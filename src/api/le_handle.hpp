@@ -44,7 +44,9 @@
 // interaction mode). `le::Root`/`le::ViewLayerSet` are separate members
 // (the persistent database and its rendering-layer view respectively) -
 // this struct owns the mutable *view* of them, not their own content.
-// It has its own header (rather than living privately in api.cpp) so
+// That state is grouped by concern in private structs (view_,
+// interaction_, selection_, settings_) behind the methods below.
+// It has its own header (rather than living privately in the C API's sources) so
 // `api/tests/le_handle_test.cpp` can construct and exercise it directly.
 //
 // `mutex_` exists because this handle genuinely is called from more than
@@ -102,7 +104,7 @@ struct LeHandle
     le::Root root;
     le::ViewLayerSet view_layers;
 
-    // Flightlines - api.cpp's
+    // Flightlines - view_options.cpp's
     // flightlines_for fills this from le_render_pixel_buffer's
     // shared-lock read path, hence `mutable` plus its own mutex. Two
     // levels: the whole-Layout net endpoint index is rebuilt only when
@@ -125,11 +127,11 @@ struct LeHandle
     };
     mutable FlightlineCache flightline_cache;
     // How many Layout-view selections were answered from the render tree
-    // (api.cpp's layout_candidates) rather than a whole-Layout scan - for
+    // (selection.cpp's layout_candidates) rather than a whole-Layout scan - for
     // tests. Only touched under the handle's write lock.
     mutable std::uint64_t render_tree_selections = 0;
     // root.mutation_version() as of the most recent view_layers rebuild -
-    // see api.cpp's own ensure_view_layers_current() (view_layers must be
+    // see view_options.cpp's ensure_view_layers_current() (view_layers must be
     // rebuilt after any technology change, e.g. a plain le_create_layer
     // call, not only after le_read_lef).
     // UINT64_MAX (never a real mutation_version(), which starts at 0 and
@@ -381,11 +383,11 @@ struct LeHandle
     /// (`piece_kind`/`piece_index` - see Geometry::HitPiece, which
     /// LeHandle::select()'s callers build these from). The Property
     /// Viewer still resolves "the selected object" to the *owning Shape*
-    /// (le_object_property_at/le_selected_object_ref in api.cpp only
+    /// (le_object_property_at/le_selected_object_ref only
     /// ever read `shape_id`, ignoring which piece) - properties are
     /// per-Shape, not per-piece; only rendering the selection outline
     /// and Move care which specific piece this is. Geometry itself is
-    /// looked up on demand from Root (api.cpp's view_render_options_for
+    /// looked up on demand from Root (view_options.cpp's view_render_options_for
     /// resolves it for the outline) rather than stored here.
     ///
     /// One alternative of SelectedObject's variant below - every
@@ -418,7 +420,7 @@ struct LeHandle
     /// is forced to handle every alternative explicitly (std::visit)
     /// rather than silently ignoring an unset field. Every alternative
     /// already has operator<=> (Id<Tag> generated, ShapePiece defaulted
-    /// above), so the variant gets one for free - lets selected_keys_
+    /// above), so the variant gets one for free - lets selection_.keys
     /// below be a plain std::set<SelectedObject> instead of a parallel
     /// hand-rolled tuple structure.
     using SelectedObject = std::variant<ShapePiece, le::RowId, le::PlacementId, le::RegionId>;
@@ -443,18 +445,18 @@ struct LeHandle
         // displayed.
         void set_current_abstract(le::AbstractId id)
         {
-            if (id == current_abstract_)
+            if (id == view_.current_abstract)
                 return;
 
-            current_abstract_ = id;
+            view_.current_abstract = id;
             clear_selection();
             clear_rulers();
         }
-        le::AbstractId current_abstract() const { return current_abstract_; }
+        le::AbstractId current_abstract() const { return view_.current_abstract; }
 
         // --- Currently displayed Layout ---
         // A second, independent "current view" tracker mirroring
-        // current_abstract_'s own shape exactly (same selection/
+        // view_.current_abstract's own shape exactly (same selection/
         // ruler-clearing reasoning applies). Deliberately NOT the same
         // field as this handle's own
         // current_layout_id (below) - that one is the generated TCL
@@ -465,26 +467,26 @@ struct LeHandle
         // reasoning, which applies here unchanged.
         void set_current_layout(le::LayoutId id)
         {
-            if (id == current_layout_id_)
+            if (id == view_.current_layout)
                 return;
 
-            current_layout_id_ = id;
+            view_.current_layout = id;
             clear_selection();
             clear_rulers();
         }
-        le::LayoutId current_layout() const { return current_layout_id_; }
+        le::LayoutId current_layout() const { return view_.current_layout; }
 
         // --- Flightline fanout limit ---
         // A net with more than this many endpoints besides the selected
         // pin (a high-fanout clock/reset net) draws no flightlines; 0 means
         // no limit. Negative values are ignored, like set_hierarchy_depth.
-        // Part of api.cpp's flightline cache key, so a change redraws.
+        // Part of view_options.cpp's flightline cache key, so a change redraws.
         void set_flightline_max_fanout(int max_fanout)
         {
             if (max_fanout >= 0)
-                flightline_max_fanout_ = max_fanout;
+                settings_.flightline_max_fanout = max_fanout;
         }
-        int flightline_max_fanout() const { return flightline_max_fanout_; }
+        int flightline_max_fanout() const { return settings_.flightline_max_fanout; }
 
         // --- Hierarchy depth ---
         // How many further levels of Placement -> Design a Layout view
@@ -499,14 +501,14 @@ struct LeHandle
         // return value staying unchanged, not a silently-different one.
         void set_hierarchy_depth(int depth)
         {
-            if (depth < 0 || depth == hierarchy_depth_)
+            if (depth < 0 || depth == view_.hierarchy_depth)
                 return;
 
-            hierarchy_depth_ = depth;
-            ++hierarchy_version_;
+            view_.hierarchy_depth = depth;
+            ++view_.hierarchy_version;
         }
-        int hierarchy_depth() const { return hierarchy_depth_; }
-        uint64_t hierarchy_version() const { return hierarchy_version_; }
+        int hierarchy_depth() const { return view_.hierarchy_depth; }
+        uint64_t hierarchy_version() const { return view_.hierarchy_version; }
 
         // --- Viewport transform: pixel = (dbu - pan) * scale ---
         // pan/scale/viewport_size each bump viewport_version() - a cheap
@@ -514,10 +516,10 @@ struct LeHandle
         // otherwise need to snapshot and compare these fields by value.
         void set_pan(le::Point pan)
         {
-            pan_ = pan;
-            ++viewport_version_;
+            view_.pan = pan;
+            ++view_.viewport_version;
         }
-        le::Point pan() const { return pan_; }
+        le::Point pan() const { return view_.pan; }
 
         // Ignores non-positive values (keeps the last valid scale) rather
         // than let a bad zoom value from a caller divide-by-zero downstream
@@ -526,42 +528,42 @@ struct LeHandle
         {
             if (pixels_per_dbu > 0.0)
             {
-                scale_ = pixels_per_dbu;
-                ++viewport_version_;
+                view_.scale = pixels_per_dbu;
+                ++view_.viewport_version;
             }
         }
-        double scale() const { return scale_; }
+        double scale() const { return view_.scale; }
 
         void set_viewport_size(int width_px, int height_px)
         {
-            viewport_width_px_ = std::clamp(width_px, 0, le::kMaxImageDimensionPx);
-            viewport_height_px_ = std::clamp(height_px, 0, le::kMaxImageDimensionPx);
-            ++viewport_version_;
+            view_.viewport_width_px = std::clamp(width_px, 0, le::kMaxImageDimensionPx);
+            view_.viewport_height_px = std::clamp(height_px, 0, le::kMaxImageDimensionPx);
+            ++view_.viewport_version;
         }
-        int viewport_width_px() const { return viewport_width_px_; }
-        int viewport_height_px() const { return viewport_height_px_; }
+        int viewport_width_px() const { return view_.viewport_width_px; }
+        int viewport_height_px() const { return view_.viewport_height_px; }
 
         // How the view is mirrored on screen (le_set_view_flip). Pan and
         // scale describe the unmirrored view; only the screen mapping
         // changes.
-        le::ViewFlip view_flip() const { return view_flip_; }
-        void set_view_flip(le::ViewFlip flip) { view_flip_ = flip; }
+        le::ViewFlip view_flip() const { return view_.view_flip; }
+        void set_view_flip(le::ViewFlip flip) { view_.view_flip = flip; }
 
         // Undoes the view's mirror on a screen pixel coordinate (top-left
         // origin, y down): where that pixel would be in the unmirrored view.
         std::array<double, 2> unmirrored_pixel(double x_px, double y_px) const
         {
-            if (view_flip_ == le::ViewFlip::HORIZONTAL)
-                x_px = static_cast<double>(viewport_width_px_) - x_px;
-            else if (view_flip_ == le::ViewFlip::VERTICAL)
-                y_px = static_cast<double>(viewport_height_px_) - y_px;
+            if (view_.view_flip == le::ViewFlip::HORIZONTAL)
+                x_px = static_cast<double>(view_.viewport_width_px) - x_px;
+            else if (view_.view_flip == le::ViewFlip::VERTICAL)
+                y_px = static_cast<double>(view_.viewport_height_px) - y_px;
             return {x_px, y_px};
         }
 
         // Monotonic counter bumped by any of the three setters above -
         // cheap for a caller to compare instead of snapshotting pan/scale/
         // viewport size by value.
-        uint64_t viewport_version() const { return viewport_version_; }
+        uint64_t viewport_version() const { return view_.viewport_version; }
 
         // Fits `bbox` into the current viewport (already set via
         // set_viewport_size) with `padding_px` of margin on every side:
@@ -572,7 +574,7 @@ struct LeHandle
         // dividing by zero.
         void fit_to_content(std::optional<le::Rect> bbox, int64_t padding_px)
         {
-            if (!bbox || viewport_width_px_ <= 0 || viewport_height_px_ <= 0)
+            if (!bbox || view_.viewport_width_px <= 0 || view_.viewport_height_px <= 0)
             {
                 set_scale(1.0);
                 set_pan(le::Point{0, 0});
@@ -581,8 +583,8 @@ struct LeHandle
 
             const double content_width = static_cast<double>(bbox->ur.x - bbox->ll.x);
             const double content_height = static_cast<double>(bbox->ur.y - bbox->ll.y);
-            const double usable_width_px = viewport_width_px_ - 2 * padding_px;
-            const double usable_height_px = viewport_height_px_ - 2 * padding_px;
+            const double usable_width_px = view_.viewport_width_px - 2 * padding_px;
+            const double usable_height_px = view_.viewport_height_px - 2 * padding_px;
 
             // Each axis's own limit on scale, skipped (treated as
             // unbounded) when that axis's content span is zero - a
@@ -601,8 +603,8 @@ struct LeHandle
             // (non-content) space on each axis - using the full viewport
             // size here (not the padding-reduced usable size), since
             // padding is symmetric and cancels out of the centering offset.
-            const int64_t pan_x = bbox->ll.x - static_cast<int64_t>((viewport_width_px_ / scale - content_width) / 2.0);
-            const int64_t pan_y = bbox->ll.y - static_cast<int64_t>((viewport_height_px_ / scale - content_height) / 2.0);
+            const int64_t pan_x = bbox->ll.x - static_cast<int64_t>((view_.viewport_width_px / scale - content_width) / 2.0);
+            const int64_t pan_y = bbox->ll.y - static_cast<int64_t>((view_.viewport_height_px / scale - content_height) / 2.0);
 
             set_scale(scale);
             set_pan(le::Point{pan_x, pan_y});
@@ -625,21 +627,21 @@ struct LeHandle
         {
             if (dbu > 0)
             {
-                minor_grid_spacing_ = dbu;
-                ++visibility_version_;
+                settings_.minor_grid_spacing = dbu;
+                ++view_.visibility_version;
             }
         }
-        int64_t minor_grid_spacing() const { return minor_grid_spacing_; }
+        int64_t minor_grid_spacing() const { return settings_.minor_grid_spacing; }
 
         void set_major_grid_spacing(int64_t dbu)
         {
             if (dbu > 0)
             {
-                major_grid_spacing_ = dbu;
-                ++visibility_version_;
+                settings_.major_grid_spacing = dbu;
+                ++view_.visibility_version;
             }
         }
-        int64_t major_grid_spacing() const { return major_grid_spacing_; }
+        int64_t major_grid_spacing() const { return settings_.major_grid_spacing; }
 
         // --- Mouse position (screen pixels) + grid-snapped dbu position ---
         // Set by the frontend on every pointer move (see le_set_mouse_position)
@@ -649,7 +651,7 @@ struct LeHandle
         // version counter, not visibility_version - a mouse move must not
         // invalidate the expensive, design-sized rasterized images; only
         // ComposeStage's cheap overlay pass redraws.
-        // Dedups (only bumps mouse_version_ on an actual change) the same
+        // Dedups (only bumps interaction_.mouse_version on an actual change) the same
         // way set_ruler_free_form's own comment describes - le_gui.cpp's
         // own forward_mouse_input calls this unconditionally every single
         // GUI frame the mouse merely sits over the layout view, not only
@@ -659,12 +661,12 @@ struct LeHandle
         // (le_gui.cpp) and recompute every frame forever.
         void set_mouse_position(int32_t x_px, int32_t y_px)
         {
-            if (has_mouse_position_ && mouse_x_px_ == x_px && mouse_y_px_ == y_px)
+            if (interaction_.has_mouse_position && interaction_.mouse_x_px == x_px && interaction_.mouse_y_px == y_px)
                 return;
-            mouse_x_px_ = x_px;
-            mouse_y_px_ = y_px;
-            has_mouse_position_ = true;
-            ++mouse_version_;
+            interaction_.mouse_x_px = x_px;
+            interaction_.mouse_y_px = y_px;
+            interaction_.has_mouse_position = true;
+            ++interaction_.mouse_version;
         }
 
         // Call when the pointer leaves the viewport (or before the first
@@ -672,15 +674,15 @@ struct LeHandle
         // position rather than sticking at the last-known one.
         void clear_mouse_position()
         {
-            if (has_mouse_position_)
+            if (interaction_.has_mouse_position)
             {
-                has_mouse_position_ = false;
-                ++mouse_version_;
+                interaction_.has_mouse_position = false;
+                ++interaction_.mouse_version;
             }
         }
 
-        bool has_mouse_position() const { return has_mouse_position_; }
-        uint64_t mouse_version() const { return mouse_version_; }
+        bool has_mouse_position() const { return interaction_.has_mouse_position; }
+        uint64_t mouse_version() const { return interaction_.mouse_version; }
 
         // The raw stored pixel position (screen/image space - see
         // set_mouse_position) - 0/0 if has_mouse_position() is false.
@@ -689,14 +691,14 @@ struct LeHandle
         // keyboard-triggered zoom (le_key_down's LE_KEY_ZOOM) anchored at
         // "wherever the mouse currently is", the same anchor semantics
         // le_zoom's own x/y parameter already has.
-        int32_t mouse_x_px() const { return mouse_x_px_; }
-        int32_t mouse_y_px() const { return mouse_y_px_; }
+        int32_t mouse_x_px() const { return interaction_.mouse_x_px; }
+        int32_t mouse_y_px() const { return interaction_.mouse_y_px; }
 
         // Converts a screen/image pixel coordinate (top-left origin, y
         // down - same convention as set_mouse_position) to dbu space,
         // undoing the rasterizer's Y-flip the same way le_zoom's own
         // pixel->dbu conversion does - pan/scale describe the pre-flip
-        // transform while a screen pixel coordinate is post-flip. scale_
+        // transform while a screen pixel coordinate is post-flip. view_.scale
         // is always positive by construction
         // (set_scale rejects non-positive values), so no divide-by-zero
         // guard is needed here. Shared by mouse_dbu_position() (the
@@ -707,8 +709,8 @@ struct LeHandle
         le::Point pixel_to_dbu(int32_t x_px, int32_t y_px) const
         {
             const auto [x, y] = unmirrored_pixel(x_px, y_px);
-            const double dbu_x = static_cast<double>(pan_.x) + x / scale_;
-            const double dbu_y = static_cast<double>(pan_.y) + (static_cast<double>(viewport_height_px_) - y) / scale_;
+            const double dbu_x = static_cast<double>(view_.pan.x) + x / view_.scale;
+            const double dbu_y = static_cast<double>(view_.pan.y) + (static_cast<double>(view_.viewport_height_px) - y) / view_.scale;
             return le::Point{static_cast<int64_t>(dbu_x), static_cast<int64_t>(dbu_y)};
         }
 
@@ -716,10 +718,10 @@ struct LeHandle
         // has been set yet (see has_mouse_position).
         std::optional<le::Point> mouse_dbu_position() const
         {
-            if (!has_mouse_position_)
+            if (!interaction_.has_mouse_position)
                 return std::nullopt;
 
-            return pixel_to_dbu(mouse_x_px_, mouse_y_px_);
+            return pixel_to_dbu(interaction_.mouse_x_px, interaction_.mouse_y_px);
         }
 
         // mouse_dbu_position() rounded to the nearest multiple of the
@@ -733,7 +735,7 @@ struct LeHandle
             if (!dbu)
                 return std::nullopt;
 
-            auto snap = [spacing = minor_grid_spacing_](int64_t v)
+            auto snap = [spacing = settings_.minor_grid_spacing](int64_t v)
             {
                 return static_cast<int64_t>(std::llround(static_cast<double>(v) / static_cast<double>(spacing))) * spacing;
             };
@@ -768,23 +770,23 @@ struct LeHandle
         // drag-select) needs no change.
         void begin_drag(int32_t x_px, int32_t y_px, DragKind kind = DragKind::SELECT)
         {
-            dragging_ = true;
-            drag_start_x_px_ = x_px;
-            drag_start_y_px_ = y_px;
-            drag_kind_ = kind;
-            ++mouse_version_; // so the drag-rect overlay (ComposeStage) starts showing immediately
+            interaction_.dragging = true;
+            interaction_.drag_start_x_px = x_px;
+            interaction_.drag_start_y_px = y_px;
+            interaction_.drag_kind = kind;
+            ++interaction_.mouse_version; // so the drag-rect overlay (ComposeStage) starts showing immediately
         }
 
         void end_drag()
         {
-            dragging_ = false;
-            ++mouse_version_; // so the drag-rect overlay stops showing
+            interaction_.dragging = false;
+            ++interaction_.mouse_version; // so the drag-rect overlay stops showing
         }
 
-        bool is_dragging() const { return dragging_; }
-        DragKind drag_kind() const { return drag_kind_; }
-        int32_t drag_start_x_px() const { return drag_start_x_px_; }
-        int32_t drag_start_y_px() const { return drag_start_y_px_; }
+        bool is_dragging() const { return interaction_.dragging; }
+        DragKind drag_kind() const { return interaction_.drag_kind; }
+        int32_t drag_start_x_px() const { return interaction_.drag_start_x_px; }
+        int32_t drag_start_y_px() const { return interaction_.drag_start_y_px; }
 
         // The drag rectangle in dbu space, normalized (ll <= ur regardless
         // of which direction the drag went) - nullopt if no drag is in
@@ -793,14 +795,14 @@ struct LeHandle
         // condition).
         std::optional<le::Rect> drag_rect_dbu() const
         {
-            if (!dragging_)
+            if (!interaction_.dragging)
                 return std::nullopt;
 
             const std::optional<le::Point> current = mouse_dbu_position();
             if (!current)
                 return std::nullopt;
 
-            const le::Point start = pixel_to_dbu(drag_start_x_px_, drag_start_y_px_);
+            const le::Point start = pixel_to_dbu(interaction_.drag_start_x_px, interaction_.drag_start_y_px);
             return le::Rect{
                 .ll = le::Point{std::min(start.x, current->x), std::min(start.y, current->y)},
                 .ur = le::Point{std::max(start.x, current->x), std::max(start.y, current->y)},
@@ -823,25 +825,25 @@ struct LeHandle
         // Leaving Ruler mode always finishes whatever ruler was active
         // (see finish_active_ruler) - keeps "an active ruler exists only
         // in Ruler mode" an invariant callers (render, tests) can rely on
-        // rather than a coincidence. Bumps mouse_version_ on
+        // rather than a coincidence. Bumps interaction_.mouse_version on
         // an actual mode change only - the ghost-ruler overlay's content
         // is mode-dependent (ComposeStage) and needs to invalidate on
         // mode switch.
         void set_mode(Mode mode)
         {
-            if (mode == mode_)
+            if (mode == interaction_.mode)
                 return;
-            if (mode_ == Mode::RULER)
+            if (interaction_.mode == Mode::RULER)
                 finish_active_ruler();
-            if (mode_ == Mode::EDIT)
+            if (interaction_.mode == Mode::EDIT)
             {
                 end_move();   // leaving Edit mode cancels an in-progress (not yet committed) Move, same reasoning as finishing an active ruler above
                 end_resize(); // ...and likewise Resize
             }
-            mode_ = mode;
-            ++mouse_version_;
+            interaction_.mode = mode;
+            ++interaction_.mouse_version;
         }
-        Mode mode() const { return mode_; }
+        Mode mode() const { return interaction_.mode; }
 
         // --- Rulers ---
         // A ruler is a polyline of already-committed (grid-snapped)
@@ -865,9 +867,9 @@ struct LeHandle
         // arm_move()/move_set_anchor()/move_delta()/end_move(). Never
         // itself mutates Root - a committed Move is recorded as an
         // ordinary editing::Transaction of per-piece update steps by the
-        // caller (see api.cpp's le_mouse_up EDIT-mode branch), once the
+        // caller (see input.cpp's le_mouse_up EDIT-mode branch), once the
         // second click lands. Piece-granular: `moving_pieces` is a direct
-        // copy of `selection_` at
+        // copy of `selection_.objects` at
         // arm time, so Move moves exactly whichever pieces are selected,
         // not necessarily every piece of their owning Shapes.
         // `moving_geometry` is a snapshot of each moving *piece's* own
@@ -896,23 +898,23 @@ struct LeHandle
         // unarmed, if the selection is empty - nothing to move).
         // `geometry` must be parallel to LeHandle::selection() at the
         // moment of the call (one one-piece Shape per selected piece, in
-        // the same order - see Geometry::extract_piece) - api.cpp's
+        // the same order - see Geometry::extract_piece) - input.cpp's
         // arm_move_unlocked builds it from Root right before calling
         // this, since this handle's own view state has no Root access
         // here. Does not itself check Mode - callers gate this on
-        // Mode::EDIT (see api.cpp's LE_KEY_MOVE handler).
+        // Mode::EDIT (see input.cpp's LE_KEY_MOVE handler).
         void arm_move(std::vector<le::ShapeData> geometry)
         {
-            if (selection_.empty())
+            if (selection_.objects.empty())
                 return;
 
             end_resize(); // one Edit-mode tool at a time
-            move_.armed = true;
-            move_.anchor.reset();
-            move_.anchor_raw.reset();
-            move_.moving_pieces = selection_;
-            move_.moving_geometry = std::move(geometry);
-            ++mouse_version_;
+            interaction_.move.armed = true;
+            interaction_.move.anchor.reset();
+            interaction_.move.anchor_raw.reset();
+            interaction_.move.moving_pieces = selection_.objects;
+            interaction_.move.moving_geometry = std::move(geometry);
+            ++interaction_.mouse_version;
         }
 
         // Re-snapshots the ghost-preview geometry for the *current*
@@ -931,11 +933,11 @@ struct LeHandle
         // convention as arm_move's own parameter.
         void refresh_move_geometry(std::vector<le::ShapeData> geometry)
         {
-            if (!move_.armed)
+            if (!interaction_.move.armed)
                 return;
 
-            move_.moving_geometry = std::move(geometry);
-            ++mouse_version_;
+            interaction_.move.moving_geometry = std::move(geometry);
+            ++interaction_.mouse_version;
         }
 
         // Commits the current mouse position as the move's anchor point
@@ -944,12 +946,12 @@ struct LeHandle
         // mouse position is available yet.
         bool move_set_anchor()
         {
-            if (!move_.armed || move_.anchor || !has_mouse_position_)
+            if (!interaction_.move.armed || interaction_.move.anchor || !interaction_.has_mouse_position)
                 return false;
 
-            move_.anchor = snapped_mouse_position();
-            move_.anchor_raw = mouse_dbu_position();
-            ++mouse_version_;
+            interaction_.move.anchor = snapped_mouse_position();
+            interaction_.move.anchor_raw = mouse_dbu_position();
+            ++interaction_.mouse_version;
             return true;
         }
 
@@ -960,15 +962,15 @@ struct LeHandle
         // position.
         std::optional<le::Point> move_raw_delta(bool free_form) const
         {
-            if (!move_.armed || !move_.anchor_raw)
+            if (!interaction_.move.armed || !interaction_.move.anchor_raw)
                 return std::nullopt;
 
             const std::optional<le::Point> raw = mouse_dbu_position();
             if (!raw)
                 return std::nullopt;
 
-            const int64_t dx = raw->x - move_.anchor_raw->x;
-            const int64_t dy = raw->y - move_.anchor_raw->y;
+            const int64_t dx = raw->x - interaction_.move.anchor_raw->x;
+            const int64_t dy = raw->y - interaction_.move.anchor_raw->y;
             if (free_form)
                 return le::Point{dx, dy};
             return std::llabs(dx) >= std::llabs(dy) ? le::Point{dx, 0} : le::Point{0, dy};
@@ -980,7 +982,7 @@ struct LeHandle
         std::vector<le::PlacementId> moving_placements() const
         {
             std::vector<le::PlacementId> ids;
-            for (const SelectedObject &selected : move_.moving_pieces)
+            for (const SelectedObject &selected : interaction_.move.moving_pieces)
                 if (const le::PlacementId *id = std::get_if<le::PlacementId>(&selected))
                     ids.push_back(*id);
             return ids;
@@ -993,7 +995,7 @@ struct LeHandle
         // mouse (highlighted, and the GUI's resize cursor); a click on it
         // grabs it (`grab`: which piece and handle, the piece's original
         // one-piece geometry, and the raw dbu click point), the ghost
-        // follows the mouse, and a second click commits it (api.cpp).
+        // follows the mouse, and a second click commits it (input.cpp).
         // Escape cancels a grab (and disarms when nothing is grabbed);
         // otherwise it stays armed across grabs until leaving Edit mode.
         struct ResizeGrab
@@ -1011,27 +1013,27 @@ struct LeHandle
         };
 
         // Arms Resize, disarming Move - a no-op with nothing selected.
-        // Callers gate on Mode::EDIT (api.cpp's arm_resize_unlocked).
+        // Callers gate on Mode::EDIT (input.cpp's arm_resize_unlocked).
         void arm_resize()
         {
-            if (selection_.empty())
+            if (selection_.objects.empty())
                 return;
             end_move();
-            resize_.armed = true;
-            resize_.grab.reset();
-            ++mouse_version_;
+            interaction_.resize.armed = true;
+            interaction_.resize.grab.reset();
+            ++interaction_.mouse_version;
         }
 
         void begin_resize_grab(ResizeGrab grab)
         {
-            if (!resize_.armed)
+            if (!interaction_.resize.armed)
                 return;
-            resize_.grab = std::move(grab);
-            resize_.hover.reset();
-            ++mouse_version_;
+            interaction_.resize.grab = std::move(grab);
+            interaction_.resize.hover.reset();
+            ++interaction_.mouse_version;
         }
 
-        // The hover indicator - api.cpp's le_set_mouse_position recomputes
+        // The hover indicator - input.cpp's le_set_mouse_position recomputes
         // it on every mouse move while armed and nothing is grabbed.
         void set_resize_hover(std::optional<le::ResizeHandleSegment> hover)
         {
@@ -1041,58 +1043,58 @@ struct LeHandle
                     return false;
                 return !a || (a->a.x == b->a.x && a->a.y == b->a.y && a->b.x == b->b.x && a->b.y == b->b.y && a->axis == b->axis);
             };
-            if (same(resize_.hover, hover))
+            if (same(interaction_.resize.hover, hover))
                 return;
-            resize_.hover = hover;
-            ++mouse_version_;
+            interaction_.resize.hover = hover;
+            ++interaction_.mouse_version;
         }
 
         void end_resize_grab()
         {
-            if (!resize_.grab)
+            if (!interaction_.resize.grab)
                 return;
-            resize_.grab.reset();
-            ++mouse_version_;
+            interaction_.resize.grab.reset();
+            ++interaction_.mouse_version;
         }
 
         void end_resize()
         {
-            if (!resize_.armed && !resize_.grab)
+            if (!interaction_.resize.armed && !interaction_.resize.grab)
                 return;
-            resize_ = ResizeState{};
-            ++mouse_version_;
+            interaction_.resize = ResizeState{};
+            ++interaction_.mouse_version;
         }
 
-        const ResizeState &resize() const { return resize_; }
+        const ResizeState &resize() const { return interaction_.resize; }
 
         // Per piece kind (PieceKind's own ordinal): what a resized
         // edge/segment snaps to - persists across grabs, USER_GRID by
-        // default (always available). Bumps mouse_version_ on a real
+        // default (always available). Bumps interaction_.mouse_version on a real
         // change so a live ghost re-snaps immediately.
         // Vias and via arrays share the path slot (le::shape_snap_slot) -
         // they snap only when moved.
         void set_shape_snap_mode(le::PieceKind kind, le::ShapeSnapMode mode)
         {
-            le::ShapeSnapMode &slot = shape_snap_modes_[static_cast<size_t>(le::shape_snap_slot(kind))];
+            le::ShapeSnapMode &slot = settings_.shape_snap_modes[static_cast<size_t>(le::shape_snap_slot(kind))];
             if (slot == mode)
                 return;
             slot = mode;
-            ++mouse_version_;
+            ++interaction_.mouse_version;
         }
-        le::ShapeSnapMode shape_snap_mode(le::PieceKind kind) const { return shape_snap_modes_[static_cast<size_t>(le::shape_snap_slot(kind))]; }
+        le::ShapeSnapMode shape_snap_mode(le::PieceKind kind) const { return settings_.shape_snap_modes[static_cast<size_t>(le::shape_snap_slot(kind))]; }
 
         // What a moving Placement's location snaps to (the secondary
         // toolbar's snap buttons) - persists across moves, SITE by
-        // default. Bumps mouse_version_ on a real change so the ghost
+        // default. Bumps interaction_.mouse_version on a real change so the ghost
         // re-snaps immediately.
         void set_placement_snap_mode(le::PlacementSnapMode mode)
         {
-            if (mode == placement_snap_mode_)
+            if (mode == settings_.placement_snap_mode)
                 return;
-            placement_snap_mode_ = mode;
-            ++mouse_version_;
+            settings_.placement_snap_mode = mode;
+            ++interaction_.mouse_version;
         }
-        le::PlacementSnapMode placement_snap_mode() const { return placement_snap_mode_; }
+        le::PlacementSnapMode placement_snap_mode() const { return settings_.placement_snap_mode; }
 
         // The offset the moving shapes would be translated by right now
         // (or the ghost preview should show) - snapped_mouse_position()
@@ -1104,15 +1106,15 @@ struct LeHandle
         // position.
         std::optional<le::Point> move_delta(bool free_form) const
         {
-            if (!move_.armed || !move_.anchor)
+            if (!interaction_.move.armed || !interaction_.move.anchor)
                 return std::nullopt;
 
             const std::optional<le::Point> snapped = snapped_mouse_position();
             if (!snapped)
                 return std::nullopt;
 
-            const int64_t dx = snapped->x - move_.anchor->x;
-            const int64_t dy = snapped->y - move_.anchor->y;
+            const int64_t dx = snapped->x - interaction_.move.anchor->x;
+            const int64_t dy = snapped->y - interaction_.move.anchor->y;
             if (free_form)
                 return le::Point{dx, dy};
 
@@ -1123,30 +1125,30 @@ struct LeHandle
         // click, after the caller has already applied move_delta() to
         // every moving shape and recorded the resulting Transaction) and
         // on cancel (Escape, sharing LE_KEY_FINISH_RULER's handler - see
-        // api.cpp). A no-op if Move wasn't armed.
+        // input.cpp). A no-op if Move wasn't armed.
         void end_move()
         {
-            if (!move_.armed && move_.moving_pieces.empty())
+            if (!interaction_.move.armed && interaction_.move.moving_pieces.empty())
                 return;
 
-            move_ = MoveState{};
-            ++mouse_version_;
+            interaction_.move = MoveState{};
+            ++interaction_.mouse_version;
         }
 
-        const MoveState &move() const { return move_; }
+        const MoveState &move() const { return interaction_.move; }
 
-        // Same dedup-then-bump pattern as set_ruler_free_form - api.cpp
+        // Same dedup-then-bump pattern as set_ruler_free_form - input.cpp
         // resyncs this from LE_KEY_SHIFT on every key event, right next
-        // to its own ruler_free_form_ resync.
+        // to its own interaction_.ruler_free_form resync.
         void set_move_free_form(bool free_form)
         {
-            if (free_form != move_.free_form)
+            if (free_form != interaction_.move.free_form)
             {
-                move_.free_form = free_form;
-                ++mouse_version_;
+                interaction_.move.free_form = free_form;
+                ++interaction_.mouse_version;
             }
         }
-        bool move_free_form() const { return move_.free_form; }
+        bool move_free_form() const { return interaction_.move.free_form; }
 
         // The point a click would commit right now (or the ghost
         // preview should show) - grid-snapped (snapped_mouse_position()),
@@ -1164,11 +1166,11 @@ struct LeHandle
             if (!snapped)
                 return std::nullopt;
 
-            const bool has_active_last_point = !rulers_.empty() && !rulers_.back().finished && !rulers_.back().points.empty();
+            const bool has_active_last_point = !interaction_.rulers.empty() && !interaction_.rulers.back().finished && !interaction_.rulers.back().points.empty();
             if (free_form || !has_active_last_point)
                 return snapped;
 
-            const le::Point &last = rulers_.back().points.back();
+            const le::Point &last = interaction_.rulers.back().points.back();
             const int64_t dx = std::llabs(snapped->x - last.x);
             const int64_t dy = std::llabs(snapped->y - last.y);
             return dx >= dy ? le::Point{snapped->x, last.y} : le::Point{last.x, snapped->y};
@@ -1189,10 +1191,10 @@ struct LeHandle
             if (!point)
                 return;
 
-            const bool has_active = !rulers_.empty() && !rulers_.back().finished;
-            if (has_active && !rulers_.back().points.empty())
+            const bool has_active = !interaction_.rulers.empty() && !interaction_.rulers.back().finished;
+            if (has_active && !interaction_.rulers.back().points.empty())
             {
-                const le::Point &last = rulers_.back().points.back();
+                const le::Point &last = interaction_.rulers.back().points.back();
                 if (last.x == point->x && last.y == point->y)
                     return; // identical to the last committed point - a
                             // no-op rather than growing the polyline with
@@ -1204,19 +1206,19 @@ struct LeHandle
 
             if (!has_active)
             {
-                if (!rulers_.empty() && !rulers_.back().points.empty())
+                if (!interaction_.rulers.empty() && !interaction_.rulers.back().points.empty())
                 {
-                    const le::Point &last_finished = rulers_.back().points.back();
+                    const le::Point &last_finished = interaction_.rulers.back().points.back();
                     const double dx = static_cast<double>(point->x - last_finished.x);
                     const double dy = static_cast<double>(point->y - last_finished.y);
-                    const double pixel_distance = std::sqrt(dx * dx + dy * dy) * scale_;
+                    const double pixel_distance = std::sqrt(dx * dx + dy * dy) * view_.scale;
                     if (pixel_distance < kNewRulerMinDistancePx)
                         return;
                 }
-                rulers_.emplace_back();
+                interaction_.rulers.emplace_back();
             }
-            rulers_.back().points.push_back(*point);
-            ++ruler_version_;
+            interaction_.rulers.back().points.push_back(*point);
+            ++interaction_.ruler_version;
         }
 
         // Marks the active ruler (if any) finished - a no-op if there
@@ -1224,10 +1226,10 @@ struct LeHandle
         // (le_finish_ruler) and by set_mode when leaving Ruler mode.
         void finish_active_ruler()
         {
-            if (!rulers_.empty() && !rulers_.back().finished)
+            if (!interaction_.rulers.empty() && !interaction_.rulers.back().finished)
             {
-                rulers_.back().finished = true;
-                ++ruler_version_;
+                interaction_.rulers.back().finished = true;
+                ++interaction_.ruler_version;
             }
         }
 
@@ -1243,53 +1245,53 @@ struct LeHandle
         void reset_ruler_mode()
         {
             finish_active_ruler();
-            // Through set_mode, not a bare mode_ assignment, so leaving Edit
+            // Through set_mode, not a bare interaction_.mode assignment, so leaving Edit
             // mode this way ('r' from Edit) also disarms Move/Resize.
             set_mode(Mode::RULER);
         }
 
         void clear_rulers()
         {
-            if (!rulers_.empty())
+            if (!interaction_.rulers.empty())
             {
-                rulers_.clear();
-                ++ruler_version_;
+                interaction_.rulers.clear();
+                ++interaction_.ruler_version;
             }
         }
 
-        const std::vector<Ruler> &rulers() const { return rulers_; }
+        const std::vector<Ruler> &rulers() const { return interaction_.rulers; }
 
         // Bumped only on a real ruler change (a point added, a ruler
         // finished, rulers cleared) - never on mouse move alone, so a
         // cached stage keyed on this doesn't have to re-walk every
         // ruler's geometry on every pointer event (same reasoning as
         // selection_version()).
-        uint64_t ruler_version() const { return ruler_version_; }
+        uint64_t ruler_version() const { return interaction_.ruler_version; }
 
         // Whether the current/next ruler point should ignore the
         // orthogonal constraint - a plain, key-code-agnostic flag;
-        // api.cpp resyncs it (from its own knowledge of LE_KEY_SHIFT,
+        // input.cpp resyncs it (from its own knowledge of LE_KEY_SHIFT,
         // which this handle doesn't know the meaning of) on every key
         // event, so render-side code can read "free-form active right
         // now" every frame without needing to know what LE_KEY_SHIFT
-        // means. Dedups (only bumps mouse_version_ on an actual change)
+        // means. Dedups (only bumps interaction_.mouse_version on an actual change)
         // since a resync happens on every key event, not just shift's.
         void set_ruler_free_form(bool free_form)
         {
-            if (free_form != ruler_free_form_)
+            if (free_form != interaction_.ruler_free_form)
             {
-                ruler_free_form_ = free_form;
-                ++mouse_version_;
+                interaction_.ruler_free_form = free_form;
+                ++interaction_.mouse_version;
             }
         }
-        bool ruler_free_form() const { return ruler_free_form_; }
+        bool ruler_free_form() const { return interaction_.ruler_free_form; }
 
         // The on-screen text size (px) for every ruler label - tick
         // values, each segment's own point-to-point distance, and a
         // ruler's running total. Runtime-configurable (le_ruler_label_size/
         // le_set_ruler_label_size) rather than a fixed style constant,
         // since legible label size varies with display/preferences.
-        // Bumps visibility_version_ (not a dedicated counter), the same
+        // Bumps view_.visibility_version (not a dedicated counter), the same
         // signal set_minor_grid_spacing/set_major_grid_spacing already
         // use for "affects rendered content", so ruler overlays redraw
         // with no new plumbing. Non-positive
@@ -1299,15 +1301,15 @@ struct LeHandle
         {
             if (px > 0.0)
             {
-                ruler_label_size_px_ = px;
-                ++visibility_version_;
+                settings_.ruler_label_size_px = px;
+                ++view_.visibility_version;
             }
         }
-        double ruler_label_size_px() const { return ruler_label_size_px_; }
+        double ruler_label_size_px() const { return settings_.ruler_label_size_px; }
 
         // Smallest / largest on-screen size (px) a shape or placement label
         // is drawn at - labels scale with their geometry between the two
-        // (the Settings panel's min/max label font sizes). Same visibility_version_
+        // (the Settings panel's min/max label font sizes). Same view_.visibility_version
         // signal and non-positive guard as set_ruler_label_size_px. Not
         // cross-checked against each other (setting them in either order
         // must work) - a min above the max yields to it at draw time.
@@ -1315,45 +1317,39 @@ struct LeHandle
         {
             if (px > 0.0)
             {
-                label_min_size_px_ = px;
-                ++visibility_version_;
+                settings_.label_min_size_px = px;
+                ++view_.visibility_version;
             }
         }
-        double label_min_size_px() const { return label_min_size_px_; }
+        double label_min_size_px() const { return settings_.label_min_size_px; }
         void set_label_max_size_px(double px)
         {
             if (px > 0.0)
             {
-                label_max_size_px_ = px;
-                ++visibility_version_;
+                settings_.label_max_size_px = px;
+                ++view_.visibility_version;
             }
         }
-        double label_max_size_px() const { return label_max_size_px_; }
+        double label_max_size_px() const { return settings_.label_max_size_px; }
 
         // Colors picked in the Layers panel, by row name (a Layer's name,
         // or a pseudo-row's) - applied
         // on top of the default palette by every view_layers rebuild
-        // (api.cpp's rebuild_view_layers) and by the render graph's own
+        // (view_options.cpp's rebuild_view_layers) and by the render graph's own
         // LayerGenerationStage (ViewRenderOptions::layer_color_overrides).
         // A name with no row yet (a settings file read before the LEF) is
         // kept and applies once the row exists. Opaque - alpha is ignored.
         void set_layer_color(const std::string &row_name, le::Color color)
         {
             color.a = 255;
-            layer_color_overrides_[row_name] = color;
+            settings_.layer_color_overrides[row_name] = color;
             view_layers.set_row_color(row_name, color);
         }
         // True if `row_name` had a color to drop - the caller then rebuilds
         // view_layers so the row goes back to its default.
-        bool reset_layer_color(const std::string &row_name) { return layer_color_overrides_.erase(row_name) > 0; }
-        const std::map<std::string, le::Color> &layer_color_overrides() const { return layer_color_overrides_; }
-        void set_layer_color_overrides(std::map<std::string, le::Color> overrides) { layer_color_overrides_ = std::move(overrides); }
-
-        // Grid spacing (um) from a settings file read before any
-        // Technology existed to convert it to dbu - applied by api.cpp once
-        // one does.
-        std::optional<double> pending_minor_grid_um;
-        std::optional<double> pending_major_grid_um;
+        bool reset_layer_color(const std::string &row_name) { return settings_.layer_color_overrides.erase(row_name) > 0; }
+        const std::map<std::string, le::Color> &layer_color_overrides() const { return settings_.layer_color_overrides; }
+        void set_layer_color_overrides(std::map<std::string, le::Color> overrides) { settings_.layer_color_overrides = std::move(overrides); }
 
         // --- Held keys ---
         // A generic set of currently-held key codes, set by the frontend
@@ -1367,9 +1363,9 @@ struct LeHandle
         // opaque ints here - api.hpp's LeKeyCode enum gives them stable,
         // platform-independent meaning at the C API boundary; this
         // handle itself doesn't interpret them.
-        void press_key(int32_t key_code) { held_keys_.insert(key_code); }
-        void release_key(int32_t key_code) { held_keys_.erase(key_code); }
-        bool is_key_held(int32_t key_code) const { return held_keys_.contains(key_code); }
+        void press_key(int32_t key_code) { interaction_.held_keys.insert(key_code); }
+        void release_key(int32_t key_code) { interaction_.held_keys.erase(key_code); }
+        bool is_key_held(int32_t key_code) const { return interaction_.held_keys.contains(key_code); }
 
         // Call when the widget/window receiving key events loses focus
         // (see le_clear_all_keys) - a key's matching release is not
@@ -1380,7 +1376,7 @@ struct LeHandle
         // gestures that consult it (e.g. every future click reading as
         // shift-click) until that same key happens to be pressed and
         // released again while focused.
-        void clear_all_keys() { held_keys_.clear(); }
+        void clear_all_keys() { interaction_.held_keys.clear(); }
 
         // --- Layer visibility (defaults to visible until toggled, except
         // TRACK_PREFERRED/TRACK_NON_PREFERRED/ROW/GCELLGRID, pre-seeded
@@ -1396,26 +1392,26 @@ struct LeHandle
         // is_view_layer_visible().
         void set_layer_name_visible(std::string layer_name, bool visible)
         {
-            layer_name_visible_[std::move(layer_name)] = visible;
-            ++visibility_version_;
+            view_.layer_name_visible[std::move(layer_name)] = visible;
+            ++view_.visibility_version;
         }
 
         bool is_layer_name_visible(const std::string &layer_name) const
         {
-            auto it = layer_name_visible_.find(layer_name);
-            return it == layer_name_visible_.end() ? true : it->second;
+            auto it = view_.layer_name_visible.find(layer_name);
+            return it == view_.layer_name_visible.end() ? true : it->second;
         }
 
         void set_purpose_visible(le::ViewLayerPurpose purpose, bool visible)
         {
-            purpose_visible_[purpose] = visible;
-            ++visibility_version_;
+            view_.purpose_visible[purpose] = visible;
+            ++view_.visibility_version;
         }
 
         bool is_purpose_visible(le::ViewLayerPurpose purpose) const
         {
-            auto it = purpose_visible_.find(purpose);
-            return it == purpose_visible_.end() ? true : it->second;
+            auto it = view_.purpose_visible.find(purpose);
+            return it == view_.purpose_visible.end() ? true : it->second;
         }
 
         // The actual per-ViewLayer visibility question rendering asks:
@@ -1426,20 +1422,20 @@ struct LeHandle
             return is_layer_name_visible(layer_name) && is_purpose_visible(purpose);
         }
 
-        // Read-only access to both maps directly, for a caller (api.cpp's
+        // Read-only access to both maps directly, for a caller (view_options.cpp's
         // own view_render_options_for) building a ViewRenderOptions
         // snapshot to hand to the new pipelines module - copied by value
         // there rather than threading a reference/pointer into
         // ViewRenderOptions, which otherwise has no dependency on this
         // handle's own type at all.
-        const std::unordered_map<std::string, bool> &layer_name_visibility() const { return layer_name_visible_; }
-        const std::unordered_map<std::string, bool> &layer_name_selectability() const { return layer_name_selectable_; }
-        const std::unordered_map<le::ViewLayerPurpose, bool> &purpose_visibility() const { return purpose_visible_; }
+        const std::unordered_map<std::string, bool> &layer_name_visibility() const { return view_.layer_name_visible; }
+        const std::unordered_map<std::string, bool> &layer_name_selectability() const { return view_.layer_name_selectable; }
+        const std::unordered_map<le::ViewLayerPurpose, bool> &purpose_visibility() const { return view_.purpose_visible; }
 
         // Monotonic counter bumped by set_layer_name_visible/set_purpose_visible
         // - cheap for a caller to compare instead of comparing both maps by
         // value.
-        uint64_t visibility_version() const { return visibility_version_; }
+        uint64_t visibility_version() const { return view_.visibility_version; }
 
         // --- Layer selectability (defaults to selectable until toggled,
         // except TRACK_PREFERRED/TRACK_NON_PREFERRED/GCELLGRID, pre-seeded
@@ -1450,26 +1446,26 @@ struct LeHandle
         // cache to invalidate.
         void set_layer_name_selectable(std::string layer_name, bool selectable)
         {
-            layer_name_selectable_[std::move(layer_name)] = selectable;
+            view_.layer_name_selectable[std::move(layer_name)] = selectable;
         }
 
         bool is_layer_name_selectable(const std::string &layer_name) const
         {
-            auto it = layer_name_selectable_.find(layer_name);
-            return it == layer_name_selectable_.end() ? true : it->second;
+            auto it = view_.layer_name_selectable.find(layer_name);
+            return it == view_.layer_name_selectable.end() ? true : it->second;
         }
 
         void set_purpose_selectable(le::ViewLayerPurpose purpose, bool selectable)
         {
-            purpose_selectable_[purpose] = selectable;
+            view_.purpose_selectable[purpose] = selectable;
         }
 
         /// @brief The purpose's selectable toggle as last set, whether or
         /// not anything drawn on it can be selected - what settings save.
         bool purpose_selectable_toggle(le::ViewLayerPurpose purpose) const
         {
-            auto it = purpose_selectable_.find(purpose);
-            return it == purpose_selectable_.end() ? true : it->second;
+            auto it = view_.purpose_selectable.find(purpose);
+            return it == view_.purpose_selectable.end() ? true : it->second;
         }
 
         /// @brief Whether shapes on `purpose` can be selected: never for a
@@ -1489,38 +1485,38 @@ struct LeHandle
         // axes above: a Placement or Route draws only if its purpose and
         // its value are both visible. Values are matched upper-case
         // (le::to_filter_value); everything is visible and selectable by
-        // default. Hiding a value bumps visibility_version_.
+        // default. Hiding a value bumps view_.visibility_version.
         void set_object_filter_visible(int32_t filter, const std::string &value, bool visible)
         {
-            if (std::set<std::string> *values = filter_values(hidden_objects_, filter))
+            if (std::set<std::string> *values = filter_values(view_.hidden_objects, filter))
             {
                 set_membership(*values, le::to_filter_value(value), !visible);
-                ++visibility_version_;
+                ++view_.visibility_version;
             }
         }
 
         bool is_object_filter_visible(int32_t filter, const std::string &value) const
         {
-            const std::set<std::string> *values = filter_values(hidden_objects_, filter);
+            const std::set<std::string> *values = filter_values(view_.hidden_objects, filter);
             return !values || !values->contains(le::to_filter_value(value));
         }
 
         void set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable)
         {
-            if (std::set<std::string> *values = filter_values(unselectable_objects_, filter))
+            if (std::set<std::string> *values = filter_values(view_.unselectable_objects, filter))
                 set_membership(*values, le::to_filter_value(value), !selectable);
         }
 
         bool is_object_filter_selectable(int32_t filter, const std::string &value) const
         {
-            const std::set<std::string> *values = filter_values(unselectable_objects_, filter);
+            const std::set<std::string> *values = filter_values(view_.unselectable_objects, filter);
             return !values || !values->contains(le::to_filter_value(value));
         }
 
         // Hidden values (rendering and selection) and unselectable ones
         // (selection only).
-        const le::ObjectFilterSets &hidden_objects() const { return hidden_objects_; }
-        const le::ObjectFilterSets &unselectable_objects() const { return unselectable_objects_; }
+        const le::ObjectFilterSets &hidden_objects() const { return view_.hidden_objects; }
+        const le::ObjectFilterSets &unselectable_objects() const { return view_.unselectable_objects; }
 
         // le_object_filter_value_count/_at's LE_OBJECT_FILTER_PLACEMENT_TYPE
         // list, rebuilt when Root has changed since. Read under a shared
@@ -1538,15 +1534,15 @@ struct LeHandle
 
         // --- Selection ---
         // ComposeStage draws a white outline around every selected piece -
-        // selection_version_ lets its cache know when the
-        // selection changes, decoupled from viewport_version_/
-        // visibility_version_ (selection is neither a viewport nor a
+        // selection_.version lets its cache know when the
+        // selection changes, decoupled from view_.viewport_version/
+        // view_.visibility_version (selection is neither a viewport nor a
         // layer-visibility concern). Only bumped on an actual change, not
         // a redundant no-op call (matches clear_mouse_position's own
         // convention) - a no-op bump would invalidate the composed frame
         // for nothing.
         //
-        // Dedup is by SelectedObject identity (selected_keys_, an ordered
+        // Dedup is by SelectedObject identity (selection_.keys, an ordered
         // std::set<SelectedObject> - every alternative already has
         // operator<=>, so no custom hash/tuple wrapper is needed) -
         // piece-granular selection: two different
@@ -1555,7 +1551,7 @@ struct LeHandle
         // piece (or the same whole Row/Placement/Region) twice (e.g.
         // shift-clicking it again, or a drag-select re-enclosing it)
         // still no-ops. This still needs to stay cheap per call:
-        // le_mouse_up's drag-select branch (api.cpp) calls select() once
+        // le_mouse_up's drag-select branch (selection.cpp) calls select() once
         // per enclosed piece, and a real design can put hundreds of
         // thousands of pieces under one shared Obstruction's OBS block.
         void select(le::ShapeId shape_id, le::PieceKind piece_kind = le::PieceKind::RECT, size_t piece_index = 0)
@@ -1590,11 +1586,11 @@ struct LeHandle
 
         void clear_selection()
         {
-            if (!selection_.empty())
+            if (!selection_.objects.empty())
             {
-                selection_.clear();
-                selected_keys_.clear();
-                ++selection_version_;
+                selection_.objects.clear();
+                selection_.keys.clear();
+                ++selection_.version;
             }
         }
 
@@ -1606,7 +1602,7 @@ struct LeHandle
         // per-enclosed-piece loop reaches it).
         bool is_selected(le::ShapeId shape_id) const
         {
-            return std::ranges::any_of(selection_, [&](const SelectedObject &selected)
+            return std::ranges::any_of(selection_.objects, [&](const SelectedObject &selected)
                                         {
                 const auto *piece = std::get_if<ShapePiece>(&selected);
                 return piece && piece->shape_id == shape_id; });
@@ -1614,115 +1610,47 @@ struct LeHandle
 
         // Whole-object selected query, one overload per bare-id
         // alternative, same reasoning as the select() overload set above.
-        bool is_selected(le::RowId row_id) const { return selected_keys_.contains(SelectedObject{row_id}); }
-        bool is_selected(le::PlacementId placement_id) const { return selected_keys_.contains(SelectedObject{placement_id}); }
-        bool is_selected(le::RegionId region_id) const { return selected_keys_.contains(SelectedObject{region_id}); }
+        bool is_selected(le::RowId row_id) const { return selection_.keys.contains(SelectedObject{row_id}); }
+        bool is_selected(le::PlacementId placement_id) const { return selection_.keys.contains(SelectedObject{placement_id}); }
+        bool is_selected(le::RegionId region_id) const { return selection_.keys.contains(SelectedObject{region_id}); }
 
-        const std::vector<SelectedObject> &selection() const { return selection_; }
-        uint64_t selection_version() const { return selection_version_; }
+        const std::vector<SelectedObject> &selection() const { return selection_.objects; }
+        uint64_t selection_version() const { return selection_.version; }
 
         // Adds one already-built SelectedObject of any kind - for a caller
-        // holding a mixed list of candidates (api.cpp's click cycling).
+        // holding a mixed list of candidates (selection.cpp's click cycling).
         void select_any(const SelectedObject &object) { select_object(object); }
 
     private:
-        std::set<SelectedObject> selected_keys_;
-
         // Shared core of every select()/deselect() overload above - one
-        // place that maintains selected_keys_/selection_/selection_version_
-        // together, so every public overload (ShapeId+piece, or a bare
-        // RowId/PlacementId/RegionId) goes through the identical dedup/
-        // bump logic instead of re-deriving it per overload.
+        // place that maintains selection_, so every public overload
+        // (ShapeId+piece, or a bare RowId/PlacementId/RegionId) goes
+        // through the identical dedup/bump logic instead of re-deriving it
+        // per overload.
         void select_object(SelectedObject object)
         {
-            if (!selected_keys_.insert(object).second)
+            if (!selection_.keys.insert(object).second)
                 return; // duplicate, no-op
 
-            selection_.push_back(object);
-            ++selection_version_;
+            selection_.objects.push_back(object);
+            ++selection_.version;
         }
 
         void deselect_object(const SelectedObject &object)
         {
-            if (selected_keys_.erase(object) == 0)
+            if (selection_.keys.erase(object) == 0)
                 return;
 
-            std::erase(selection_, object);
-            ++selection_version_;
+            std::erase(selection_.objects, object);
+            ++selection_.version;
         }
-        le::AbstractId current_abstract_;
-        le::LayoutId current_layout_id_;
-        int hierarchy_depth_ = 0;
-        uint64_t hierarchy_version_ = 0;
-        le::Point pan_{0, 0};
-        double scale_ = 1.0;
-        int viewport_width_px_ = 0;
-        int viewport_height_px_ = 0;
-        le::ViewFlip view_flip_ = le::ViewFlip::NONE;
-        uint64_t viewport_version_ = 0;
-        int64_t minor_grid_spacing_ = 5;
-        int64_t major_grid_spacing_ = 50;
-        int32_t mouse_x_px_ = 0;
-        int32_t mouse_y_px_ = 0;
-        bool has_mouse_position_ = false;
-        uint64_t mouse_version_ = 0;
-        Mode mode_ = Mode::SELECT;
-        std::vector<Ruler> rulers_;
-        uint64_t ruler_version_ = 0;
-        bool ruler_free_form_ = false;
-        MoveState move_;
-        ResizeState resize_;
-        int flightline_max_fanout_ = 10;
-        std::array<le::ShapeSnapMode, 4> shape_snap_modes_{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID}; // RECT, POLYGON, PATH (+ VIA, VIA_ITERATE), unused VIA slot
-        le::PlacementSnapMode placement_snap_mode_ = le::PlacementSnapMode::SITE;
-        double ruler_label_size_px_ = 11.0;
-        double label_min_size_px_ = 12.0; // draw_helpers.hpp's kMinLabelPixelSize
-        double label_max_size_px_ = 24.0; // draw_helpers.hpp's kMaxLabelPixelSize
-        std::map<std::string, le::Color> layer_color_overrides_;
 
-    public:
-        // What "saved" means for the exit
-        // confirmation. The design is unsaved once root's mutation version
-        // moves past saved_mutation_version (set at creation and by a
-        // successful write_db or read_db - only a .led file holds the whole
-        // database, so a design read from LEF/DEF/Verilog, or written only to
-        // them, is unsaved). Settings are unsaved once
-        // settings_to_json no longer matches saved_settings_json (set at
-        // creation, by save_settings/load_settings, and by a clean read,
-        // which can fill in grid spacing in um). Maintained by api.cpp.
-        uint64_t saved_mutation_version = 0;
-        // The native database file last read or written (read_db/write_db),
-        // the GUI's File > Save target; empty until there is one.
-        std::string db_path;
-        // Whether the GUI asks before a Save overwrites a design file (a
-        // setting, saved in settings.json).
-        bool confirm_overwrite = true;
-        // Bumped by ExtensionContext::request_redraw (from any thread): the
-        // render's extension_overlay_version, so Compose redraws.
-        std::atomic<uint64_t> extension_overlay_version{0};
-        std::string saved_settings_json;
-        // The last loaded settings file's top-level keys this version
-        // doesn't know (a JSON object, or "" for none) - written back by
-        // save_settings so a newer layout_engine's settings survive a save
-        // from this one.
-        std::string unknown_settings_json;
-        // settings.json's "extensions" sections whose extension this build
-        // doesn't have (a JSON object, or empty): kept and written back, so
-        // a build without an extension doesn't lose its settings.
-        std::string unknown_extension_settings_json;
-
-    private:
         // Minimum on-screen distance (px, converted via the current
         // scale) a new ruler's first point must be from the most
         // recently finished ruler's last point - see add_ruler_point.
         // A placeholder, tunable like every other threshold constant.
         static constexpr double kNewRulerMinDistancePx = 20.0;
-        bool dragging_ = false;
-        DragKind drag_kind_ = DragKind::SELECT;
-        int32_t drag_start_x_px_ = 0;
-        int32_t drag_start_y_px_ = 0;
-        std::unordered_set<int32_t> held_keys_;
-        std::unordered_map<std::string, bool> layer_name_visible_;
+
         // {purpose, false} for each purpose whose `flag` is false in the
         // generated registry.
         static std::unordered_map<le::ViewLayerPurpose, bool> purposes_off_by_default(bool le::ViewLayerPurposeInfo::*flag)
@@ -1733,19 +1661,6 @@ struct LeHandle
                     off.emplace(info.purpose, false);
             return off;
         }
-        // Pre-seeded with every purpose the registry hides by default; the
-        // rest fall back to is_purpose_visible()'s "unknown key -> visible",
-        // and the pipeline reads this map the same way.
-        std::unordered_map<le::ViewLayerPurpose, bool> purpose_visible_ = purposes_off_by_default(&le::ViewLayerPurposeInfo::visible_by_default);
-        uint64_t visibility_version_ = 0;
-        std::unordered_map<std::string, bool> layer_name_selectable_;
-        // Pre-seeded the same way from selectable_by_default.
-        std::unordered_map<le::ViewLayerPurpose, bool> purpose_selectable_ = purposes_off_by_default(&le::ViewLayerPurposeInfo::selectable_by_default);
-        le::ObjectFilterSets hidden_objects_;
-        le::ObjectFilterSets unselectable_objects_;
-        mutable std::mutex placement_type_values_mutex_;
-        mutable std::vector<std::string> placement_type_values_;
-        mutable uint64_t placement_type_values_version_ = std::numeric_limits<uint64_t>::max();
 
         // `sets`' value set for an LeObjectFilter; nullptr for an unknown one.
         template <typename Sets>
@@ -1771,18 +1686,131 @@ struct LeHandle
                 values.erase(value);
         }
 
-        std::vector<SelectedObject> selection_;
-        // signature (piece_signature) -> index into selection_ - see
-        // select()'s own comment for why this exists.
-        std::unordered_multimap<size_t, size_t> selection_index_;
-        uint64_t selection_version_ = 0;
+        // What is shown and how: the open Abstract or Layout, how deep it
+        // recurses, the viewport transform, and layer/purpose/object-filter
+        // visibility and selectability.
+        struct ViewState
+        {
+            le::AbstractId current_abstract;
+            le::LayoutId current_layout;
+            int hierarchy_depth = 0;
+            uint64_t hierarchy_version = 0;
+            le::Point pan{0, 0};
+            double scale = 1.0;
+            int viewport_width_px = 0;
+            int viewport_height_px = 0;
+            le::ViewFlip view_flip = le::ViewFlip::NONE;
+            uint64_t viewport_version = 0;
+            std::unordered_map<std::string, bool> layer_name_visible;
+            // Pre-seeded with every purpose the registry hides by default; the
+            // rest fall back to is_purpose_visible()'s "unknown key -> visible",
+            // and the pipeline reads this map the same way.
+            std::unordered_map<le::ViewLayerPurpose, bool> purpose_visible = purposes_off_by_default(&le::ViewLayerPurposeInfo::visible_by_default);
+            std::unordered_map<std::string, bool> layer_name_selectable;
+            // Pre-seeded the same way from selectable_by_default.
+            std::unordered_map<le::ViewLayerPurpose, bool> purpose_selectable = purposes_off_by_default(&le::ViewLayerPurposeInfo::selectable_by_default);
+            le::ObjectFilterSets hidden_objects;
+            le::ObjectFilterSets unselectable_objects;
+            // Bumped by everything else that changes the rendered picture:
+            // visibility, grid spacing, label sizes.
+            uint64_t visibility_version = 0;
+        };
+
+        // The mouse, held keys, and the mode and gesture in progress
+        // (drag, rulers, Move, Resize).
+        struct InteractionState
+        {
+            int32_t mouse_x_px = 0;
+            int32_t mouse_y_px = 0;
+            bool has_mouse_position = false;
+            uint64_t mouse_version = 0;
+            bool dragging = false;
+            DragKind drag_kind = DragKind::SELECT;
+            int32_t drag_start_x_px = 0;
+            int32_t drag_start_y_px = 0;
+            std::unordered_set<int32_t> held_keys;
+            Mode mode = Mode::SELECT;
+            std::vector<Ruler> rulers;
+            uint64_t ruler_version = 0;
+            bool ruler_free_form = false;
+            MoveState move;
+            ResizeState resize;
+        };
+
+        // The selected objects in selection order, and the same objects as
+        // a set for select()'s dedup.
+        struct SelectionState
+        {
+            std::vector<SelectedObject> objects;
+            std::set<SelectedObject> keys;
+            uint64_t version = 0;
+        };
+
+        // The preferences settings.json saves that sit behind validating
+        // setters; the rest are public fields below.
+        struct SettingsState
+        {
+            int64_t minor_grid_spacing = 5;
+            int64_t major_grid_spacing = 50;
+            double ruler_label_size_px = 11.0;
+            double label_min_size_px = 12.0; // draw_helpers.hpp's kMinLabelPixelSize
+            double label_max_size_px = 24.0; // draw_helpers.hpp's kMaxLabelPixelSize
+            int flightline_max_fanout = 10;
+            std::array<le::ShapeSnapMode, 4> shape_snap_modes{le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID, le::ShapeSnapMode::USER_GRID}; // RECT, POLYGON, PATH (+ VIA, VIA_ITERATE), unused VIA slot
+            le::PlacementSnapMode placement_snap_mode = le::PlacementSnapMode::SITE;
+            std::map<std::string, le::Color> layer_color_overrides;
+        };
+
+        ViewState view_;
+        InteractionState interaction_;
+        SelectionState selection_;
+        SettingsState settings_;
+
+        mutable std::mutex placement_type_values_mutex_;
+        mutable std::vector<std::string> placement_type_values_;
+        mutable uint64_t placement_type_values_version_ = std::numeric_limits<uint64_t>::max();
 
     public:
+        // What "saved" means for the exit
+        // confirmation. The design is unsaved once root's mutation version
+        // moves past saved_mutation_version (set at creation and by a
+        // successful write_db or read_db - only a .led file holds the whole
+        // database, so a design read from LEF/DEF/Verilog, or written only to
+        // them, is unsaved). Settings are unsaved once
+        // settings_to_json no longer matches saved_settings_json (set at
+        // creation, by save_settings/load_settings, and by a clean read,
+        // which can fill in grid spacing in um). Maintained by api.cpp and settings.cpp.
+        uint64_t saved_mutation_version = 0;
+        // The native database file last read or written (read_db/write_db),
+        // the GUI's File > Save target; empty until there is one.
+        std::string db_path;
+        // Whether the GUI asks before a Save overwrites a design file (a
+        // setting, saved in settings.json).
+        bool confirm_overwrite = true;
+        // Grid spacing (um) from a settings file read before any
+        // Technology existed to convert it to dbu - applied by api.cpp once
+        // one does.
+        std::optional<double> pending_minor_grid_um;
+        std::optional<double> pending_major_grid_um;
+
+        // Bumped by ExtensionContext::request_redraw (from any thread): the
+        // render's extension_overlay_version, so Compose redraws.
+        std::atomic<uint64_t> extension_overlay_version{0};
+        std::string saved_settings_json;
+        // The last loaded settings file's top-level keys this version
+        // doesn't know (a JSON object, or "" for none) - written back by
+        // save_settings so a newer layout_engine's settings survive a save
+        // from this one.
+        std::string unknown_settings_json;
+        // settings.json's "extensions" sections whose extension this build
+        // doesn't have (a JSON object, or empty): kept and written back, so
+        // a build without an extension doesn't lose its settings.
+        std::string unknown_extension_settings_json;
+
         // The Shapes the most recent le_shape_* call created, read back via
         // le_shape_op_result_at - same "count now, _at later" shape as the
         // generated search-result caches below.
         std::vector<le::ShapeId> shape_op_results;
-
 
         // Generated TCL property-reading cache - one cached_X_property_id/
         // cached_X_properties pair per TCL-readable class not already covered

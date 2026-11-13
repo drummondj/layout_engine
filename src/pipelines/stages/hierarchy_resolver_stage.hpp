@@ -238,7 +238,7 @@ namespace le
     /// the chunks it touched and every per-chunk downstream cache (e.g.
     /// RasterizeBlend2DStage's route-outline cache) survives it.
     /// @brief Which database object each of a chunk's RenderShapes came
-    /// from - so click selection (api.cpp) can find the objects under the
+    /// from - so click selection (selection.cpp) can find the objects under the
     /// mouse by querying the render tree instead of scanning the design.
     /// `shapes[layer][i]` is the Shape or Wire behind
     /// `chunk.shapes->at(layer)[i]` (a via's owning Shape or Wire for its

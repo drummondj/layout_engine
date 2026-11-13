@@ -340,7 +340,7 @@ namespace le
         /// @brief Draws a white outline around every
         /// currently-selected piece's own geometry
         /// (`ViewRenderOptions::selected_piece_outlines`, already resolved
-        /// to dbu-space `Shape`s by the caller - api.cpp's own
+        /// to dbu-space `Shape`s by the caller - view_options.cpp's
         /// view_render_options_for) - a no-op when nothing is selected.
         /// Same `to_pixel` mapping/pixel-space reasoning as
         /// `draw_drag_rect_overlay` above (`ctx` has no ambient transform
@@ -638,7 +638,7 @@ namespace le
 
             // The live ghost segment - only ever extends the *last*
             // polyline's own last point (LeHandle::ruler_next_point's own
-            // "the last entry is the active ruler" invariant); api.cpp
+            // "the last entry is the active ruler" invariant); view_options.cpp
             // only ever populates ruler_ghost_point_dbu when that
             // invariant holds, but this stays defensive rather than
             // assuming a non-empty options.ruler_polylines_dbu.

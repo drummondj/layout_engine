@@ -10,7 +10,7 @@ namespace le
     /// size as the step when unset - the common case where sites sit
     /// edge-to-edge). Row has no stored Shape of its own (purely
     /// parametric geometry), so rendering (HierarchyResolverStage) and
-    /// selection (api.cpp) both derive its bbox here. nullopt if the Row's
+    /// selection (selection.cpp) both derive its bbox here. nullopt if the Row's
     /// site_name doesn't resolve, its Site has no stored size, or the Row
     /// itself has no stored origin.
     inline std::optional<Rect> row_footprint_bbox(const Root &root, RowId row_id)

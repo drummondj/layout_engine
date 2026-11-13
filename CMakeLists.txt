@@ -473,8 +473,8 @@ FetchContent_MakeAvailable(imgui)
 # still point at). DOWNLOAD_NO_EXTRACT - both are a single loose file,
 # not an archive with a build system inside like every other
 # FetchContent dependency above.
-# nlohmann/json - the settings file (api.cpp's
-# le_save_settings/le_load_settings). The release's own
+# nlohmann/json - the settings file (settings.cpp's
+# le_save_settings/le_load_settings) and the saved session (session.cpp). The release's own
 # single-header amalgamation, pinned by version, same loose-file
 # DOWNLOAD_NO_EXTRACT treatment as the icon header below.
 le_fetch_declare(
@@ -753,7 +753,8 @@ target_link_libraries(io
 # Compiled (not header-only): the opaque LeHandle's real definition must
 # stay out of api.hpp, which is a plain-C header - see api.hpp's own
 # comment. ---
-add_library(api STATIC src/api/api.cpp src/api/edit_ops.cpp src/api/extension.cpp)
+add_library(api STATIC src/api/api.cpp src/api/input.cpp src/api/selection.cpp src/api/session.cpp src/api/settings.cpp
+    src/api/view_options.cpp src/api/edit_ops.cpp src/api/extension.cpp)
 # api.hpp includes "generated/api/..." itself, so its consumers need the
 # build tree's root on their include path (and the codegen step) too.
 target_include_directories(api PUBLIC src/api ${PROJECT_BINARY_DIR})

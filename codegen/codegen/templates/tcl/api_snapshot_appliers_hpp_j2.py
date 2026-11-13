@@ -1,13 +1,13 @@
 TEMPLATE = """#pragma once
 // GENERATED - do not edit by hand. The build regenerates it
-// (codegen --target tcl). #include'd once from api.cpp, alongside the
+// (codegen --target tcl). #include'd from api.cpp and input.cpp, alongside the
 // other generated/api/*.inc includes - a real
 // standalone header (not a .inc fragment spliced into an existing scope
 // like every other generated/api/ file), since these free functions need
 // to be callable from anywhere that already has a <Klass>Data value in
 // hand - not just the generic create_api_body()/update_api_body()
 // recording hook these back, but also editing::MoveCommand's own commit
-// path (api.cpp's move_click_unlocked).
+// path (input.cpp's move_click_unlocked).
 //
 // One apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&) per
 // class - see Klass.apply_snapshot_body() (schema.py) for how the body
