@@ -158,13 +158,8 @@ namespace le
         /// @brief Whether calling execute() with this exact
         /// (data_version, options) pair right now would trigger a real
         /// compute() call, without running it or mutating any state.
-        /// Lets a caller decide whether even TRIGGERING the
-        /// underlying flow::graph node is worth its own real per-call
-        /// TBB scheduling overhead, which execute()'s own early-return
-        /// (on should_recompute == false) does NOT avoid by itself: the
-        /// message still has to be try_put and the graph still has to be
-        /// waited on to get the (unchanged) result back out - 300-600ms on
-        /// a ~478,000-shape Layout even on a guaranteed cache hit.
+        /// Lets a caller skip submitting to the graph, and know up front
+        /// whether a call will do real work.
         bool would_recompute(std::uint64_t data_version, const PipelineOptions &options) const
         {
             return last_data_version_ != data_version || options_did_change(last_options_, options);
@@ -273,8 +268,9 @@ namespace le
             return false;
         }
 
-    private:
-        /// @brief Recomputes via compute() if needed, else returns the cached result.
+    public:
+        /// @brief Recomputes via compute() if needed, else returns the cached result -
+        /// the node's body, callable directly to run a stage outside the graph.
         StageData<OutputHandle, PipelineOptions> execute(StageData<InputData, PipelineOptions> in)
         {
             ZoneScoped;
@@ -321,6 +317,7 @@ namespace le
             return {last_result_, version_, in.options}; // shared_ptr copy - cheap regardless of OutputData's own size
         }
 
+    private:
         oneapi::tbb::flow::function_node<
             StageData<InputData, PipelineOptions>, StageData<OutputHandle, PipelineOptions>>
             node_;

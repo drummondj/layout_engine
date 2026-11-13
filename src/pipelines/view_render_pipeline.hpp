@@ -104,12 +104,8 @@ namespace le
         /// by bumping it for an unrelated reason.
         ///
         /// Skips try_put/wait_for_all entirely when no stage in the whole
-        /// chain would recompute - see MemoizingStage::would_recompute()'s
-        /// own doc comment (tbb_core.hpp) for why that's load-bearing, not
-        /// just a nicety, even on a guaranteed cache hit (300-600ms of
-        /// pure TBB message-passing/scheduling overhead on a
-        /// ~478,000-shape Layout, which would otherwise be paid on every
-        /// steady-state pan/zoom tick when nothing changed at all).
+        /// chain would recompute. Passing a message through all five
+        /// nodes costs a few microseconds whatever the design's size.
         /// Cascaded across all five stages in dependency order: an
         /// earlier stage's own future recompute isn't yet a real, bumped
         /// version() before it actually runs, so it has to be assumed to
