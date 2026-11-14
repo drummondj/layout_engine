@@ -124,6 +124,14 @@ namespace {{schema.namespace}} {
     using {{klass.name}}Retired = RetiredObject<{{klass.name}}Data, {{klass.list_parent_fields() | length}}>;
     {%- endfor %}
 
+    /// @brief What Root::retire_created() took out: per class, a
+    /// retire_batch() result.
+    struct RetiredCreated {
+    {%- for klass in schema.get_pool_classes() %}
+        std::vector<std::pair<{{klass.name}}Id, {{klass.name}}Retired>> {{klass.to_snake_case()}};
+    {%- endfor %}
+    };
+
     class Root {
     public:
         /// @brief Monotonic counter bumped by every bump_mutation_version()
@@ -174,6 +182,54 @@ namespace {{schema.namespace}} {
                 break;
             }
             return false;
+        }
+
+        /// @brief retire_batch() every object a creation journal names that
+        /// still exists, class by class - for undoing a bulk operation.
+        RetiredCreated retire_created(std::span<const CreatedObject> created) {
+        {%- for klass in schema.get_pool_classes() %}
+            std::vector<{{klass.name}}Id> {{klass.to_snake_case()}}_ids;
+        {%- endfor %}
+            for (const CreatedObject &object : created) {
+                switch (object.klass) {
+                {%- for klass in schema.get_pool_classes() %}
+                case ChangeKlass::{{klass.name}}:
+                    {{klass.to_snake_case()}}_ids.push_back({{klass.name}}Id{object.index, object.generation});
+                    break;
+                {%- endfor %}
+                case ChangeKlass::None:
+                    break;
+                }
+            }
+            RetiredCreated retired;
+        {%- for klass in schema.get_pool_classes() %}
+            if (!{{klass.to_snake_case()}}_ids.empty())
+                retired.{{klass.to_snake_case()}} = retire_batch(std::span<const {{klass.name}}Id>({{klass.to_snake_case()}}_ids));
+        {%- endfor %}
+            return retired;
+        }
+
+        /// @brief restore_batch() everything retire_created() took out.
+        /// False if any class couldn't be restored; the others still are.
+        bool restore_created(RetiredCreated &retired) {
+            bool restored = true;
+        {%- for klass in schema.get_pool_classes() %}
+            if (!retired.{{klass.to_snake_case()}}.empty()) {
+                if (restore_batch(retired.{{klass.to_snake_case()}}))
+                    retired.{{klass.to_snake_case()}}.clear();
+                else
+                    restored = false;
+            }
+        {%- endfor %}
+            return restored;
+        }
+
+        /// @brief release() every id retire_created() took out.
+        void release_created(const RetiredCreated &retired) {
+        {%- for klass in schema.get_pool_classes() %}
+            for (const auto &entry : retired.{{klass.to_snake_case()}})
+                release(entry.first);
+        {%- endfor %}
         }
 
         /// @brief The current owner of the (live) object `klass`/`index`/

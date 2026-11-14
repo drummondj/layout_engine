@@ -1369,6 +1369,7 @@ add_executable(backend_tests
     src/api/tests/extension_test.cpp
     src/api/tests/native_db_api_test.cpp
     src/api/tests/read_rollback_test.cpp
+    src/api/tests/read_undo_test.cpp
     src/api/tests/string_lifetime_test.cpp
     src/api/tests/selection_test.cpp
     src/api/tests/power_grid_port_markers_test.cpp

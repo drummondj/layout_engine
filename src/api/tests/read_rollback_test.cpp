@@ -169,3 +169,36 @@ TEST(ReadRollback, ACommittedReadKeepsItsObjectsAndAnInnerGuardDefersToTheOuter)
     EXPECT_EQ(root.get_library_ids().size(), 1u);
     EXPECT_EQ(root.creation_journal(), nullptr);
 }
+
+// A Verilog read links older unresolved Instances: rolled back, they are
+// unresolved again; committed for undo, the record names them.
+TEST(ReadRollback, TrackedLinksOfOlderInstancesRollBackAndAreRecorded)
+{
+    le::Root root;
+    const le::LibraryId library = root.create_library(le::LibraryData{.name = "lib"});
+    const le::DesignId top = root.create_design(le::DesignData{.library = library, .name = "TOP"});
+    const le::SchematicId schematic = root.create_schematic(le::SchematicData{.design = top});
+    const le::InstanceId older = root.create_instance(le::InstanceData{.schematic = schematic, .name = "u1", .reference_name = "LEAF"});
+
+    auto read_leaf = [&]
+    {
+        const le::DesignId leaf = root.create_design(le::DesignData{.library = library, .name = "LEAF"});
+        root.get_instance(older)->reference_design = leaf;
+        return leaf;
+    };
+
+    {
+        le::ReadRollback rollback(root, /*tracks_links=*/true);
+        read_leaf();
+    }
+    EXPECT_FALSE(root.get_instance(older)->reference_design.valid());
+
+    le::ReadRollback rollback(root, /*tracks_links=*/true);
+    const le::DesignId leaf = read_leaf();
+    const le::ReadRecord record = rollback.commit_for_undo();
+    ASSERT_EQ(record.linked.size(), 1u);
+    EXPECT_EQ(record.linked.front().first, older);
+    EXPECT_EQ(record.linked.front().second, leaf);
+    EXPECT_EQ(record.created.size(), 1u);
+    EXPECT_TRUE(root.get_instance(older)->reference_design.valid());
+}

@@ -51,6 +51,9 @@ namespace le::editing
             steps_.push_back(std::make_unique<BatchDeleteCommand<IdT>>(std::move(retired)));
         }
 
+        /// @brief Record a step of any other kind.
+        void record(std::unique_ptr<ICommand> step) { steps_.push_back(std::move(step)); }
+
         /// @brief Undo every step, last first. Returns how many failed.
         size_t undo_all(Root &root)
         {

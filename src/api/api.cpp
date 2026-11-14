@@ -21,6 +21,7 @@
 #include "../pipelines/pipeline_options.hpp"
 #include "edit_ops.hpp"
 #include "api_internal.hpp"
+#include "read_command.hpp"
 #include "le_handle.hpp"
 #include "le/extension.hpp"
 // Generated apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&)
@@ -684,7 +685,13 @@ extern "C"
         const CleanAcrossRead clean(handle);
         const std::filesystem::path lef_path(path);
         le::LEFReader reader;
-        const int result = reader.read_lef(lef_path.string(), handle->root, library_name);
+        int result = 0;
+        {
+            RecordedRead recorded(handle->root, handle->command_history.current(), /*tracks_links=*/false);
+            result = reader.read_lef(lef_path.string(), handle->root, library_name);
+            if (result == 0)
+                recorded.commit();
+        }
         // The readers create through Root directly, which never bumps the
         // version itself - without this, anything keyed on it (the render
         // graph's LayerGenerationStage, ensure_view_layers_current) kept
@@ -768,7 +775,13 @@ extern "C"
         const CleanAcrossRead clean(handle);
         const std::filesystem::path def_path(path);
         le::DEFReader reader;
-        const int result = reader.read_def(def_path.string(), handle->root, library_name);
+        int result = 0;
+        {
+            RecordedRead recorded(handle->root, handle->command_history.current(), /*tracks_links=*/false);
+            result = reader.read_def(def_path.string(), handle->root, library_name);
+            if (result == 0)
+                recorded.commit();
+        }
         handle->root.bump_mutation_version(); // see le_read_lef
         if (result != 0)
         {
@@ -871,9 +884,14 @@ extern "C"
 
         const CleanAcrossRead clean(handle);
         le::SVReader reader;
-        const int result = is_netlist
-            ? reader.read_netlist(filename_strings, handle->root, library_name)
-            : reader.read_rtl(filename_strings, handle->root, library_name);
+        int result = 0;
+        {
+            RecordedRead recorded(handle->root, handle->command_history.current(), /*tracks_links=*/true);
+            result = is_netlist ? reader.read_netlist(filename_strings, handle->root, library_name)
+                                : reader.read_rtl(filename_strings, handle->root, library_name);
+            if (result == 0)
+                recorded.commit();
+        }
         handle->root.bump_mutation_version(); // see le_read_lef
 
         if (!stub_path.empty())
