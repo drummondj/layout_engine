@@ -175,8 +175,9 @@ fails on a temp path that isn't unique to its process.
   via arrays are selectable pieces hit-tested in selection.cpp (their geometry
   comes from `pipelines/via_shapes.hpp`, which `core` can't depend on).
 - `src/tcl/` — the Tcl surface: `le_api.i` (SWIG) wraps `le_tcl_shim` into
-  `le_tcl.so`; `le_tcl_procs.tcl` parses `-flag value` syntax and builds
-  dicts/lists. Domain-verb command names, no visible handle, friendly ids
+  `le_tcl.so`; `le_tcl_procs.tcl` parses `-flag value` syntax (`_parse_options`/
+  `_require_options`, `-help` through `_return_usage_if_help`, shared by
+  the hand-written and generated procs) and builds dicts/lists. Domain-verb command names, no visible handle, friendly ids
   (`terminal:IN0`, `shape:12`). Property reading, `get_<type>`,
   `create_<type>`, `update_<type>` and `delete_<type>` are generated for
   every readable class (see TCL codegen). `le_repl_eval` is the bracket

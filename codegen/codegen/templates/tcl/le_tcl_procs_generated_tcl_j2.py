@@ -79,9 +79,7 @@ array set ::get_command_class {
 {% for klass in current_access_classes %}
 {%- set snake = klass.to_snake_case() %}
 proc current_{{snake}} {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "current_{{snake}} \\[<id>\\] \\[-help\\] - Returns the current {{klass.name}}, selecting it first if <id> is given"
-    }
+    _return_usage_if_help current_{{snake}} $args
     if {[llength $args] > 1} {
         error "current_{{snake}}: at most one argument (a {{klass.name}} id) is allowed"
     }
@@ -186,16 +184,8 @@ register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}
 {%- set snake = klass.to_snake_case() %}
 {%- set parent_fields = klass.get_parent_fields() %}
 proc create_{{snake}} {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "{{klass.create_tcl_usage()}}"
-    }
-    array set opts {{'{'}}{{klass.create_tcl_flag_defaults()}}{{'}'}}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "create_{{snake}}: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    _return_usage_if_help create_{{snake}} $args
+    array set opts [_parse_options create_{{snake}} {{'{'}}{{klass.create_tcl_flag_defaults()}}{{'}'}} $args]
 {%- if klass.create_tcl_aliases() %}
 {{klass.create_tcl_aliases()}}
 {%- endif %}
@@ -220,11 +210,7 @@ proc create_{{snake}} {args} {
         }
     }
     {%- endif %}
-    foreach required {{'{'}}{{klass.create_tcl_required_flags()}}{{'}'}} {
-        if {$opts($required) eq {}} {
-            error "create_{{snake}}: $required is required"
-        }
-    }
+    _require_options create_{{snake}} [array get opts] {{'{'}}{{klass.create_tcl_required_flags()}}{{'}'}}
 {%- if klass.tcl_reference_token_checks('create_' ~ snake) %}
 {{klass.tcl_reference_token_checks('create_' ~ snake)}}
 {%- endif %}
@@ -263,19 +249,11 @@ register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "Creates a
 {% for klass in classes %}
 {%- set snake = klass.to_snake_case() %}
 proc update_{{snake}} {id args} {
-    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "{{klass.update_tcl_usage()}}"
-    }
+    _return_usage_if_help update_{{snake}} [list $id {*}$args]
     if {[llength $args] == 0} {
         error "update_{{snake}}: at least one -flag is required"
     }
-    array set opts {{'{'}}{{klass.update_tcl_flag_defaults()}}{{'}'}}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "update_{{snake}}: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    array set opts [_parse_options update_{{snake}} {{'{'}}{{klass.update_tcl_flag_defaults()}}{{'}'}} $args]
 {%- if klass.tcl_reference_token_checks('update_' ~ snake) %}
 {{klass.tcl_reference_token_checks('update_' ~ snake)}}
 {%- endif %}
@@ -300,9 +278,7 @@ register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "Changes t
 {% for klass in classes %}
 {%- set snake = klass.to_snake_case() %}
 proc delete_{{snake}} {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "{{klass.delete_tcl_usage()}}"
-    }
+    _return_usage_if_help delete_{{snake}} $args
     if {[llength $args] != 1 || [llength [lindex $args 0]] == 0} {
         error "delete_{{snake}}: exactly one argument (a {{klass.name}} id, or a list of them) is required"
     }
