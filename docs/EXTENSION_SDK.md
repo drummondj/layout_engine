@@ -220,7 +220,7 @@ le::ext::ExtensionContext ctx(handle, "my_ext");
 | `handle()` | The `LeHandle *`, for any C API call (`le_*`, `api.hpp`). |
 | `read()` | A `ReadView`: `view.root()` is a `const le::Root &`, held under a shared lock for the view's lifetime. |
 | `write(label)` | A `WriteView` whose edits are one undo step named `label` (below). Call `view.fail()` if the operation failed. Inside a typed Tcl command, which is already a step, it joins that one. |
-| `write()` | A `WriteView` that opens no undo step. `view.root()` is a writable `le::Root &`, held under an exclusive lock. When the view ends, it bumps the database's mutation version and wakes the renderer. |
+| `write()` | A `WriteView` that opens no undo step, held under an exclusive lock. `view.root()` is a `const le::Root &`; `view.unrecorded_root()` is the writable `le::Root &`, for bulk work such as importing: edits through it aren't validated or recorded for undo. When the view ends, it bumps the database's mutation version and wakes the renderer. |
 | `transaction(label)` | A `Transaction`: the C API edits made while it lives become one undo step named `label`. Call `fail()` if the operation failed. It does nothing if a transaction is already open. |
 | `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. Unsynchronized. |
 | `with_data<T>(fn)` | Calls `fn(T &)` on that state with it locked against every other `with_data<T>()` on any thread, and returns what `fn` returns. Use it for state another thread also touches (below). Don't nest it for the same `T`. |
@@ -260,7 +260,7 @@ bool add_marker(le::ext::ExtensionContext &ctx, const std::string &name)
 
 **Undo.** These calls record into the open undo step: the one
 `write(label)` opened, or the typed Tcl command's. Edits made straight
-through `view.root()` (`root().create_library(...)`) are not recorded and
+through `view.unrecorded_root()` (`unrecorded_root().create_library(...)`) are not recorded and
 can't be undone; use them for bulk work, such as importing data, where undo
 isn't wanted. An object keeps its id through undo and redo, so ids your
 extension holds stay valid.
@@ -799,7 +799,8 @@ The first version.
   `le::ext::to_c`/`from_c` for every class's id.
 - Editing: `ExtensionContext::write(label)`, `WriteView::fail()`, and
   `create_<type>`/`update_<type>`/`delete_<type>` on `WriteView` with
-  `<Type>Changes`, recorded for undo.
+  `<Type>Changes`, recorded for undo. `WriteView::root()` is read-only;
+  `WriteView::unrecorded_root()` is the writable `Root` that bypasses them.
 - Shape operations, on Shapes and Wires (`le::GeometryId`): `shape_bbox`
   on `ReadView` and `WriteView`;
   `shape_copy`, `shape_boolean`, `shape_to_polygons`, `shape_to_rects`,
