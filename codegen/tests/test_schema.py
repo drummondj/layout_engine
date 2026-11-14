@@ -1,5 +1,5 @@
 import unittest
-from codegen.emitters import c_api
+from codegen.emitters import c_api, tcl_procs
 from codegen.schema import Schema, Klass, Field, to_snake_case, to_camel_case
 
 
@@ -148,7 +148,7 @@ class TestSmallUnsignedCreateFields(unittest.TestCase):
         field = self.schema.get_field("Marker", "index")
         self.assertEqual(field.create_c_type(), "int32_t")
         self.assertEqual(field.root_value_cpp_type(), "unsigned char")
-        self.assertEqual(field.tcl_help_type_label(), "int")
+        self.assertEqual(tcl_procs.tcl_help_type_label(field), "int")
         self.assertTrue(field.create_needs_has_flag("create"))
 
     def test_narrows_on_the_way_in(self):
