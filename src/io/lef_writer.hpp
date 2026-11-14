@@ -84,6 +84,34 @@ namespace le
 
     private:
         static int write_technology_layers(const Root &root, TechnologyId technology_id);
+        // Logs `msg` as an error and keeps it for messages().
+        void log_error(std::string msg);
+        int write_header_statements(const TechnologyData *technology);
+        int write_technology(const Root &root, TechnologyId technology_id, const TechnologyData &technology);
+        // A layer's pooled rule children (collect_layer_rules).
+        struct LayerRules
+        {
+            std::vector<SpacingRuleData> spacing_rules;
+            std::vector<MinimumCutData> minimum_cuts;
+            std::vector<MinStepData> min_steps;
+            std::vector<InfluenceSpacingEntryData> spacing_table_influence;
+            std::vector<TwoWidthsSpacingEntryData> spacing_table_two_widths;
+            std::vector<PreferEnclosureEntryData> prefer_enclosures;
+            std::vector<EnclosureEntryData> enclosures;
+            std::vector<LayerDensityEntryData> ac_current_density;
+            std::vector<LayerDensityEntryData> dc_current_density;
+            std::vector<AntennaModelData> antenna_models;
+            const ArraySpacingData *array_spacing = nullptr;
+        };
+        static LayerRules collect_layer_rules(const Root &root, LayerId layer_id);
+        static int write_routing_layer(const LayerData *layer, const LayerRules &rules, double dbu_per_micron);
+        static int write_other_layer(const LayerData *layer, const LayerRules &rules, double dbu_per_micron);
+        static int start_routing_layer(const LayerData *layer, double dbu_per_micron);
+        static int write_routing_layer_spacing(const LayerData *layer, const LayerRules &rules, double dbu_per_micron);
+        static int write_routing_layer_spacing_tables(const LayerData *layer, const LayerRules &rules, double dbu_per_micron);
+        static int write_routing_layer_values(const LayerData *layer, double dbu_per_micron);
+        static int start_other_layer(const LayerData *layer, const LayerRules &rules, double dbu_per_micron);
+        static int write_other_layer_tables(const LayerData *layer, const LayerRules &rules, double dbu_per_micron);
         static int write_units(const Root &root, TechnologyId technology_id);
         static int write_property_definitions(const Root &root, TechnologyId technology_id);
         // Shared by every property-carrying construct's own writer -
@@ -98,8 +126,8 @@ namespace le
         // numeric properties there are readable but not writable, unlike
         // every other property-carrying construct including CUT layers.
         static int write_properties(const std::vector<LefProperty> &properties, bool include_numeric = true);
-        // Shared by both the ROUTING and CUT branches of
-        // write_technology_layers - lefwLayerAntennaModel/its per-field
+        // Shared by write_routing_layer and write_other_layer -
+        // lefwLayerAntennaModel/its per-field
         // siblings accept LEFW_LAYERROUTING(_START) AND LEFW_LAYER(_START)
         // alike (per lefwWriter.cpp), unlike write_properties'
         // ROUTING-layer numeric gap above.

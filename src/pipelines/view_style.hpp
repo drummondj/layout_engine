@@ -80,194 +80,12 @@ namespace le
 
             // Two independent palette cursors (see kRoutingCutColors/
             // kOtherColors below) plus the most recently assigned ROUTING
-            // color, so a CUT layer can inherit it - see the CUT branch
-            // below for why. One color per physical Layer, shared by every
-            // purpose of that layer; purpose has no visual distinction yet
-            // beyond that shared color.
-            size_t routing_cut_index = 0;
-            size_t other_index = 0;
-            std::optional<Color> last_routing_color;
-
-            // ROW then BOUNDARY, both added before any physical Layer -
-            // draw (and rows()/purposes())
-            // order follows insertion order (see rows()'s own doc comment
-            // below), so this puts BOUNDARY between the two: above ROW's
-            // own placement-row scaffolding, but below every real
-            // technology layer that follows, so a die/macro's real
-            // routing/pin content is never tinted or obscured by it.
-            // boundary_style() itself derives its color from row_style()'s
-            // own, one shade lighter, so the two read as visually related
-            // background layers rather than boundary's former fixed white.
-            const ViewLayerId row_id = set.add("ROW", "ROW", ViewLayerPurpose::ROW, LayerId{}, row_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "ROW",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::ROW, .id = row_id}},
-            });
-
-            set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "BOUNDARY",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
-            });
-
-            // Own row right after BOUNDARY, one shade lighter (same
-            // "derives from the row above it, one shade lighter" relation
-            // BOUNDARY itself has to ROW - see this block's own opening
-            // comment): each placement's footprint outline and name label.
-            set.placement_id_ = set.add("PLACEMENT", "PLACEMENT", ViewLayerPurpose::PLACEMENT, LayerId{}, placement_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "PLACEMENT",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT, .id = set.placement_id_}},
-            });
-
+            // color, so a CUT layer can inherit it - see add_physical_layer.
+            PaletteCursor palette;
+            add_background_rows(set);
             for (LayerId layer_id : root.get_technology_layers(technology_id))
-            {
-                const LayerData *layer = root.get_layer(layer_id);
-
-                Color color;
-                if (layer->type == "ROUTING")
-                {
-                    color = routing_cut_color(routing_cut_index++);
-                    last_routing_color = color;
-                }
-                else if (layer->type == "CUT" && last_routing_color)
-                {
-                    // LEF's LAYER declaration order is bottom-up physical
-                    // stacking order (see CLAUDE.md's Pipeline note on
-                    // ViewLayerId ordering) - so the most recent ROUTING
-                    // color seen so far is the ROUTING layer directly
-                    // below this CUT, i.e. exactly the "CUT layer above a
-                    // ROUTING layer" this color-sharing rule is about.
-                    color = *last_routing_color;
-                }
-                else if (layer->type == "CUT")
-                {
-                    // No ROUTING layer below (e.g. this CUT is declared
-                    // before any ROUTING layer) - still a CUT, so it still
-                    // draws from the bright/high-contrast palette, just
-                    // its own next slot rather than a borrowed color.
-                    color = routing_cut_color(routing_cut_index++);
-                }
-                else
-                {
-                    color = other_color(other_index++);
-                }
-
-                // TERMINAL and OBSTRUCTION of the same physical Layer
-                // share the same color (see the palette logic above) but
-                // not the same FillPattern - OBSTRUCTION always reads as
-                // BRICK regardless of layer type, so blockage regions are
-                // recognizable at a glance across every layer. TRACK/
-                // ROUTING_BLOCKAGE (DEF TRACKS/BLOCKAGES LAYER) and ROUTE
-                // (DEF NETS/SPECIALNETS) share that same per-Layer color
-                // too: TRACK_PREFERRED/
-                // TRACK_NON_PREFERRED get a plain dashed outline (grid
-                // lines, not a filled region, so no FillPattern needed
-                // beyond NONE),
-                // ROUTING_BLOCKAGE gets DOTS - a generic "keep-out" pattern
-                // distinct from OBSTRUCTION's own BRICK, reused (not shared
-                // as one purpose) by PLACEMENT_BLOCKAGE's own pseudo-row
-                // below so the two blockage kinds still read as visually
-                // related while staying independently toggleable - and
-                // ROUTE gets TERMINAL's own terminal_fill_pattern() (not
-                // OBSTRUCTION's BRICK) since routed net wires are real
-                // conductor shapes, the same visual category as a
-                // Terminal's own real pin geometry, not a hatched keep-out
-                // region.
-                const ViewLayerId terminal_id = set.add(layer->name, layer->name + "/TERMINAL", ViewLayerPurpose::TERMINAL, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
-                const ViewLayerId obstruction_id = set.add(layer->name, layer->name + "/OBSTRUCTION", ViewLayerPurpose::OBSTRUCTION, layer_id, layer_style(color, FillPattern::BRICK));
-                ViewLayerStyle track_style = layer_style(color, FillPattern::NONE);
-                track_style.dashed = true;
-                const ViewLayerId track_preferred_id = set.add(layer->name, layer->name + "/TRACK_PREFERRED", ViewLayerPurpose::TRACK_PREFERRED, layer_id, track_style);
-                const ViewLayerId track_non_preferred_id = set.add(layer->name, layer->name + "/TRACK_NON_PREFERRED", ViewLayerPurpose::TRACK_NON_PREFERRED, layer_id, track_style);
-                const ViewLayerId routing_blockage_id = set.add(layer->name, layer->name + "/ROUTING_BLOCKAGE", ViewLayerPurpose::ROUTING_BLOCKAGE, layer_id, layer_style(color, FillPattern::DOTS));
-                const ViewLayerId route_id = set.add(layer->name, layer->name + "/ROUTE", ViewLayerPurpose::ROUTE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
-                // Free-standing custom geometry reads as this layer's own
-                // conductor shapes (same color and fill as TERMINAL/ROUTE),
-                // added last so it draws just above this layer's routes.
-                const ViewLayerId custom_shape_id = set.add(layer->name, layer->name + "/CUSTOM_SHAPE", ViewLayerPurpose::CUSTOM_SHAPE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
-
-                set.rows_.push_back(ViewLayerRow{
-                    .name = layer->name,
-                    .columns = {
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::TERMINAL, .id = terminal_id},
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::OBSTRUCTION, .id = obstruction_id},
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK_PREFERRED, .id = track_preferred_id},
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK_NON_PREFERRED, .id = track_non_preferred_id},
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTING_BLOCKAGE, .id = routing_blockage_id},
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTE, .id = route_id},
-                        ViewLayerColumn{.purpose = ViewLayerPurpose::CUSTOM_SHAPE, .id = custom_shape_id},
-                    },
-                });
-                // A per_layer renderable class's column (render=): the
-                // layer's color, conductor fill like CUSTOM_SHAPE unless the
-                // class names a pattern, after it so it draws above this
-                // layer's own geometry.
-                renderable::for_each([&]<class R>(R) {
-                    if constexpr (R::per_layer)
-                    {
-                        const std::string name = layer->name + "/" + std::string(R::row_name);
-                        const FillPattern pattern = R::fill_pattern.value_or(terminal_fill_pattern(*layer));
-                        const ViewLayerId id = set.add(layer->name, name, R::purpose, layer_id, layer_style(color, pattern));
-                        set.rows_.back().columns.push_back(ViewLayerColumn{.purpose = R::purpose, .id = id});
-                    }
-                });
-            }
-
-            // GCELLGRID/PLACEMENT_BLOCKAGE/REGION aren't physical Layers at
-            // all either (ROW/BOUNDARY, added before the loop above, are
-            // the same story - see that block's own comment) - a Shape
-            // with purpose=PLACEMENT_BLOCKAGE instead of a real Layer (see
-            // Shape.layer/.purpose's own schema.py comments), so none of
-            // these are derived from the per-Layer loop above - always
-            // added, independent of what real Layers this Technology has.
-            // GCellGrid has no layer field whatsoever, so it gets the same
-            // no-physical-layer treatment; a ROUTING blockage's own Shape,
-            // unlike a PLACEMENT blockage's, does sit on a real Layer and
-            // so gets its ROUTING_BLOCKAGE column in the per-Layer loop
-            // above instead, not here. This only declares the
-            // categories; HierarchyResolverStage turns a Layout's
-            // Track/GCellGrid/Blockage content into drawable shapes.
-            const ViewLayerId gcellgrid_id = set.add("GCELLGRID", "GCELLGRID", ViewLayerPurpose::GCELLGRID, LayerId{}, gcellgrid_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "GCELLGRID",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::GCELLGRID, .id = gcellgrid_id}},
-            });
-
-            const ViewLayerId placement_blockage_id = set.add("PLACEMENT_BLOCKAGE", "PLACEMENT_BLOCKAGE", ViewLayerPurpose::PLACEMENT_BLOCKAGE, LayerId{}, placement_blockage_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "PLACEMENT_BLOCKAGE",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_BLOCKAGE, .id = placement_blockage_id}},
-            });
-
-            const ViewLayerId region_id = set.add("REGION", "REGION", ViewLayerPurpose::REGION, LayerId{}, region_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "REGION",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::REGION, .id = region_id}},
-            });
-
-            // Added last, so debug output draws on top of everything.
-            const ViewLayerId debug_id = set.add("DEBUG", "DEBUG", ViewLayerPurpose::DEBUG, LayerId{}, debug_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "DEBUG",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::DEBUG, .id = debug_id}},
-            });
-
-            // After DEBUG only to keep purposes() index == ordinal - it's an
-            // overlay (ComposeStage), so row order doesn't affect its drawing.
-            const ViewLayerId flightline_id = set.add("FLIGHTLINE", "FLIGHTLINE", ViewLayerPurpose::FLIGHTLINE, LayerId{}, flightline_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "FLIGHTLINE",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::FLIGHTLINE, .id = flightline_id}},
-            });
-
-            // Last, so purposes() index == ordinal stays true, and so the
-            // markers draw above everything they sit beside.
-            set.port_marker_id_ = set.add("PORT_MARKER", "PORT_MARKER", ViewLayerPurpose::PORT_MARKER, LayerId{}, port_marker_style());
-            set.rows_.push_back(ViewLayerRow{
-                .name = "PORT_MARKER",
-                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PORT_MARKER, .id = set.port_marker_id_}},
-            });
+                add_physical_layer(set, layer_id, root.get_layer(layer_id), palette);
+            add_overlay_rows(set);
 
             // Each renderable class's own row (render=), after every core
             // one, styled as the class declares; colors it leaves unset
@@ -275,7 +93,7 @@ namespace le
             // row for shapes with no layer the Technology has
             // (renderable_view_layer).
             renderable::for_each([&]<class R>(R) {
-                ViewLayerStyle style = R::outline_color ? ViewLayerStyle{.outline_color = *R::outline_color, .fill_color = *R::fill_color} : renderable_style(other_index++);
+                ViewLayerStyle style = R::outline_color ? ViewLayerStyle{.outline_color = *R::outline_color, .fill_color = *R::fill_color} : renderable_style(palette.other_index++);
                 style.fill_pattern = R::fill_pattern.value_or(FillPattern::NONE);
                 const ViewLayerId id = set.add(std::string(R::row_name), std::string(R::row_name), R::purpose, LayerId{}, style);
                 set.rows_.push_back(ViewLayerRow{
@@ -412,6 +230,204 @@ namespace le
         }
 
     private:
+        // Where build_for_technology is in each palette. One color per
+        // physical Layer, shared by every purpose of that layer; purpose
+        // has no visual distinction yet beyond that shared color.
+        struct PaletteCursor
+        {
+            size_t routing_cut_index = 0;
+            size_t other_index = 0;
+            std::optional<Color> last_routing_color;
+        };
+
+        // The rows before any physical Layer: ROW, BOUNDARY and PLACEMENT.
+        static void add_background_rows(ViewLayerSet &set)
+        {
+            // ROW then BOUNDARY, both added before any physical Layer -
+            // draw (and rows()/purposes())
+            // order follows insertion order (see rows()'s own doc comment
+            // below), so this puts BOUNDARY between the two: above ROW's
+            // own placement-row scaffolding, but below every real
+            // technology layer that follows, so a die/macro's real
+            // routing/pin content is never tinted or obscured by it.
+            // boundary_style() itself derives its color from row_style()'s
+            // own, one shade lighter, so the two read as visually related
+            // background layers rather than boundary's former fixed white.
+            const ViewLayerId row_id = set.add("ROW", "ROW", ViewLayerPurpose::ROW, LayerId{}, row_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "ROW",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::ROW, .id = row_id}},
+            });
+
+            set.boundary_id_ = set.add("BOUNDARY", "BOUNDARY", ViewLayerPurpose::BOUNDARY, LayerId{}, boundary_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "BOUNDARY",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::BOUNDARY, .id = set.boundary_id_}},
+            });
+
+            // Own row right after BOUNDARY, one shade lighter (same
+            // "derives from the row above it, one shade lighter" relation
+            // BOUNDARY itself has to ROW - see this block's own opening
+            // comment): each placement's footprint outline and name label.
+            set.placement_id_ = set.add("PLACEMENT", "PLACEMENT", ViewLayerPurpose::PLACEMENT, LayerId{}, placement_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "PLACEMENT",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT, .id = set.placement_id_}},
+            });
+        }
+
+        // One physical Layer's row and its purposes' columns.
+        static void add_physical_layer(ViewLayerSet &set, LayerId layer_id, const LayerData *layer, PaletteCursor &palette)
+        {
+            Color color;
+            if (layer->type == "ROUTING")
+            {
+                color = routing_cut_color(palette.routing_cut_index++);
+                palette.last_routing_color = color;
+            }
+            else if (layer->type == "CUT" && palette.last_routing_color)
+            {
+                // LEF's LAYER declaration order is bottom-up physical
+                // stacking order (see CLAUDE.md's Pipeline note on
+                // ViewLayerId ordering) - so the most recent ROUTING
+                // color seen so far is the ROUTING layer directly
+                // below this CUT, i.e. exactly the "CUT layer above a
+                // ROUTING layer" this color-sharing rule is about.
+                color = *palette.last_routing_color;
+            }
+            else if (layer->type == "CUT")
+            {
+                // No ROUTING layer below (e.g. this CUT is declared
+                // before any ROUTING layer) - still a CUT, so it still
+                // draws from the bright/high-contrast palette, just
+                // its own next slot rather than a borrowed color.
+                color = routing_cut_color(palette.routing_cut_index++);
+            }
+            else
+            {
+                color = other_color(palette.other_index++);
+            }
+
+            // TERMINAL and OBSTRUCTION of the same physical Layer
+            // share the same color (see the palette logic above) but
+            // not the same FillPattern - OBSTRUCTION always reads as
+            // BRICK regardless of layer type, so blockage regions are
+            // recognizable at a glance across every layer. TRACK/
+            // ROUTING_BLOCKAGE (DEF TRACKS/BLOCKAGES LAYER) and ROUTE
+            // (DEF NETS/SPECIALNETS) share that same per-Layer color
+            // too: TRACK_PREFERRED/
+            // TRACK_NON_PREFERRED get a plain dashed outline (grid
+            // lines, not a filled region, so no FillPattern needed
+            // beyond NONE),
+            // ROUTING_BLOCKAGE gets DOTS - a generic "keep-out" pattern
+            // distinct from OBSTRUCTION's own BRICK, reused (not shared
+            // as one purpose) by PLACEMENT_BLOCKAGE's own pseudo-row
+            // below so the two blockage kinds still read as visually
+            // related while staying independently toggleable - and
+            // ROUTE gets TERMINAL's own terminal_fill_pattern() (not
+            // OBSTRUCTION's BRICK) since routed net wires are real
+            // conductor shapes, the same visual category as a
+            // Terminal's own real pin geometry, not a hatched keep-out
+            // region.
+            const ViewLayerId terminal_id = set.add(layer->name, layer->name + "/TERMINAL", ViewLayerPurpose::TERMINAL, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
+            const ViewLayerId obstruction_id = set.add(layer->name, layer->name + "/OBSTRUCTION", ViewLayerPurpose::OBSTRUCTION, layer_id, layer_style(color, FillPattern::BRICK));
+            ViewLayerStyle track_style = layer_style(color, FillPattern::NONE);
+            track_style.dashed = true;
+            const ViewLayerId track_preferred_id = set.add(layer->name, layer->name + "/TRACK_PREFERRED", ViewLayerPurpose::TRACK_PREFERRED, layer_id, track_style);
+            const ViewLayerId track_non_preferred_id = set.add(layer->name, layer->name + "/TRACK_NON_PREFERRED", ViewLayerPurpose::TRACK_NON_PREFERRED, layer_id, track_style);
+            const ViewLayerId routing_blockage_id = set.add(layer->name, layer->name + "/ROUTING_BLOCKAGE", ViewLayerPurpose::ROUTING_BLOCKAGE, layer_id, layer_style(color, FillPattern::DOTS));
+            const ViewLayerId route_id = set.add(layer->name, layer->name + "/ROUTE", ViewLayerPurpose::ROUTE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
+            // Free-standing custom geometry reads as this layer's own
+            // conductor shapes (same color and fill as TERMINAL/ROUTE),
+            // added last so it draws just above this layer's routes.
+            const ViewLayerId custom_shape_id = set.add(layer->name, layer->name + "/CUSTOM_SHAPE", ViewLayerPurpose::CUSTOM_SHAPE, layer_id, layer_style(color, terminal_fill_pattern(*layer)));
+
+            set.rows_.push_back(ViewLayerRow{
+                .name = layer->name,
+                .columns = {
+                    ViewLayerColumn{.purpose = ViewLayerPurpose::TERMINAL, .id = terminal_id},
+                    ViewLayerColumn{.purpose = ViewLayerPurpose::OBSTRUCTION, .id = obstruction_id},
+                    ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK_PREFERRED, .id = track_preferred_id},
+                    ViewLayerColumn{.purpose = ViewLayerPurpose::TRACK_NON_PREFERRED, .id = track_non_preferred_id},
+                    ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTING_BLOCKAGE, .id = routing_blockage_id},
+                    ViewLayerColumn{.purpose = ViewLayerPurpose::ROUTE, .id = route_id},
+                    ViewLayerColumn{.purpose = ViewLayerPurpose::CUSTOM_SHAPE, .id = custom_shape_id},
+                },
+            });
+            // A per_layer renderable class's column (render=): the
+            // layer's color, conductor fill like CUSTOM_SHAPE unless the
+            // class names a pattern, after it so it draws above this
+            // layer's own geometry.
+            renderable::for_each([&]<class R>(R) {
+                if constexpr (R::per_layer)
+                {
+                    const std::string name = layer->name + "/" + std::string(R::row_name);
+                    const FillPattern pattern = R::fill_pattern.value_or(terminal_fill_pattern(*layer));
+                    const ViewLayerId id = set.add(layer->name, name, R::purpose, layer_id, layer_style(color, pattern));
+                    set.rows_.back().columns.push_back(ViewLayerColumn{.purpose = R::purpose, .id = id});
+                }
+            });
+        }
+
+        // The rows after every physical Layer, none tied to one.
+        static void add_overlay_rows(ViewLayerSet &set)
+        {
+            // GCELLGRID/PLACEMENT_BLOCKAGE/REGION aren't physical Layers at
+            // all either (ROW/BOUNDARY, added before the loop above, are
+            // the same story - see that block's own comment) - a Shape
+            // with purpose=PLACEMENT_BLOCKAGE instead of a real Layer (see
+            // Shape.layer/.purpose's own schema.py comments), so none of
+            // these are derived from the per-Layer loop above - always
+            // added, independent of what real Layers this Technology has.
+            // GCellGrid has no layer field whatsoever, so it gets the same
+            // no-physical-layer treatment; a ROUTING blockage's own Shape,
+            // unlike a PLACEMENT blockage's, does sit on a real Layer and
+            // so gets its ROUTING_BLOCKAGE column in the per-Layer loop
+            // above instead, not here. This only declares the
+            // categories; HierarchyResolverStage turns a Layout's
+            // Track/GCellGrid/Blockage content into drawable shapes.
+            const ViewLayerId gcellgrid_id = set.add("GCELLGRID", "GCELLGRID", ViewLayerPurpose::GCELLGRID, LayerId{}, gcellgrid_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "GCELLGRID",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::GCELLGRID, .id = gcellgrid_id}},
+            });
+
+            const ViewLayerId placement_blockage_id = set.add("PLACEMENT_BLOCKAGE", "PLACEMENT_BLOCKAGE", ViewLayerPurpose::PLACEMENT_BLOCKAGE, LayerId{}, placement_blockage_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "PLACEMENT_BLOCKAGE",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PLACEMENT_BLOCKAGE, .id = placement_blockage_id}},
+            });
+
+            const ViewLayerId region_id = set.add("REGION", "REGION", ViewLayerPurpose::REGION, LayerId{}, region_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "REGION",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::REGION, .id = region_id}},
+            });
+
+            // Added last, so debug output draws on top of everything.
+            const ViewLayerId debug_id = set.add("DEBUG", "DEBUG", ViewLayerPurpose::DEBUG, LayerId{}, debug_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "DEBUG",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::DEBUG, .id = debug_id}},
+            });
+
+            // After DEBUG only to keep purposes() index == ordinal - it's an
+            // overlay (ComposeStage), so row order doesn't affect its drawing.
+            const ViewLayerId flightline_id = set.add("FLIGHTLINE", "FLIGHTLINE", ViewLayerPurpose::FLIGHTLINE, LayerId{}, flightline_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "FLIGHTLINE",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::FLIGHTLINE, .id = flightline_id}},
+            });
+
+            // Last, so purposes() index == ordinal stays true, and so the
+            // markers draw above everything they sit beside.
+            set.port_marker_id_ = set.add("PORT_MARKER", "PORT_MARKER", ViewLayerPurpose::PORT_MARKER, LayerId{}, port_marker_style());
+            set.rows_.push_back(ViewLayerRow{
+                .name = "PORT_MARKER",
+                .columns = {ViewLayerColumn{.purpose = ViewLayerPurpose::PORT_MARKER, .id = set.port_marker_id_}},
+            });
+        }
+
         struct LookupEntry
         {
             LayerId layer;
