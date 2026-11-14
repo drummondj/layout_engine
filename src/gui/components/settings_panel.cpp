@@ -56,10 +56,6 @@ namespace le::gui
             draw->AddRect(min, max, ImGui::GetColorU32(current ? ImGuiCol_Text : ImGuiCol_Border), rounding, 0, current ? 2.5f : 1.0f);
             ImGui::PopID();
         }
-        const Theme &current_theme = kThemes[settings.theme < kThemes.size() ? settings.theme : 0];
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextDisabled("%.*s", static_cast<int>(current_theme.label.size()), current_theme.label.data());
 
         section("Grid");
         static CommittedField<double> minor_field;

@@ -17,7 +17,8 @@ namespace le
 
     /// @brief One GUI color theme: the window background and the accent
     /// that buttons, headers, tabs and frames are derived from. Both are
-    /// dark enough for the GUI's near-white text.
+    /// dark enough for the GUI's near-white text; a background is the
+    /// gray theme's with just a hint of its hue, the accent carries it.
     struct Theme
     {
         std::string_view name;  // settings.json and Tcl
@@ -29,13 +30,13 @@ namespace le
     // The first is the default. Names are persisted: never rename one.
     inline constexpr std::array<Theme, 8> kThemes = {{
         {"gray", "Dark gray", {0.13f, 0.13f, 0.13f}, {0.36f, 0.36f, 0.36f}},
-        {"blue", "Blue", {0.07f, 0.10f, 0.19f}, {0.18f, 0.32f, 0.58f}},
-        {"teal", "Teal", {0.05f, 0.14f, 0.15f}, {0.12f, 0.40f, 0.42f}},
-        {"green", "Green", {0.06f, 0.14f, 0.08f}, {0.18f, 0.40f, 0.24f}},
-        {"brown", "Brown", {0.16f, 0.12f, 0.06f}, {0.46f, 0.34f, 0.14f}},
-        {"red", "Red", {0.18f, 0.06f, 0.07f}, {0.52f, 0.18f, 0.22f}},
-        {"purple", "Purple", {0.12f, 0.07f, 0.19f}, {0.36f, 0.24f, 0.56f}},
-        {"plum", "Plum", {0.17f, 0.06f, 0.14f}, {0.48f, 0.18f, 0.40f}},
+        {"blue", "Blue", {0.11f, 0.12f, 0.16f}, {0.18f, 0.32f, 0.58f}},
+        {"teal", "Teal", {0.10f, 0.14f, 0.14f}, {0.12f, 0.40f, 0.42f}},
+        {"green", "Green", {0.11f, 0.14f, 0.11f}, {0.18f, 0.40f, 0.24f}},
+        {"brown", "Brown", {0.15f, 0.13f, 0.10f}, {0.46f, 0.34f, 0.14f}},
+        {"red", "Red", {0.16f, 0.11f, 0.11f}, {0.52f, 0.18f, 0.22f}},
+        {"purple", "Purple", {0.13f, 0.11f, 0.16f}, {0.36f, 0.24f, 0.56f}},
+        {"plum", "Plum", {0.15f, 0.11f, 0.14f}, {0.48f, 0.18f, 0.40f}},
     }};
 
     /// @brief The index in kThemes of the theme called `name`, if any.
