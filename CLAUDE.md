@@ -204,7 +204,10 @@ fails on a temp path that isn't unique to its process.
   `window_layout.ini`. The File menu opens and saves `.led` files
   (`components/file_dialog.*`, shared with the Settings panel;
   `components/design_saver.*` for Save/Save As and the overwrite question,
-  also used by the exit dialog). `panels.*` and the extension GUI SDK run headless
+  also used by the exit dialog). Icons are `le::Icon`, vector paths that
+  `scripts/generate_icons.py` builds from `assets/icons/cad-icons-hairline.svg`
+  into `generated/gui/icons.hpp`, drawn by `components/icon.hpp`; a new
+  icon is a new `<symbol>` in that sheet. `panels.*` and the extension GUI SDK run headless
   (`gui_tests`).
   Rendering runs on a background thread woken by
   `le_wait_for_render_needed`; panels read under the shared lock so they

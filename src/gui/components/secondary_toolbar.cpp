@@ -1,6 +1,5 @@
 #include "secondary_toolbar.hpp"
 
-#include "IconsLucide.h"
 #include "compact_button.hpp"
 #include "gui_provider.hpp"
 #include "imgui.h"
@@ -16,6 +15,7 @@ namespace le::gui
         // Smaller than ModeToolbar's own 48px buttons - this row is an
         // overlay on the design view, so it's kept compact.
         constexpr float kButtonSize = 36.0f;
+        constexpr float kIconSize = 24.0f; // matches the text snap buttons beside them
 
         struct SnapChoice
         {
@@ -143,11 +143,11 @@ namespace le::gui
 
         // `disabled_reason` is shown in the tooltip (and the button
         // disabled) when non-null.
-        bool draw_icon_action(const char *icon, const char *id, const char *tooltip, const char *disabled_reason)
+        bool draw_icon_action(Icon icon, const char *id, const char *tooltip, const char *disabled_reason)
         {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             ImGui::BeginDisabled(disabled_reason != nullptr);
-            const bool clicked = icon_button(icon, id, kButtonSize, small_icon_font()); // text-button scale
+            const bool clicked = icon_button(icon, id, kButtonSize, kIconSize);
             ImGui::EndDisabled();
             ImGui::PopStyleColor();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -188,13 +188,13 @@ namespace le::gui
                 return "not permitted by the row's site symmetry while snapping to sites";
             };
             row.same_line(16.0f);
-            if (draw_icon_action(ICON_LC_ROTATE_CCW, "placement_rotate", "Rotate 90 degrees counterclockwise", disabled_reason(LE_ORIENTATION_OP_ROTATE_CCW)))
+            if (draw_icon_action(Icon::Rotate, "placement_rotate", "Rotate 90 degrees counterclockwise", disabled_reason(LE_ORIENTATION_OP_ROTATE_CCW)))
                 provider.rotate_placement();
             row.same_line();
-            if (draw_icon_action(ICON_LC_FLIP_HORIZONTAL_2, "placement_flip_h", "Flip horizontally", disabled_reason(LE_ORIENTATION_OP_FLIP_HORIZONTAL)))
+            if (draw_icon_action(Icon::FlipH, "placement_flip_h", "Flip horizontally", disabled_reason(LE_ORIENTATION_OP_FLIP_HORIZONTAL)))
                 provider.flip_placement_horizontal();
             row.same_line();
-            if (draw_icon_action(ICON_LC_FLIP_VERTICAL_2, "placement_flip_v", "Flip vertically", disabled_reason(LE_ORIENTATION_OP_FLIP_VERTICAL)))
+            if (draw_icon_action(Icon::FlipV, "placement_flip_v", "Flip vertically", disabled_reason(LE_ORIENTATION_OP_FLIP_VERTICAL)))
                 provider.flip_placement_vertical();
         }
 

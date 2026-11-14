@@ -1,5 +1,6 @@
 #include "panels.hpp"
 
+#include "components/icon.hpp"
 #include "gui_provider.hpp"
 
 #include <imgui.h>
@@ -44,18 +45,6 @@ namespace le::gui
         {
             static std::vector<ExtensionSettingsPanel> panels;
             return panels;
-        }
-
-        struct IconGlyphs
-        {
-            std::string extension;
-            std::string file;
-            std::vector<ImWchar> ranges;
-        };
-        std::vector<IconGlyphs> &icon_storage()
-        {
-            static std::vector<IconGlyphs> glyphs;
-            return glyphs;
         }
 
         struct NamedFont
@@ -221,20 +210,6 @@ namespace le::gui
         return std::ranges::find(kCoreKeys, key) != std::end(kCoreKeys);
     }
 
-    void merge_extension_icon_glyphs(ImFontAtlas *atlas, float size_px)
-    {
-        for (const IconGlyphs &glyphs : icon_storage())
-        {
-            const std::string path = font_path(glyphs.extension, glyphs.file);
-            if (path.empty())
-                continue;
-            ImFontConfig config;
-            config.MergeMode = true;
-            config.PixelSnapH = true;
-            atlas->AddFontFromFileTTF(path.c_str(), size_px, &config, glyphs.ranges.data());
-        }
-    }
-
     void add_extension_fonts(ImFontAtlas *atlas)
     {
         for (NamedFont &font : font_storage())
@@ -251,7 +226,6 @@ namespace le::gui
         toolbar_storage().clear();
         key_storage().clear();
         settings_storage().clear();
-        icon_storage().clear();
         font_storage().clear();
     }
 }
@@ -295,16 +269,18 @@ namespace le::ext
         gui::settings_storage().push_back({extension_name_, draw});
     }
 
-    void GuiRegistry::add_icon_glyphs(std::string file, std::vector<ImWchar> ranges)
-    {
-        if (ranges.empty() || ranges.back() != 0)
-            ranges.push_back(0);
-        gui::icon_storage().push_back({extension_name_, std::move(file), std::move(ranges)});
-    }
-
     void GuiRegistry::add_font(std::string name, std::string file, float size_px)
     {
         gui::font_storage().push_back({extension_name_, std::move(name), std::move(file), size_px});
+    }
+
+    void icon(Icon icon, float size)
+    {
+        if (size <= 0.0f)
+            size = ImGui::GetFontSize();
+        const ImVec2 min = ImGui::GetCursorScreenPos();
+        ImGui::Dummy(ImVec2(size, size));
+        gui::draw_icon(ImGui::GetWindowDrawList(), icon, min, size, ImGui::GetColorU32(ImGuiCol_Text));
     }
 
     ImFont *ExtGuiContext::font(const std::string &name) const

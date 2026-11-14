@@ -1,6 +1,5 @@
 #include "mode_selector.hpp"
 
-#include "IconsLucide.h"
 #include "compact_button.hpp"
 #include "gui_provider.hpp"
 #include "imgui.h"
@@ -42,20 +41,18 @@ namespace le::gui
             }
         }
 
-        // Mode icons: a marquee-selection cursor for Select, a pencil for
-        // Edit, a ruler for Ruler.
-        const char *mode_icon(int32_t mode)
+        Icon mode_icon(int32_t mode)
         {
             switch (mode)
             {
             case LE_MODE_SELECT:
-                return ICON_LC_MOUSE_POINTER_SQUARE_DASHED;
+                return Icon::Select;
             case LE_MODE_EDIT:
-                return ICON_LC_PENCIL;
+                return Icon::Edit;
             case LE_MODE_RULER:
-                return ICON_LC_RULER;
+                return Icon::Ruler;
             default:
-                return "";
+                return Icon::Select;
             }
         }
 
@@ -91,7 +88,7 @@ namespace le::gui
             // neutral dark gray - compact_button.hpp's own
             // kSelectedIconButtonColor, not the theme's own
             // ButtonActive); unselected now draws no resting background
-            // at all - only the icon glyph - so ButtonHovered/ButtonActive
+            // at all - only the icon - so ButtonHovered/ButtonActive
             // stay themed for hover/press feedback but the idle state is
             // fully transparent.
             ImGui::PushStyleColor(ImGuiCol_Button,
@@ -104,7 +101,7 @@ namespace le::gui
             // (the more obvious-looking way to express "already active,
             // ignore clicks"), because BeginDisabled also multiplies
             // everything drawn inside it by style.Alpha * DisabledAlpha
-            // (60% by default) - it faded the icon glyph itself along
+            // (60% by default) - it faded the icon itself along
             // with disabling the click, a real reported bug (measured:
             // (156,160,163) selected vs (230,237,242) unselected, not
             // just a duller background).

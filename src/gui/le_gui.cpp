@@ -16,7 +16,6 @@
 #include "components/design_saver.hpp"
 #include "components/file_dialog.hpp"
 #include "components/compact_button.hpp"
-#include "components/icon_font.hpp"
 #include "../core/resource_path.hpp"
 
 // Apple deprecated the whole OpenGL framework in favor of Metal (10.14+)
@@ -32,11 +31,6 @@
 // else this file uses comes from imgui.h alone.
 #include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
-// ICON_LC_*/ICON_MIN_LC/ICON_MAX_LC - see this file's own font-merge
-// setup below (open_and_run_window) and CMakeLists.txt's own comment on
-// why this exact header is pinned to the Lucide release it was
-// generated from.
-#include "IconsLucide.h"
 // Declares every GL function this file calls (glGenTextures/glTexImage2D/
 // etc - all part of OpenGL 1.1's core spec, so no external loader library
 // is needed) via its own bundled minimal loader - no separate <GL/gl.h>
@@ -643,7 +637,7 @@ namespace le::gui
                     continue;
                 ImGui::SameLine();
                 ImGui::PushID(&registered);
-                if (draw_toolbar_button(button.icon.c_str(), button.label.c_str(), button.tooltip.c_str()) && button.action)
+                if (draw_toolbar_button(button.icon, button.label.c_str(), button.tooltip.c_str()) && button.action)
                 {
                     ext::ExtGuiContext context(provider, handle, registered.extension);
                     button.action(context);
@@ -1082,16 +1076,10 @@ namespace le::gui
             // fonts/ beside the executable), falling back to ImGui's
             // built-in ProggyClean. The Blend2D layout view has its own
             // font (default_blend2d_font_face()).
-            // Icon font (components/mode_selector.cpp, mode_toolbar.cpp,
-            // and any later toolbar button) - Dear ImGui draws an icon as
-            // plain text via its own Unicode codepoint, so the icon
-            // font's glyphs are merged (ImFontConfig::MergeMode) into the
-            // text font added just before it. Every font has to be added
-            // before ImGui_ImplOpenGL3_Init below, which builds/uploads
-            // the atlas texture from whatever's in it at that point.
-            // The text font needs an explicit size: this pinned ImGui
-            // commit asserts when merging a sized font into one with an
-            // implicit size (a bare AddFontDefault()).
+            // Every font has to be added before ImGui_ImplOpenGL3_Init
+            // below, which builds/uploads the atlas texture from whatever's
+            // in it at that point. Icons aren't fonts: components/icon.hpp
+            // draws them as vector paths.
             const std::string text_font_path = resolve_font_path(LE_FONT_DIR "/Quicksand-Medium.ttf", "fonts/Quicksand-Medium.ttf",
                                                                  "using ImGui's built-in font");
             ImFont *text_font = nullptr;
@@ -1102,49 +1090,6 @@ namespace le::gui
                 ImFontConfig default_font_config;
                 default_font_config.SizePixels = 13.0f;
                 io.Fonts->AddFontDefault(&default_font_config);
-            }
-            ImFontConfig icon_font_config;
-            icon_font_config.MergeMode = true;
-            icon_font_config.PixelSnapH = true;
-            icon_font_config.GlyphMinAdvanceX = 16.0f;
-            static const ImWchar icon_ranges[] = {ICON_MIN_LC, ICON_MAX_LC, 0};
-            const std::string lucide_font_path = resolve_font_path(LE_LUCIDE_FONT_PATH, "lucide.ttf", "toolbar icons will render blank");
-            if (!lucide_font_path.empty())
-                io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 16.0f, &icon_font_config, icon_ranges);
-            // Extensions' icon glyphs merge into each icon font right after
-            // it (merging targets the font added last).
-            merge_extension_icon_glyphs(io.Fonts, 16.0f);
-
-            // A second, standalone (not MergeMode) copy of the same
-            // Lucide font at 32px - components/icon_font.hpp's own
-            // large_icon_font(), used by mode_selector.cpp/
-            // mode_toolbar.cpp's icon buttons. Deliberately not merged
-            // into the text font the way the 16px copy above is - these
-            // buttons draw the icon glyph on its own, with no text on the
-            // same line that would need to share its font run.
-            if (!lucide_font_path.empty())
-            {
-                // Plain default ImFontConfig (nullptr) - no
-                // GlyphMinAdvanceX, unlike the merged 16px copy above
-                // (that pads a narrow glyph's own advance box out to a
-                // uniform minimum width, useful when text follows the
-                // icon on the same line, but otherwise just adds blank
-                // space onto the glyph's own natural bounds that
-                // Button/RenderTextClipped then centers along with the
-                // ink, visibly shifting it off-center - reported), and
-                // no PixelSnapH either (quantizes each glyph's own
-                // AdvanceX to a whole pixel at bake time - useful for
-                // keeping a run of *several* characters aligned to a
-                // pixel grid, but for a single icon-only glyph with
-                // nothing else on the same line, it only ever throws
-                // away sub-pixel centering accuracy and is a likely
-                // source of the reported ~1px residual right-bias).
-                large_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 32.0f, nullptr, icon_ranges);
-                merge_extension_icon_glyphs(io.Fonts, 32.0f);
-                // components/icon_font.hpp's small_icon_font() - the
-                // secondary toolbar's icons.
-                small_icon_font() = io.Fonts->AddFontFromFileTTF(lucide_font_path.c_str(), 20.0f, nullptr, icon_ranges);
-                merge_extension_icon_glyphs(io.Fonts, 20.0f);
             }
             add_extension_fonts(io.Fonts);
 

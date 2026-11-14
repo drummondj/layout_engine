@@ -2,6 +2,7 @@
 
 #include "gui_provider.hpp"
 #include "components/design_saver.hpp"
+#include "components/icon.hpp"
 #include "components/library_browser.hpp"
 #include "components/settings_panel.hpp"
 #include "theme.hpp"
@@ -11,6 +12,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <filesystem>
@@ -307,11 +309,12 @@ TEST(ExtensionGui, ToolbarButtonsAndSettingsPanelsCarryTheirExtension)
 {
     le::gui::clear_extension_gui_registrations();
     le::ext::GuiRegistry acme("acme");
-    acme.add_toolbar_button({.icon = "A", .label = "Acme", .modes = le::ext::TOOLBAR_EDIT, .action = [](le::ext::ExtGuiContext &) {}});
+    acme.add_toolbar_button({.icon = le::Icon::Move, .label = "Acme", .modes = le::ext::TOOLBAR_EDIT, .action = [](le::ext::ExtGuiContext &) {}});
     acme.add_settings_panel([](le::ext::ExtGuiContext &) {});
     ASSERT_EQ(le::gui::extension_toolbar_buttons().size(), 1u);
     EXPECT_EQ(le::gui::extension_toolbar_buttons()[0].extension, "acme");
     EXPECT_EQ(le::gui::extension_toolbar_buttons()[0].button.modes, static_cast<uint32_t>(le::ext::TOOLBAR_EDIT));
+    EXPECT_EQ(le::gui::extension_toolbar_buttons()[0].button.icon, le::Icon::Move);
     ASSERT_EQ(le::gui::extension_settings_panels().size(), 1u);
     EXPECT_EQ(le::gui::extension_settings_panels()[0].extension, "acme");
     le::gui::clear_extension_gui_registrations();
@@ -324,17 +327,14 @@ TEST(ExtensionGui, FontsLoadIntoTheAtlasAndAreFoundByName)
     le::ext::GuiRegistry acme("acme");
     acme.add_font("heading", font, 24.0f);
     acme.add_font("missing", "no/such/font.ttf", 12.0f);
-    acme.add_icon_glyphs(font, {'A', 'A'});
 
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
     io.IniFilename = nullptr;
     ImFontConfig base_config;
-    base_config.SizePixels = 13.0f; // merging needs an explicitly sized font, as in le_gui.cpp
+    base_config.SizePixels = 13.0f;
     ImFont *base = io.Fonts->AddFontDefault(&base_config);
     const int fonts_before = io.Fonts->Fonts.Size;
-    le::gui::merge_extension_icon_glyphs(io.Fonts, 13.0f);
-    EXPECT_EQ(io.Fonts->Fonts.Size, fonts_before) << "glyphs merge into the font added last";
     le::gui::add_extension_fonts(io.Fonts);
     EXPECT_EQ(io.Fonts->Fonts.Size, fonts_before + 1) << "a missing font file is skipped";
     unsigned char *pixels = nullptr;
@@ -351,6 +351,71 @@ TEST(ExtensionGui, FontsLoadIntoTheAtlasAndAreFoundByName)
     ImGui::Render();
     ImGui::DestroyContext();
     le::gui::clear_extension_gui_registrations();
+}
+
+// Every icon has geometry inside its viewBox, so it draws within its square.
+TEST(Icons, EveryIconHasGeometryInsideItsViewBox)
+{
+    for (int i = 0; i < le::kIconCount; ++i)
+    {
+        const le::icon_data::IconEntry &entry = le::icon_data::entry(static_cast<le::Icon>(i));
+        SCOPED_TRACE(std::string(entry.name));
+        ASSERT_GT(entry.polyline_count, 0);
+        for (uint16_t p = 0; p < entry.polyline_count; ++p)
+        {
+            const le::icon_data::Polyline &polyline = le::icon_data::kPolylines[entry.first_polyline + p];
+            EXPECT_GE(polyline.point_count, polyline.filled ? 3 : 2);
+            for (uint16_t k = 0; k < polyline.point_count; ++k)
+            {
+                const le::icon_data::Point &point = le::icon_data::kPoints[polyline.first_point + k];
+                EXPECT_TRUE(point.x >= 0.0f && point.x <= le::icon_data::kViewBoxSize && point.y >= 0.0f && point.y <= le::icon_data::kViewBoxSize);
+            }
+        }
+    }
+}
+
+// le::ext::icon takes a square item of the requested size (the font size by
+// default) and draws the icon's faint parts at a fraction of the text alpha.
+TEST(Icons, ExtIconIsAnItemThatDrawsTheIcon)
+{
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    io.IniFilename = nullptr;
+    io.DisplaySize = ImVec2(200, 200);
+    unsigned char *pixels = nullptr;
+    int width = 0, height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    ImGui::NewFrame();
+    ImGui::Begin("icons");
+    ImDrawList *draw_list = ImGui::GetWindowDrawList();
+
+    const int vertices_before = draw_list->VtxBuffer.Size;
+    le::ext::icon(le::Icon::ZoomFit, 24.0f);
+    EXPECT_EQ(ImGui::GetItemRectSize().x, 24.0f);
+    EXPECT_EQ(ImGui::GetItemRectSize().y, 24.0f);
+    EXPECT_GT(draw_list->VtxBuffer.Size, vertices_before);
+
+    le::ext::icon(le::Icon::Move);
+    EXPECT_EQ(ImGui::GetItemRectSize().x, ImGui::GetFontSize());
+
+    // ZoomFit's frame is opaque and its inner square faint.
+    draw_list->VtxBuffer.clear();
+    le::gui::draw_icon(draw_list, le::Icon::ZoomFit, ImVec2(0, 0), 32.0f, IM_COL32(255, 255, 255, 200));
+    ImU32 max_alpha = 0, min_alpha = 255;
+    for (const ImDrawVert &vertex : draw_list->VtxBuffer)
+    {
+        const ImU32 alpha = (vertex.col >> IM_COL32_A_SHIFT) & 0xFF;
+        if (alpha == 0)
+            continue; // anti-aliasing fringe
+        max_alpha = std::max(max_alpha, alpha);
+        min_alpha = std::min(min_alpha, alpha);
+    }
+    EXPECT_EQ(max_alpha, 200u);
+    EXPECT_EQ(min_alpha, 80u);
+
+    ImGui::End();
+    ImGui::Render();
+    ImGui::DestroyContext();
 }
 
 // The Browser hides a design with no Abstract or Layout unless asked to

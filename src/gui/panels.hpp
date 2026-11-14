@@ -113,9 +113,6 @@ namespace le::gui
     /// @brief Whether the core's own shortcuts use `key` (with any modifiers).
     bool is_core_key(ImGuiKey key);
 
-    /// @brief Merges every extension's icon glyphs (add_icon_glyphs) into
-    /// the font just added to `atlas`, at its size; call after each icon font.
-    void merge_extension_icon_glyphs(ImFontAtlas *atlas, float size_px);
     /// @brief Adds every extension's named font (add_font) to `atlas`, for
     /// ExtGuiContext::font. Call once per atlas, before it's built.
     void add_extension_fonts(ImFontAtlas *atlas);

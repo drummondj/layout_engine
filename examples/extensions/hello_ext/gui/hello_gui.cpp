@@ -5,7 +5,6 @@
 
 #include <le/extension_gui.hpp>
 
-#include <IconsLucide.h>
 #include <imgui.h>
 
 namespace
@@ -62,7 +61,7 @@ void le_ext_hello_ext_register_gui(le::ext::GuiRegistry &registry)
                                 ctx.with_data<hello::State>([](hello::State &hello) { hello.show_origin = !hello.show_origin; });
                                 ctx.request_redraw();
                             }});
-    registry.add_toolbar_button({.icon = ICON_LC_BOOK_PLUS, .label = "Hello", .tooltip = "Add a library (hello_ext) - H", .action = add_library});
+    registry.add_toolbar_button({.icon = le::Icon::AddDocument, .label = "Hello", .tooltip = "Add a library (hello_ext) - H", .action = add_library});
     registry.add_key_binding({.key = ImGuiKey_H, .action = add_library});
     registry.add_settings_panel(draw_settings);
 }

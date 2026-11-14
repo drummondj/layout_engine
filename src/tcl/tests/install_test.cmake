@@ -16,7 +16,7 @@ if(NOT result EQUAL 0)
     message(FATAL_ERROR "cmake --install failed (${result}):\n${output}")
 endif()
 
-foreach(file le_shell le_shell.bin le_tcl.so le_tcl_procs.tcl le_tcl_procs_generated.tcl lucide.ttf extensions.json
+foreach(file le_shell le_shell.bin le_tcl.so le_tcl_procs.tcl le_tcl_procs_generated.tcl extensions.json
         fonts/DejaVuSansMono.ttf fonts/Quicksand-Medium.ttf)
     if(NOT EXISTS "${WORK_DIR}/${file}")
         message(FATAL_ERROR "the bundle is missing ${file}")
