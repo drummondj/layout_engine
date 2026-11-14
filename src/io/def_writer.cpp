@@ -700,38 +700,8 @@ namespace le
         return defwEndBlockages();
     }
 
-    int DEFWriter::write_net_path(FILE *file, const Root &root, RouteId route_id, bool is_special)
+    namespace
     {
-        // One wiring statement ("+ FIXED ... NEW ...") per routing status
-        // and shielded net; within it each path and via of each Wire or
-        // Shape is its own LAYER occurrence, DEF's NEW.
-        // Unlike LEF's own LAYER-repetition-within-one-OBS, DEF's writer
-        // state machine requires a fresh *PathStart("NEW") before every
-        // occurrence after the first - *PathLayer only accepts state
-        // DEFW_PATH_START, which only *PathStart sets.
-        //
-        // DEF's writer API has two entirely separate, same-shaped
-        // function families for this - defwNetPath*/defwSpecialNetPath* -
-        // not one shared family the way defwBlockage*/defwPin* are reused
-        // across kinds elsewhere (defwSpecialNetPathLayer also has no
-        // isTaper/ruleName params, unlike defwNetPathLayer).
-        const RouteData *route = root.get_route(route_id);
-        if (!route)
-            return 0;
-
-        // This section's wiring. A Wire is written as the general Shape it
-        // converts to.
-        std::vector<ShapeData> wire_shapes;
-        for (WireId wire_id : root.get_route_wires(route_id))
-            if (const WireData *wire = root.get_wire(wire_id); wire && wire->is_special == is_special)
-                wire_shapes.push_back(wire_to_shape(root, *wire));
-        std::vector<const ShapeData *> shapes;
-        for (const ShapeData &shape : wire_shapes)
-            shapes.push_back(&shape);
-        for (ShapeId shape_id : root.get_route_shapes(route_id))
-            if (const ShapeData *shape = root.get_shape(shape_id); shape && shape->is_special == is_special)
-                shapes.push_back(shape);
-
         // The status keyword a statement starts with, and the net a SHIELD
         // statement shields (null otherwise). SHIELD is SPECIALNETS-only
         // and NOSHIELD NETS-only; either one out of place, or a SHIELD
@@ -746,45 +716,38 @@ namespace le
                 return status == other.status && (shield == other.shield || (shield && other.shield && *shield == *other.shield));
             }
         };
-        auto wiring_of = [&](const ShapeData &shape) -> Wiring
+
+        // The Wiring `shape` of `route` is written under.
+        Wiring wiring_of(const RouteData &route, const ShapeData &shape, bool is_special)
         {
             const RoutingStatus status = shape.routing_status.value_or(RoutingStatus::ROUTED);
             if (status == RoutingStatus::SHIELD)
             {
-                if (is_special && shape.shield_index && *shape.shield_index < route->shield_nets.size())
-                    return Wiring{.status = "SHIELD", .shield = &route->shield_nets[*shape.shield_index]};
+                if (is_special && shape.shield_index && *shape.shield_index < route.shield_nets.size())
+                    return Wiring{.status = "SHIELD", .shield = &route.shield_nets[*shape.shield_index]};
                 return Wiring{.status = "ROUTED"};
             }
             if (status == RoutingStatus::NOSHIELD && is_special)
                 return Wiring{.status = "ROUTED"};
             return Wiring{.status = le::to_string(status)};
-        };
+        }
 
         // A special-net path via: "name [orient]". DEF allows the
         // orientation (and a DO ... BY ... STEP array after it), but
         // defwSpecialNetPathVia has no orientation form, so it's printed
         // here, into the same FILE, between that call and
         // defwSpecialNetPathViaData.
-        auto special_path_via = [&](const std::string &name, const std::optional<Orientation> &orientation) -> int
+        int special_path_via(FILE *file, const std::string &name, const std::optional<Orientation> &orientation)
         {
             const int status = defwSpecialNetPathVia(name.c_str());
             if (status == 0 && orientation)
                 std::fprintf(file, " %s", le::to_string(*orientation).c_str());
             return status;
-        };
-
-        std::vector<std::pair<Wiring, std::vector<const ShapeData *>>> statements;
-        for (const ShapeData *shape : shapes)
-        {
-            const Wiring wiring = wiring_of(*shape);
-            auto it = std::ranges::find_if(statements, [&](const auto &statement)
-                                           { return statement.first == wiring; });
-            if (it == statements.end())
-                it = statements.insert(statements.end(), {wiring, {}});
-            it->second.push_back(shape);
         }
 
-        for (const auto &[wiring, statement_shapes] : statements)
+        // One wiring statement: the shapes written under `wiring`, each
+        // path and via its own LAYER occurrence.
+        int write_wiring_statement(FILE *file, const Root &root, const Wiring &wiring, const std::vector<const ShapeData *> &statement_shapes, bool is_special)
         {
             bool started = false;
             int status = 0;
@@ -871,7 +834,7 @@ namespace le
                         return status;
 
                     if (is_special)
-                        status = special_path_via(via.via_name, via.orientation);
+                        status = special_path_via(file, via.via_name, via.orientation);
                     else
                         status = via.orientation
                                      ? defwNetPathViaWithOrientStr(via.via_name.c_str(), le::to_string(*via.orientation).c_str())
@@ -899,7 +862,7 @@ namespace le
                     double y = as_dbu(via_iterate.origin.y);
                     if ((status = defwSpecialNetPathPoint(1, &x, &y)))
                         return status;
-                    if ((status = special_path_via(via_iterate.via_name, via_iterate.orientation)))
+                    if ((status = special_path_via(file, via_iterate.via_name, via_iterate.orientation)))
                         return status;
                     status = defwSpecialNetPathViaData(via_iterate.num_x, via_iterate.num_y,
                                                         static_cast<int>(as_dbu(via_iterate.space_x)), static_cast<int>(as_dbu(via_iterate.space_y)));
@@ -912,53 +875,107 @@ namespace le
 
             if (started && (status = is_special ? defwSpecialNetPathEnd() : defwNetPathEnd()))
                 return status;
-        }
-
-        if (!is_special)
             return 0;
+        }
 
         // SPECIALNETS "+ RECT" and "+ POLYGON" statements (its "+ VIA"
         // statements are written as path vias, above).
         // defwSpecialNetRect/Polygon print only their own keyword, with no
         // call for a status, shield or SHAPE before it, so that prefix is
         // printed here, into the same FILE.
+        int write_special_net_rects_and_polygons(FILE *file, const Root &root, const RouteData &route, const std::vector<const ShapeData *> &shapes)
+        {
+            for (const ShapeData *shape : shapes)
+            {
+                const LayerData *layer = root.get_layer(shape->layer);
+                const std::string layer_name = layer ? layer->name : std::string{};
+                const Wiring wiring = wiring_of(route, *shape, /*is_special=*/true);
+                auto prefix = [&](int mask) -> int
+                {
+                    if (shape->routing_status || wiring.shield)
+                        std::fprintf(file, "\n      + %s%s%s", wiring.status.c_str(), wiring.shield ? " " : "",
+                                     wiring.shield ? wiring.shield->c_str() : "");
+                    if (shape->route_shape)
+                        std::fprintf(file, "\n      + SHAPE %s", le::to_string(*shape->route_shape).c_str());
+                    return mask != 0 ? defwSpecialNetMask(mask) : 0;
+                };
+                int status = 0;
+                for (std::size_t i = 0; i < shape->rects.size(); ++i)
+                {
+                    const Rect &rect = shape->rects[i];
+                    if ((status = prefix(i < shape->rect_masks.size() ? shape->rect_masks[i] : 0)) ||
+                        (status = defwSpecialNetRect(layer_name.c_str(), static_cast<int>(as_dbu(rect.ll.x)), static_cast<int>(as_dbu(rect.ll.y)),
+                                                     static_cast<int>(as_dbu(rect.ur.x)), static_cast<int>(as_dbu(rect.ur.y)))))
+                        return status;
+                }
+                for (std::size_t i = 0; i < shape->polygons.size(); ++i)
+                {
+                    std::vector<double> xs, ys;
+                    for (const Point &point : shape->polygons[i].points)
+                    {
+                        xs.push_back(as_dbu(point.x));
+                        ys.push_back(as_dbu(point.y));
+                    }
+                    if ((status = prefix(i < shape->polygon_masks.size() ? shape->polygon_masks[i] : 0)) ||
+                        (status = defwSpecialNetPolygon(layer_name.c_str(), static_cast<int>(xs.size()), xs.data(), ys.data())))
+                        return status;
+                }
+            }
+            return 0;
+        }
+    }
+
+    int DEFWriter::write_net_path(FILE *file, const Root &root, RouteId route_id, bool is_special)
+    {
+        // One wiring statement ("+ FIXED ... NEW ...") per routing status
+        // and shielded net; within it each path and via of each Wire or
+        // Shape is its own LAYER occurrence, DEF's NEW.
+        // Unlike LEF's own LAYER-repetition-within-one-OBS, DEF's writer
+        // state machine requires a fresh *PathStart("NEW") before every
+        // occurrence after the first - *PathLayer only accepts state
+        // DEFW_PATH_START, which only *PathStart sets.
+        //
+        // DEF's writer API has two entirely separate, same-shaped
+        // function families for this - defwNetPath*/defwSpecialNetPath* -
+        // not one shared family the way defwBlockage*/defwPin* are reused
+        // across kinds elsewhere (defwSpecialNetPathLayer also has no
+        // isTaper/ruleName params, unlike defwNetPathLayer).
+        const RouteData *route = root.get_route(route_id);
+        if (!route)
+            return 0;
+
+        // This section's wiring. A Wire is written as the general Shape it
+        // converts to.
+        std::vector<ShapeData> wire_shapes;
+        for (WireId wire_id : root.get_route_wires(route_id))
+            if (const WireData *wire = root.get_wire(wire_id); wire && wire->is_special == is_special)
+                wire_shapes.push_back(wire_to_shape(root, *wire));
+        std::vector<const ShapeData *> shapes;
+        for (const ShapeData &shape : wire_shapes)
+            shapes.push_back(&shape);
+        for (ShapeId shape_id : root.get_route_shapes(route_id))
+            if (const ShapeData *shape = root.get_shape(shape_id); shape && shape->is_special == is_special)
+                shapes.push_back(shape);
+
+        std::vector<std::pair<Wiring, std::vector<const ShapeData *>>> statements;
         for (const ShapeData *shape : shapes)
         {
-            const LayerData *layer = root.get_layer(shape->layer);
-            const std::string layer_name = layer ? layer->name : std::string{};
-            const Wiring wiring = wiring_of(*shape);
-            auto prefix = [&](int mask) -> int
-            {
-                if (shape->routing_status || wiring.shield)
-                    std::fprintf(file, "\n      + %s%s%s", wiring.status.c_str(), wiring.shield ? " " : "",
-                                 wiring.shield ? wiring.shield->c_str() : "");
-                if (shape->route_shape)
-                    std::fprintf(file, "\n      + SHAPE %s", le::to_string(*shape->route_shape).c_str());
-                return mask != 0 ? defwSpecialNetMask(mask) : 0;
-            };
-            int status = 0;
-            for (std::size_t i = 0; i < shape->rects.size(); ++i)
-            {
-                const Rect &rect = shape->rects[i];
-                if ((status = prefix(i < shape->rect_masks.size() ? shape->rect_masks[i] : 0)) ||
-                    (status = defwSpecialNetRect(layer_name.c_str(), static_cast<int>(as_dbu(rect.ll.x)), static_cast<int>(as_dbu(rect.ll.y)),
-                                                 static_cast<int>(as_dbu(rect.ur.x)), static_cast<int>(as_dbu(rect.ur.y)))))
-                    return status;
-            }
-            for (std::size_t i = 0; i < shape->polygons.size(); ++i)
-            {
-                std::vector<double> xs, ys;
-                for (const Point &point : shape->polygons[i].points)
-                {
-                    xs.push_back(as_dbu(point.x));
-                    ys.push_back(as_dbu(point.y));
-                }
-                if ((status = prefix(i < shape->polygon_masks.size() ? shape->polygon_masks[i] : 0)) ||
-                    (status = defwSpecialNetPolygon(layer_name.c_str(), static_cast<int>(xs.size()), xs.data(), ys.data())))
-                    return status;
-            }
+            const Wiring wiring = wiring_of(*route, *shape, is_special);
+            auto it = std::ranges::find_if(statements, [&](const auto &statement)
+                                           { return statement.first == wiring; });
+            if (it == statements.end())
+                it = statements.insert(statements.end(), {wiring, {}});
+            it->second.push_back(shape);
         }
-        return 0;
+
+        for (const auto &[wiring, statement_shapes] : statements)
+            if (const int status = write_wiring_statement(file, root, wiring, statement_shapes, is_special))
+                return status;
+
+        if (!is_special)
+            return 0;
+
+        return write_special_net_rects_and_polygons(file, root, *route, shapes);
     }
 
     int DEFWriter::write_routes(FILE *file, const Root &root, LayoutId layout_id)

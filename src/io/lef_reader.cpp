@@ -324,66 +324,11 @@ namespace le
                 .spacing = reader->microns_to_dbu(lef_layer->arraySpacing(i)),
             });
         }
-        // The following fields are pooled classes (see schema.py), not
-        // LayerData members, so each is staged into a local "pending_*"
-        // collection here and
-        // attached via root_->create_X() once layer_id exists (below),
-        // rather than assigned directly onto `layer`.
-        std::optional<ArraySpacingData> pending_array_spacing;
-        std::vector<PreferEnclosureEntryData> pending_prefer_enclosures;
-        std::vector<EnclosureEntryData> pending_enclosures;
-        std::vector<LayerDensityEntryData> pending_ac_current_density;
-        std::vector<LayerDensityEntryData> pending_dc_current_density;
-        std::vector<SpacingRuleData> pending_spacing_rules;
-        std::vector<MinimumCutData> pending_minimum_cuts;
-        std::vector<MinStepData> pending_min_steps;
-        std::vector<InfluenceSpacingEntryData> pending_spacing_table_influence;
-        std::vector<TwoWidthsSpacingEntryData> pending_spacing_table_two_widths;
-        std::vector<AntennaModelData> pending_antenna_models;
+        // The pooled rule classes (see schema.py) are staged here and created
+        // once layer_id exists (attach_layer_rules).
+        PendingLayerRules pending;
 
-        if (lef_layer->hasArraySpacing())
-        {
-            ArraySpacingData array_spacing{
-                .long_array = static_cast<bool>(lef_layer->hasLongArray()),
-                .cut_spacing = reader->microns_to_dbu(lef_layer->cutSpacing()),
-            };
-            if (lef_layer->hasViaWidth())
-                array_spacing.via_width = reader->microns_to_dbu(lef_layer->viaWidth());
-            pending_array_spacing = std::move(array_spacing);
-        }
-        pending_prefer_enclosures.reserve(static_cast<size_t>(lef_layer->numPreferEnclosure()));
-        for (int i = 0; i < lef_layer->numPreferEnclosure(); i++)
-        {
-            PreferEnclosureEntryData entry{
-                .location = lef_layer->hasPreferEnclosureRule(i) ? std::make_optional<std::string>(lef_layer->preferEnclosureRule(i)) : std::nullopt,
-                .overhang1 = reader->microns_to_dbu(lef_layer->preferEnclosureOverhang1(i)),
-                .overhang2 = reader->microns_to_dbu(lef_layer->preferEnclosureOverhang2(i)),
-            };
-            if (lef_layer->hasPreferEnclosureWidth(i))
-                entry.min_width = reader->microns_to_dbu(lef_layer->preferEnclosureMinWidth(i));
-            pending_prefer_enclosures.push_back(std::move(entry));
-        }
-        pending_enclosures.reserve(static_cast<size_t>(lef_layer->numEnclosure()));
-        for (int i = 0; i < lef_layer->numEnclosure(); i++)
-        {
-            EnclosureEntryData entry{
-                .location = lef_layer->hasEnclosureRule(i) ? std::make_optional<std::string>(lef_layer->enclosureRule(i)) : std::nullopt,
-                .overhang1 = reader->microns_to_dbu(lef_layer->enclosureOverhang1(i)),
-                .overhang2 = reader->microns_to_dbu(lef_layer->enclosureOverhang2(i)),
-            };
-            // width/except_extra_cut and min_length are mutually exclusive
-            // per the vendored writer's own three ENCLOSURE variants (see
-            // write_technology_layers's own comment).
-            if (lef_layer->hasEnclosureWidth(i))
-            {
-                entry.width = reader->microns_to_dbu(lef_layer->enclosureMinWidth(i));
-                if (lef_layer->hasEnclosureExceptExtraCut(i))
-                    entry.except_extra_cut = reader->microns_to_dbu(lef_layer->enclosureExceptExtraCut(i));
-            }
-            else if (lef_layer->hasEnclosureMinLength(i))
-                entry.min_length = reader->microns_to_dbu(lef_layer->enclosureMinLength(i));
-            pending_enclosures.push_back(std::move(entry));
-        }
+        read_enclosure_rules(reader, lef_layer, pending);
         if (lef_layer->hasSplitWireWidth())
             layer.split_wire_width = reader->microns_to_dbu(lef_layer->splitWireWidth());
         if (lef_layer->hasMinimumDensity())
@@ -402,6 +347,112 @@ namespace le
         if (lef_layer->hasFillActiveSpacing())
             layer.fill_active_spacing = reader->microns_to_dbu(lef_layer->fillActiveSpacing());
 
+        read_current_densities(reader, lef_layer, pending);
+        read_spacing_rules(reader, lef_layer, pending);
+
+        read_spacing_tables(reader, lef_layer, layer, pending);
+        if (lef_layer->hasResistance())
+            layer.resistance = lef_layer->resistance();
+        // hasResistancePerCut()/resistancePerCut() is a distinct
+        // accessor pair from hasResistance()/resistance() - the CUT-layer
+        // RESISTANCE statement (5.6) parses differently from ROUTING's own
+        // RESISTANCE, but both land in the same layer.resistance field
+        // (mutually exclusive per layer type, never both set on one layer).
+        else if (lef_layer->hasResistancePerCut())
+            layer.resistance = lef_layer->resistancePerCut();
+        if (lef_layer->hasCapacitance())
+            layer.capacitance = lef_layer->capacitance();
+        if (lef_layer->hasHeight())
+            layer.height = reader->microns_to_dbu(lef_layer->height());
+        if (lef_layer->hasThickness())
+            layer.thickness = reader->microns_to_dbu(lef_layer->thickness());
+        if (lef_layer->hasWireExtension())
+            layer.wire_extension = reader->microns_to_dbu(lef_layer->wireExtension());
+        if (lef_layer->hasShrinkage())
+            layer.shrinkage = reader->microns_to_dbu(lef_layer->shrinkage());
+        if (lef_layer->hasCapMultiplier())
+            layer.cap_multiplier = lef_layer->capMultiplier();
+        if (lef_layer->hasEdgeCap())
+            layer.edge_cap = lef_layer->edgeCap();
+        // hasAntennaArea()/antennaArea() are dead code in the vendored
+        // parser - per lefiLayer.cpp and lef.y: setAntennaArea()
+        // is defined but no grammar rule ever calls it (only
+        // ANTENNAAREARATIO/ANTENNAAREAFACTOR exist as real LEF statements,
+        // not a bare ANTENNAAREA), so this field is never populated by any
+        // real LEF file and isn't tracked here.
+        if (lef_layer->hasAntennaLength())
+            layer.antenna_length = reader->microns_to_dbu(lef_layer->antennaLength());
+
+        layer.properties.reserve(static_cast<size_t>(lef_layer->numProps()));
+        for (int i = 0; i < lef_layer->numProps(); i++)
+        {
+            layer.properties.push_back(LefProperty{
+                .name = lef_layer->propName(i),
+                .is_number = static_cast<bool>(lef_layer->propIsNumber(i)),
+                .string_value = lef_layer->propIsString(i) ? lef_layer->propValue(i) : "",
+                .number_value = lef_layer->propIsNumber(i) ? lef_layer->propNumber(i) : 0.0,
+            });
+        }
+
+        read_antenna_models(lef_layer, pending);
+
+        const LayerId layer_id = reader->root_->create_layer(std::move(layer));
+        attach_layer_rules(reader, layer_id, pending);
+
+        return 0;
+    }
+
+    // A LAYER's ARRAYSPACING, PREFERENCLOSURE and ENCLOSURE.
+    void LEFReader::read_enclosure_rules(LEFReader *reader, lefiLayer *lef_layer, PendingLayerRules &pending)
+    {
+        if (lef_layer->hasArraySpacing())
+        {
+            ArraySpacingData array_spacing{
+                .long_array = static_cast<bool>(lef_layer->hasLongArray()),
+                .cut_spacing = reader->microns_to_dbu(lef_layer->cutSpacing()),
+            };
+            if (lef_layer->hasViaWidth())
+                array_spacing.via_width = reader->microns_to_dbu(lef_layer->viaWidth());
+            pending.array_spacing = std::move(array_spacing);
+        }
+        pending.prefer_enclosures.reserve(static_cast<size_t>(lef_layer->numPreferEnclosure()));
+        for (int i = 0; i < lef_layer->numPreferEnclosure(); i++)
+        {
+            PreferEnclosureEntryData entry{
+                .location = lef_layer->hasPreferEnclosureRule(i) ? std::make_optional<std::string>(lef_layer->preferEnclosureRule(i)) : std::nullopt,
+                .overhang1 = reader->microns_to_dbu(lef_layer->preferEnclosureOverhang1(i)),
+                .overhang2 = reader->microns_to_dbu(lef_layer->preferEnclosureOverhang2(i)),
+            };
+            if (lef_layer->hasPreferEnclosureWidth(i))
+                entry.min_width = reader->microns_to_dbu(lef_layer->preferEnclosureMinWidth(i));
+            pending.prefer_enclosures.push_back(std::move(entry));
+        }
+        pending.enclosures.reserve(static_cast<size_t>(lef_layer->numEnclosure()));
+        for (int i = 0; i < lef_layer->numEnclosure(); i++)
+        {
+            EnclosureEntryData entry{
+                .location = lef_layer->hasEnclosureRule(i) ? std::make_optional<std::string>(lef_layer->enclosureRule(i)) : std::nullopt,
+                .overhang1 = reader->microns_to_dbu(lef_layer->enclosureOverhang1(i)),
+                .overhang2 = reader->microns_to_dbu(lef_layer->enclosureOverhang2(i)),
+            };
+            // width/except_extra_cut and min_length are mutually exclusive
+            // per the vendored writer's own three ENCLOSURE variants (see
+            // write_other_layer_tables's own comment).
+            if (lef_layer->hasEnclosureWidth(i))
+            {
+                entry.width = reader->microns_to_dbu(lef_layer->enclosureMinWidth(i));
+                if (lef_layer->hasEnclosureExceptExtraCut(i))
+                    entry.except_extra_cut = reader->microns_to_dbu(lef_layer->enclosureExceptExtraCut(i));
+            }
+            else if (lef_layer->hasEnclosureMinLength(i))
+                entry.min_length = reader->microns_to_dbu(lef_layer->enclosureMinLength(i));
+            pending.enclosures.push_back(std::move(entry));
+        }
+    }
+
+    // A LAYER's ACCURRENTDENSITY and DCCURRENTDENSITY.
+    void LEFReader::read_current_densities(LEFReader *reader, lefiLayer *lef_layer, PendingLayerRules &pending)
+    {
         // AC/DC CURRENTDENSITY - lefiLayerDensity's type() is always set
         // ("PEAK"/"AVERAGE"/"RMS"); hasOneEntry() selects the plain-scalar
         // form, otherwise it's the table form (frequency/width-or-cutarea +
@@ -432,13 +483,18 @@ namespace le
                 entry.table_entries.push_back(density->tableEntry(t));
             return entry;
         };
-        pending_ac_current_density.reserve(static_cast<size_t>(lef_layer->numAccurrentDensity()));
+        pending.ac_current_density.reserve(static_cast<size_t>(lef_layer->numAccurrentDensity()));
         for (int i = 0; i < lef_layer->numAccurrentDensity(); i++)
-            pending_ac_current_density.push_back(read_current_density(lef_layer->accurrent(i)));
-        pending_dc_current_density.reserve(static_cast<size_t>(lef_layer->numDccurrentDensity()));
+            pending.ac_current_density.push_back(read_current_density(lef_layer->accurrent(i)));
+        pending.dc_current_density.reserve(static_cast<size_t>(lef_layer->numDccurrentDensity()));
         for (int i = 0; i < lef_layer->numDccurrentDensity(); i++)
-            pending_dc_current_density.push_back(read_current_density(lef_layer->dccurrent(i)));
-        pending_spacing_rules.reserve(static_cast<size_t>(lef_layer->numSpacing()));
+            pending.dc_current_density.push_back(read_current_density(lef_layer->dccurrent(i)));
+    }
+
+    // A LAYER's SPACING, MINIMUMCUT and MINSTEP.
+    void LEFReader::read_spacing_rules(LEFReader *reader, lefiLayer *lef_layer, PendingLayerRules &pending)
+    {
+        pending.spacing_rules.reserve(static_cast<size_t>(lef_layer->numSpacing()));
         for (int i = 0; i < lef_layer->numSpacing(); i++)
         {
             SpacingRuleData rule{.distance = reader->microns_to_dbu(lef_layer->spacing(i))};
@@ -504,7 +560,7 @@ namespace le
             }
             if (lef_layer->hasSpacingArea(i))
                 rule.area = reader->microns_squared_to_dbu(lef_layer->spacingArea(i)); // an area (square microns)
-            // Read-only (see write_technology_layers's own comment on the
+            // Read-only (see write_routing_layer_spacing's own comment on the
             // vendored writer bug - these are never written back out).
             if (lef_layer->hasSpacingNotchLength(i))
                 rule.notch_length = reader->microns_to_dbu(lef_layer->spacingNotchLength(i));
@@ -515,10 +571,10 @@ namespace le
                 rule.end_of_notch_length = reader->microns_to_dbu(lef_layer->spacingEndOfNotchLength(i));
             }
 
-            pending_spacing_rules.push_back(std::move(rule));
+            pending.spacing_rules.push_back(std::move(rule));
         }
 
-        pending_minimum_cuts.reserve(static_cast<size_t>(lef_layer->numMinimumcut()));
+        pending.minimum_cuts.reserve(static_cast<size_t>(lef_layer->numMinimumcut()));
         for (int i = 0; i < lef_layer->numMinimumcut(); i++)
         {
             MinimumCutData cut{
@@ -534,10 +590,10 @@ namespace le
                 cut.length = reader->microns_to_dbu(lef_layer->minimumcutLength(i));
                 cut.distance = reader->microns_to_dbu(lef_layer->minimumcutDistance(i));
             }
-            pending_minimum_cuts.push_back(cut);
+            pending.minimum_cuts.push_back(cut);
         }
 
-        pending_min_steps.reserve(static_cast<size_t>(lef_layer->numMinstep()));
+        pending.min_steps.reserve(static_cast<size_t>(lef_layer->numMinstep()));
         for (int i = 0; i < lef_layer->numMinstep(); i++)
         {
             MinStepData step{.distance = reader->microns_to_dbu(lef_layer->minstep(i))};
@@ -547,9 +603,13 @@ namespace le
                 step.lengthsum = reader->microns_to_dbu(lef_layer->minstepLengthsum(i));
             if (lef_layer->hasMinstepMaxedges(i))
                 step.max_edges = lef_layer->minstepMaxedges(i);
-            pending_min_steps.push_back(step);
+            pending.min_steps.push_back(step);
         }
+    }
 
+    // A LAYER's SPACINGTABLE (PARALLELRUNLENGTH, INFLUENCE, TWOWIDTHS, ORTHOGONAL) - the parallel-run-length and orthogonal tables live on `layer`.
+    void LEFReader::read_spacing_tables(LEFReader *reader, lefiLayer *lef_layer, LayerData &layer, PendingLayerRules &pending)
+    {
         for (int i = 0; i < lef_layer->numSpacingTable(); i++)
         {
             lefiSpacingTable *table = lef_layer->spacingTable(i);
@@ -575,7 +635,7 @@ namespace le
                 lefiInfluence *influence = table->influence();
                 for (int e = 0; e < influence->numInfluenceEntry(); e++)
                 {
-                    pending_spacing_table_influence.push_back(InfluenceSpacingEntryData{
+                    pending.spacing_table_influence.push_back(InfluenceSpacingEntryData{
                         .width = reader->microns_to_dbu(influence->width(e)),
                         .distance = reader->microns_to_dbu(influence->distance(e)),
                         .spacing = reader->microns_to_dbu(influence->spacing(e)),
@@ -596,7 +656,7 @@ namespace le
                     entry.spacings.reserve(static_cast<size_t>(two_widths->numWidthSpacing(w)));
                     for (int s = 0; s < two_widths->numWidthSpacing(w); s++)
                         entry.spacings.push_back(reader->microns_to_dbu(two_widths->widthSpacing(w, s)));
-                    pending_spacing_table_two_widths.push_back(std::move(entry));
+                    pending.spacing_table_two_widths.push_back(std::move(entry));
                 }
             }
         }
@@ -613,50 +673,12 @@ namespace le
                 });
             }
         }
-        if (lef_layer->hasResistance())
-            layer.resistance = lef_layer->resistance();
-        // hasResistancePerCut()/resistancePerCut() is a distinct
-        // accessor pair from hasResistance()/resistance() - the CUT-layer
-        // RESISTANCE statement (5.6) parses differently from ROUTING's own
-        // RESISTANCE, but both land in the same layer.resistance field
-        // (mutually exclusive per layer type, never both set on one layer).
-        else if (lef_layer->hasResistancePerCut())
-            layer.resistance = lef_layer->resistancePerCut();
-        if (lef_layer->hasCapacitance())
-            layer.capacitance = lef_layer->capacitance();
-        if (lef_layer->hasHeight())
-            layer.height = reader->microns_to_dbu(lef_layer->height());
-        if (lef_layer->hasThickness())
-            layer.thickness = reader->microns_to_dbu(lef_layer->thickness());
-        if (lef_layer->hasWireExtension())
-            layer.wire_extension = reader->microns_to_dbu(lef_layer->wireExtension());
-        if (lef_layer->hasShrinkage())
-            layer.shrinkage = reader->microns_to_dbu(lef_layer->shrinkage());
-        if (lef_layer->hasCapMultiplier())
-            layer.cap_multiplier = lef_layer->capMultiplier();
-        if (lef_layer->hasEdgeCap())
-            layer.edge_cap = lef_layer->edgeCap();
-        // hasAntennaArea()/antennaArea() are dead code in the vendored
-        // parser - per lefiLayer.cpp and lef.y: setAntennaArea()
-        // is defined but no grammar rule ever calls it (only
-        // ANTENNAAREARATIO/ANTENNAAREAFACTOR exist as real LEF statements,
-        // not a bare ANTENNAAREA), so this field is never populated by any
-        // real LEF file and isn't tracked here.
-        if (lef_layer->hasAntennaLength())
-            layer.antenna_length = reader->microns_to_dbu(lef_layer->antennaLength());
+    }
 
-        layer.properties.reserve(static_cast<size_t>(lef_layer->numProps()));
-        for (int i = 0; i < lef_layer->numProps(); i++)
-        {
-            layer.properties.push_back(LefProperty{
-                .name = lef_layer->propName(i),
-                .is_number = static_cast<bool>(lef_layer->propIsNumber(i)),
-                .string_value = lef_layer->propIsString(i) ? lef_layer->propValue(i) : "",
-                .number_value = lef_layer->propIsNumber(i) ? lef_layer->propNumber(i) : 0.0,
-            });
-        }
-
-        pending_antenna_models.reserve(static_cast<size_t>(lef_layer->numAntennaModel()));
+    // A LAYER's ANTENNAMODEL blocks.
+    void LEFReader::read_antenna_models(lefiLayer *lef_layer, PendingLayerRules &pending)
+    {
+        pending.antenna_models.reserve(static_cast<size_t>(lef_layer->numAntennaModel()));
         for (int i = 0; i < lef_layer->numAntennaModel(); i++)
         {
             lefiAntennaModel *lef_model = lef_layer->antennaModel(i);
@@ -725,67 +747,68 @@ namespace le
             else if (lef_model->hasAntennaCumDiffSideAreaRatio())
                 model.cum_diff_side_area_ratio = lef_model->antennaCumDiffSideAreaRatio();
 
-            pending_antenna_models.push_back(std::move(model));
+            pending.antenna_models.push_back(std::move(model));
         }
+    }
 
-        const LayerId layer_id = reader->root_->create_layer(std::move(layer));
-        if (pending_array_spacing)
+    // Creates the pooled rule children a LAYER read staged, under `layer_id`.
+    void LEFReader::attach_layer_rules(LEFReader *reader, LayerId layer_id, PendingLayerRules &pending)
+    {
+        if (pending.array_spacing)
         {
-            pending_array_spacing->layer = layer_id;
-            reader->root_->create_array_spacing(std::move(*pending_array_spacing));
+            pending.array_spacing->layer = layer_id;
+            reader->root_->create_array_spacing(std::move(*pending.array_spacing));
         }
-        for (auto &entry : pending_prefer_enclosures)
+        for (auto &entry : pending.prefer_enclosures)
         {
             entry.layer = layer_id;
             reader->root_->create_prefer_enclosure_entry(std::move(entry));
         }
-        for (auto &entry : pending_enclosures)
+        for (auto &entry : pending.enclosures)
         {
             entry.layer = layer_id;
             reader->root_->create_enclosure_entry(std::move(entry));
         }
-        for (auto &entry : pending_ac_current_density)
+        for (auto &entry : pending.ac_current_density)
         {
             entry.ac_layer = layer_id;
             reader->root_->create_layer_density_entry(std::move(entry));
         }
-        for (auto &entry : pending_dc_current_density)
+        for (auto &entry : pending.dc_current_density)
         {
             entry.dc_layer = layer_id;
             reader->root_->create_layer_density_entry(std::move(entry));
         }
-        for (auto &rule : pending_spacing_rules)
+        for (auto &rule : pending.spacing_rules)
         {
             rule.layer = layer_id;
             reader->root_->create_spacing_rule(std::move(rule));
         }
-        for (auto &cut : pending_minimum_cuts)
+        for (auto &cut : pending.minimum_cuts)
         {
             cut.layer = layer_id;
             reader->root_->create_minimum_cut(std::move(cut));
         }
-        for (auto &step : pending_min_steps)
+        for (auto &step : pending.min_steps)
         {
             step.layer = layer_id;
             reader->root_->create_min_step(std::move(step));
         }
-        for (auto &entry : pending_spacing_table_influence)
+        for (auto &entry : pending.spacing_table_influence)
         {
             entry.layer = layer_id;
             reader->root_->create_influence_spacing_entry(std::move(entry));
         }
-        for (auto &entry : pending_spacing_table_two_widths)
+        for (auto &entry : pending.spacing_table_two_widths)
         {
             entry.layer = layer_id;
             reader->root_->create_two_widths_spacing_entry(std::move(entry));
         }
-        for (auto &model : pending_antenna_models)
+        for (auto &model : pending.antenna_models)
         {
             model.layer = layer_id;
             reader->root_->create_antenna_model(std::move(model));
         }
-
-        return 0;
     }
 
     int LEFReader::lefrVersionCbkFn(lefrCallbackType_e typ, double version, void *user_data)
@@ -967,7 +990,7 @@ namespace le
 
         // foreign/layers/via_rule are pooled classes - staged here,
         // attached via root_->create_X() once via_id exists
-        // (below), same pattern as lefrLayerCbkFn's own pending_* locals.
+        // (below), same pattern as lefrLayerCbkFn's PendingLayerRules.
         std::optional<ForeignData> pending_foreign;
         if (lef_via->hasForeign())
         {
@@ -1666,7 +1689,7 @@ namespace le
         // lefiPinAntennaModel class from lefiLayer's own lefiAntennaModel.
         // A pooled class - staged here, attached via
         // root_->create_pin_antenna_model() once terminal_id exists
-        // (below), same pattern as lefrLayerCbkFn's own pending_* locals.
+        // (below), same pattern as lefrLayerCbkFn's PendingLayerRules.
         std::vector<PinAntennaModelData> pending_antenna_models;
         pending_antenna_models.reserve(static_cast<size_t>(lef_pin->numAntennaModel()));
         for (int i = 0; i < lef_pin->numAntennaModel(); i++)

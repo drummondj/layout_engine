@@ -44,6 +44,27 @@ namespace le
         int read_lef_contents(std::string filename, Root &root, std::string library_name);
         // Callbacks
         static int lefrLayerCbkFn(lefrCallbackType_e typ, lefiLayer *lef_layer, void *user_data);
+        // A LAYER's pooled rule children, read before the Layer exists.
+        struct PendingLayerRules
+        {
+            std::optional<ArraySpacingData> array_spacing;
+            std::vector<PreferEnclosureEntryData> prefer_enclosures;
+            std::vector<EnclosureEntryData> enclosures;
+            std::vector<LayerDensityEntryData> ac_current_density;
+            std::vector<LayerDensityEntryData> dc_current_density;
+            std::vector<SpacingRuleData> spacing_rules;
+            std::vector<MinimumCutData> minimum_cuts;
+            std::vector<MinStepData> min_steps;
+            std::vector<InfluenceSpacingEntryData> spacing_table_influence;
+            std::vector<TwoWidthsSpacingEntryData> spacing_table_two_widths;
+            std::vector<AntennaModelData> antenna_models;
+        };
+        static void read_enclosure_rules(LEFReader *reader, lefiLayer *lef_layer, PendingLayerRules &pending);
+        static void read_current_densities(LEFReader *reader, lefiLayer *lef_layer, PendingLayerRules &pending);
+        static void read_spacing_rules(LEFReader *reader, lefiLayer *lef_layer, PendingLayerRules &pending);
+        static void read_spacing_tables(LEFReader *reader, lefiLayer *lef_layer, LayerData &layer, PendingLayerRules &pending);
+        static void read_antenna_models(lefiLayer *lef_layer, PendingLayerRules &pending);
+        static void attach_layer_rules(LEFReader *reader, LayerId layer_id, PendingLayerRules &pending);
         static int lefrMacroBeginCbkFn(lefrCallbackType_e typ, const char *name, void *user_data);
         static int lefrUnitsCbkFn(lefrCallbackType_e typ, lefiUnits *lef_units, void *user_data);
         static int lefrMacroCbkFn(lefrCallbackType_e typ, lefiMacro *lef_macro, void *user_data);
