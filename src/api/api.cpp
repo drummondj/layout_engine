@@ -7,7 +7,7 @@
 #include "../database/rename_propagation.hpp"
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
-#include "../geometry/shape_ops.hpp"
+#include "shape_ops.hpp"
 #include "../io/lef_reader.hpp"
 #include "../io/def_reader.hpp"
 #include "../io/sv_reader.hpp"

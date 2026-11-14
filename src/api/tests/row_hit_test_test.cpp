@@ -1,4 +1,4 @@
-#include "geometry/row_geometry.hpp"
+#include "../hit_test.hpp"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +8,7 @@ namespace
 {
     // Site 100x1000 dbu; ROW0 at (0,0) spans 5 sites, (0,0)-(500,1000);
     // ROW1 at (0,1000) spans 1 site, (0,1000)-(100,2000).
-    struct RowGeometryFixture : ::testing::Test
+    struct RowHitTest : ::testing::Test
     {
         Root root;
         LayoutId layout;
@@ -32,21 +32,21 @@ namespace
     };
 }
 
-TEST_F(RowGeometryFixture, PointHitTestFindsEveryRowContainingThePointEdgesInclusive)
+TEST_F(RowHitTest, PointHitTestFindsEveryRowContainingThePointEdgesInclusive)
 {
     EXPECT_EQ(hit_test_rows_point_all(root, layout, Point{250, 500}), std::vector<RowId>{row0});
     EXPECT_EQ(hit_test_rows_point_all(root, layout, Point{50, 1000}), (std::vector<RowId>{row0, row1})); // shared edge
     EXPECT_TRUE(hit_test_rows_point_all(root, layout, Point{300, 1500}).empty());
 }
 
-TEST_F(RowGeometryFixture, RectHitTestFindsOnlyFullyEnclosedRows)
+TEST_F(RowHitTest, RectHitTestFindsOnlyFullyEnclosedRows)
 {
     EXPECT_EQ(hit_test_rows_rect(root, layout, Rect{.ll = {0, 0}, .ur = {500, 1500}}), std::vector<RowId>{row0});
     EXPECT_EQ(hit_test_rows_rect(root, layout, Rect{.ll = {0, 0}, .ur = {500, 2000}}), (std::vector<RowId>{row0, row1}));
     EXPECT_TRUE(hit_test_rows_rect(root, layout, Rect{.ll = {0, 0}, .ur = {499, 999}}).empty());
 }
 
-TEST_F(RowGeometryFixture, RowsWithAnUnresolvedSiteAreNeverHit)
+TEST_F(RowHitTest, RowsWithAnUnresolvedSiteAreNeverHit)
 {
     root.create_row(RowData{.layout = layout, .name = "ORPHAN", .site_name = "NO_SUCH_SITE", .origin = Point{0, 0}});
     EXPECT_EQ(hit_test_rows_point_all(root, layout, Point{50, 500}), std::vector<RowId>{row0});

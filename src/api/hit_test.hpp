@@ -3,6 +3,7 @@
 #include "../database/wire_helpers.hpp"
 #include "../geometry/geometry.hpp"
 #include "../geometry/placement_geometry.hpp"
+#include "../geometry/row_geometry.hpp"
 #include "../pipelines/view_style.hpp"
 #include <functional>
 #include <optional>
@@ -12,8 +13,8 @@
 
 namespace le
 {
-    /// @brief Selection hit-tests: top-level Placements by world bbox, and
-    /// shape pieces in the Abstract and Layout views.
+    /// @brief Selection hit-tests: top-level Placements by world bbox, Rows
+    /// by footprint, and shape pieces in the Abstract and Layout views.
 
     /// Top-level Placement hit-test, by world bbox. Iterates `layout_id`'s
     /// direct placements **in reverse** (the newest is drawn last, so is
@@ -402,5 +403,29 @@ namespace le
 
         for_each_layout_hit_shape(root, layout_id, candidates, collect);
         return result;
+    }
+
+    /// @brief Every Row of `layout_id` whose footprint contains `p` (edges
+    /// inclusive), in Layout order.
+    inline std::vector<RowId> hit_test_rows_point_all(const Root &root, LayoutId layout_id, Point p)
+    {
+        std::vector<RowId> hits;
+        for (const RowId row_id : root.get_layout_rows(layout_id))
+            if (const std::optional<Rect> bbox = row_footprint_bbox(root, row_id))
+                if (p.x >= bbox->ll.x && p.x <= bbox->ur.x && p.y >= bbox->ll.y && p.y <= bbox->ur.y)
+                    hits.push_back(row_id);
+        return hits;
+    }
+
+    /// @brief Every Row of `layout_id` whose footprint lies entirely
+    /// inside `rect`, in Layout order.
+    inline std::vector<RowId> hit_test_rows_rect(const Root &root, LayoutId layout_id, const Rect &rect)
+    {
+        std::vector<RowId> hits;
+        for (const RowId row_id : root.get_layout_rows(layout_id))
+            if (const std::optional<Rect> bbox = row_footprint_bbox(root, row_id))
+                if (bbox->ll.x >= rect.ll.x && bbox->ll.y >= rect.ll.y && bbox->ur.x <= rect.ur.x && bbox->ur.y <= rect.ur.y)
+                    hits.push_back(row_id);
+        return hits;
     }
 }
