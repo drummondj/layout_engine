@@ -152,6 +152,54 @@ TEST_F(ViewRenderPipelineFixture, PlacedCellContentOutsideItsBoundaryStillDraws)
     EXPECT_TRUE(found_red);
 }
 
+namespace
+{
+    // Whether any pixel in columns [x0, x1) of `buffer` is M1's red.
+    bool has_red_between(const PixelBuffer &buffer, int x0, int x1)
+    {
+        for (int y = 0; y < buffer.height; ++y)
+            for (int x = x0; x < x1; ++x)
+            {
+                const uint8_t *px = buffer.data + static_cast<std::size_t>(y) * buffer.row_bytes + static_cast<std::size_t>(x) * 4;
+                if (px[0] > 200 && px[1] < 80 && px[2] < 80)
+                    return true;
+            }
+        return false;
+    }
+}
+
+// Two abutting copies of a cell far wider than the image limit at this
+// zoom, viewed at their seam: the left copy shows its right edge and the
+// right copy its left edge. Both edges must draw, though together they
+// span the whole cell.
+TEST_F(ViewRenderPipelineFixture, AbuttingCopiesOfAWideCellBothDrawAtTheirSeam)
+{
+    const DesignId wide_design = root.create_design(DesignData{.library = root.get_library_by_name("LIB"), .name = "WIDE"});
+    const AbstractId wide = root.create_abstract(AbstractData{.design = wide_design});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::abstract(wide), .purpose = ShapePurpose::BOUNDARY, .rects = {Rect{.ll = Point{0, 0}, .ur = Point{1000, 10}}}});
+    const TerminalId terminal = root.create_terminal(TerminalData{.abstract = wide, .name = "A"});
+    const TerminalPortId port = root.create_terminal_port(TerminalPortData{.terminal = terminal});
+    root.create_shape(ShapeData{.owner = le::ShapeOwner::terminal_port(port), .layer = m1,
+                                .rects = {Rect{.ll = Point{0, 0}, .ur = Point{5, 10}}, Rect{.ll = Point{995, 0}, .ur = Point{1000, 10}}}});
+    root.create_placement(PlacementData{.layout = top_layout, .name = "left", .reference_design = wide_design, .placement_status = PlacementStatus::PLACED, .location = Point{0, 2000}, .orientation = Orientation::N});
+    root.create_placement(PlacementData{.layout = top_layout, .name = "right", .reference_design = wide_design, .placement_status = PlacementStatus::PLACED, .location = Point{1000, 2000}, .orientation = Orientation::N});
+    root.bump_mutation_version();
+
+    // 10 x 10 dbu around the seam at x = 1000, 20 px per dbu: 200 x 200 px.
+    // The whole cell would be 20000 px wide.
+    ViewRenderOptions options = options_for(1);
+    options.viewport = Rect{.ll = Point{995, 2000}, .ur = Point{1005, 2010}};
+    options.scale = 20.0;
+    const ViewRenderPipeline::WarmOutput output = pipeline.run(&root, options);
+    ASSERT_NE(output.frame, nullptr);
+    ASSERT_FALSE(output.frame->empty);
+    const PixelBuffer &buffer = output.frame->buffer;
+    ASSERT_EQ(buffer.width, 200);
+
+    EXPECT_TRUE(has_red_between(buffer, 0, 95)) << "the left copy's right-edge pin";
+    EXPECT_TRUE(has_red_between(buffer, 105, 200)) << "the right copy's left-edge pin";
+}
+
 // A Placement.type/Route.use filter toggle redraws from the cull down -
 // positions don't change, so the resolved tree is reused, not re-resolved.
 TEST_F(ViewRenderPipelineFixture, TogglingAnObjectFilterReCullsButDoesNotReResolve)

@@ -60,9 +60,10 @@ namespace le
         /// content to go between, and `image` holds every shape.
         BLImage over_placements;
 
-        /// @brief The node needed more than kMaxImageDimensionPx pixels at
-        /// this zoom; `image` holds only its first kMaxImageDimensionPx.
-        bool cropped = false;
+        /// @brief Pixels per dbu `image` was drawn at: the view's scale, or
+        /// less for a node that would need more than kMaxImageDimensionPx at
+        /// it, which is drawn coarser to fit instead of being cut off.
+        double scale = 0.0;
 
         /// @brief The node's labels, on shapes this image draws.
         std::vector<NodeLabel> labels;
