@@ -112,7 +112,8 @@ namespace le::ext
             handle_->command_history.end(succeeded_);
             handle_->release_renders();
         }
-        root_->bump_mutation_version();
+        if (root_lent_)
+            root_->bump_mutation_version();
         handle_->note_write_finished(begin_);
         const bool deliver = !handle_->renders_held();
         lock_.unlock();
@@ -258,6 +259,51 @@ namespace le::ext
     std::expected<void, std::string> WriteView::remove_shape_piece(GeometryId shape, PieceKind kind, size_t index)
     {
         return edit::remove_shape_piece(*handle_, shape, kind, index);
+    }
+
+    std::span<const SelectedObject> ReadView::selection() const { return handle_->selection(); }
+    uint64_t ReadView::selection_version() const { return handle_->selection_version(); }
+    std::span<const Ruler> ReadView::rulers() const { return handle_->rulers(); }
+    ViewState ReadView::view() const { return edit::view_state(*handle_); }
+
+    std::span<const SelectedObject> WriteView::selection() const { return handle_->selection(); }
+    uint64_t WriteView::selection_version() const { return handle_->selection_version(); }
+    std::expected<void, std::string> WriteView::select(SelectableObject object) { return edit::select(*handle_, object); }
+    std::expected<void, std::string> WriteView::select_entry(const SelectedObject &entry) { return edit::select_entry(*handle_, entry); }
+    void WriteView::deselect(const SelectedObject &entry) { edit::deselect_entry(*handle_, entry); }
+    void WriteView::clear_selection() { edit::clear_selection(*handle_); }
+
+    ViewState WriteView::view() const { return edit::view_state(*handle_); }
+    std::expected<void, std::string> WriteView::open_abstract(DesignId design) { return edit::open_abstract(*handle_, design); }
+    std::expected<void, std::string> WriteView::open_layout(DesignId design) { return edit::open_layout(*handle_, design); }
+    void WriteView::fit_view(int padding_px) { edit::fit_view(*handle_, padding_px); }
+    void WriteView::fit_rect(Rect area, int padding_px) { edit::fit_rect(*handle_, area, padding_px); }
+    void WriteView::zoom(double factor, int x_px, int y_px) { edit::zoom(*handle_, factor, x_px, y_px); }
+    void WriteView::pan(double x_factor, double y_factor) { edit::pan(*handle_, x_factor, y_factor); }
+    void WriteView::set_view_flip(ViewFlip flip) { edit::set_view_flip(*handle_, flip); }
+
+    std::span<const Ruler> WriteView::rulers() const { return handle_->rulers(); }
+    std::expected<void, std::string> WriteView::add_ruler(std::span<const Point> points) { return edit::add_ruler(*handle_, points); }
+    void WriteView::finish_ruler() { edit::finish_ruler(*handle_); }
+    void WriteView::clear_rulers() { edit::clear_rulers(*handle_); }
+
+    std::expected<void, std::string> WriteView::read_lef(const std::string &path, const std::string &library) { return edit::read_lef(*handle_, path, library); }
+    std::expected<void, std::string> WriteView::read_def(const std::string &path, const std::string &library) { return edit::read_def(*handle_, path, library); }
+    std::expected<void, std::string> WriteView::read_verilog(std::span<const std::string> files, bool netlist, const std::string &library)
+    {
+        return edit::read_verilog(*handle_, files, netlist, library);
+    }
+    std::expected<void, std::string> WriteView::read_db(const std::string &path, bool with_session) { return edit::read_db(*handle_, path, with_session); }
+    std::expected<void, std::string> WriteView::write_lef(const std::string &path, std::span<const AbstractId> abstracts, LibraryId library,
+                                                          LefLayerWriteMode layers)
+    {
+        return edit::write_lef(*handle_, path, abstracts, library, layers);
+    }
+    std::expected<void, std::string> WriteView::write_def(const std::string &path, LayoutId layout) { return edit::write_def(*handle_, path, layout); }
+    std::expected<void, std::string> WriteView::write_db(const std::string &path, bool with_session) { return edit::write_db(*handle_, path, with_session); }
+    std::expected<void, std::string> WriteView::write_verilog_stubs(const std::string &path, LibraryId library)
+    {
+        return edit::write_verilog_stubs(*handle_, path, library);
     }
 
     Transaction::Transaction(LeHandle *handle, const std::string &label) : handle_(handle)

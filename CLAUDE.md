@@ -52,7 +52,9 @@ fails on a temp path that isn't unique to its process.
   that isn't geometry: `flightlines.hpp` (net connections of the selected
   placements), `object_filters.hpp` (the Layers panel's value filters:
   Placement type/status, Route use, and a route Wire's or Shape's routing
-  status/SHAPE). Code only one module uses lives in that module.
+  status/SHAPE), `session_types.hpp` (session state the SDK also names:
+  `SelectedObject`/`ShapePiece`, `Ruler`, `ViewState`/`ViewFlip`,
+  `LefLayerWriteMode`). Code only one module uses lives in that module.
 - `src/pipelines/` — the render pipeline, one oneTBB `flow::graph`
   (`ViewRenderPipeline`, design in `plans/PIPELINE_REFACTOR.md`):
   `LayerGenerationStage` -> `HierarchyResolverStage` -> `ViewportCullStage`
@@ -156,8 +158,12 @@ fails on a temp path that isn't unique to its process.
   create/update/delete per class (`generated/api/edit_ops_*.inc`, with
   `<Type>Changes` in `edit_types.hpp`) and the shape ops, in native types
   with `std::expected` errors, validating, bumping the mutation version
-  and recording undo; the caller holds the exclusive lock. Extensions
-  reach them through `le::ext::WriteView`.
+  and recording undo; the caller holds the exclusive lock. The session
+  state ops live beside their C shims: selection (`selection.cpp`), the
+  open view and viewport (`view_options.cpp`), rulers (`input.cpp`), file
+  reads/writes and opening a view (`api.cpp`; they log as the C API always
+  has and return the error text too). Extensions reach them all through
+  `le::ext::WriteView`.
   Its header-only helpers: `hit_test.hpp` (Placement, Row, Abstract-view
   and Layout-view hit-tests), `shape_ops.hpp` (the `shape_*` ops: resolve
   inputs, run the `Geometry` area op, store each result as a new Shape in
@@ -214,8 +220,8 @@ fails on a temp path that isn't unique to its process.
   (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
   `write(label)`/`transaction()`/`data<T>()`/`current_<type>()`, generated
   `to_c`/`from_c` id conversions; `WriteView`'s undoable
-  `create_/update_/delete_<type>`, the views' `shape_*` ops over
-  `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp`),
+  `create_/update_/delete_<type>`, the views' `shape_*` ops, selection,
+  view, ruler and file members over `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp`),
   versioned by `LE_EXTENSION_API_VERSION`. Mutation listeners
   (`Registry::add_mutation_listener`) get Root's change-log entries from
   `dispatch_mutation_listeners` (`extension.cpp`), which `HandleWriteLock`

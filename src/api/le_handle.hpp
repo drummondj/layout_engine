@@ -4,6 +4,7 @@
 
 #include "../core/flightlines.hpp"
 #include "../core/object_filters.hpp"
+#include "../core/session_types.hpp"
 #include "placement_move.hpp"
 #include "shape_resize.hpp"
 #include "../database/database.hpp"
@@ -375,55 +376,10 @@ struct LeHandle
 
     // === Per-handle view/interaction state ===
     //
-    /// @brief One selected piece - the exact rect/polygon/path that was clicked/
-    /// dragged to select it, identified by its owning Shape's id (or, for
-    /// routed wiring, its Wire's - exactly one is valid; a Wire's pieces
-    /// are those of the Shape it converts to, le::wire_to_shape) plus
-    /// which entry of that Shape's own rects/polygons/paths it is
-    /// (`piece_kind`/`piece_index` - see Geometry::HitPiece, which
-    /// LeHandle::select()'s callers build these from). The Property
-    /// Viewer still resolves "the selected object" to the *owning Shape*
-    /// (le_object_property_at/le_selected_object_ref only
-    /// ever read `shape_id`, ignoring which piece) - properties are
-    /// per-Shape, not per-piece; only rendering the selection outline
-    /// and Move care which specific piece this is. Geometry itself is
-    /// looked up on demand from Root (view_options.cpp's view_render_options_for
-    /// resolves it for the outline) rather than stored here.
-    ///
-    /// One alternative of SelectedObject's variant below - every
-    /// Terminal/Obstruction selection (Abstract view) and every
-    /// Blockage/Route/PhysicalPort selection (Layout view) is a ShapePiece,
-    /// since each has a real backing Shape; Row/Placement/Region (no
-    /// backing Shape at all - see their own schema.py comments) use a
-    /// bare-id alternative instead.
-    struct ShapePiece
-    {
-        le::ShapeId shape_id;
-        le::WireId wire_id;
-        le::PieceKind piece_kind = le::PieceKind::RECT;
-        size_t piece_index = 0;
-
-        /// @brief The Shape or Wire this is a piece of.
-        le::GeometryId owner() const { return wire_id.valid() ? le::GeometryId::of(wire_id) : le::GeometryId::of(shape_id); }
-
-        friend auto operator<=>(const ShapePiece &, const ShapePiece &) = default;
-    };
-
-    /// @brief One selected top-level object - a ShapePiece for
-    /// anything with real backing Shape geometry (Terminal/Obstruction/
-    /// Blockage/Route/PhysicalPort), or a bare id for a kind with none
-    /// (RowId/RegionId - synthesized geometry; PlacementId - its own
-    /// geometry is its reference design's). A std::variant, not
-    /// ShapePiece with more optional fields, so "which kind is this" is
-    /// never ambiguous and every consumer (select/deselect/
-    /// view_render_options_for/le_selected_object_ref)
-    /// is forced to handle every alternative explicitly (std::visit)
-    /// rather than silently ignoring an unset field. Every alternative
-    /// already has operator<=> (Id<Tag> generated, ShapePiece defaulted
-    /// above), so the variant gets one for free - lets selection_.keys
-    /// below be a plain std::set<SelectedObject> instead of a parallel
-    /// hand-rolled tuple structure.
-    using SelectedObject = std::variant<ShapePiece, le::RowId, le::PlacementId, le::RegionId>;
+    // Selection entries (le::ShapePiece, le::SelectedObject): one per
+    // clicked or dragged piece, or per whole Row/Placement/Region.
+    using ShapePiece = le::ShapePiece;
+    using SelectedObject = le::SelectedObject;
 
         // --- Currently displayed Abstract ---
         // Switching Abstracts clears selection and rulers - selection
@@ -854,11 +810,7 @@ struct LeHandle
         // ruler" new clicks append to, if and only if it exists and
         // isn't finished - this struct maintains that as an invariant
         // rather than something callers have to check for themselves.
-        struct Ruler
-        {
-            std::vector<le::Point> points;
-            bool finished = false;
-        };
+        using Ruler = le::Ruler;
 
         // --- Move ---
         // Transient, uncommitted drag state for the two-click Move
@@ -1248,6 +1200,16 @@ struct LeHandle
             // Through set_mode, not a bare interaction_.mode assignment, so leaving Edit
             // mode this way ('r' from Edit) also disarms Move/Resize.
             set_mode(Mode::RULER);
+        }
+
+        // Adds a finished ruler through `points`, ahead of the active
+        // ruler if one is being drawn, which stays active.
+        void add_ruler(std::vector<le::Point> points)
+        {
+            const bool has_active = !interaction_.rulers.empty() && !interaction_.rulers.back().finished;
+            const auto at = has_active ? std::prev(interaction_.rulers.end()) : interaction_.rulers.end();
+            interaction_.rulers.insert(at, Ruler{.points = std::move(points), .finished = true});
+            ++interaction_.ruler_version;
         }
 
         void clear_rulers()

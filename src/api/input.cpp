@@ -1,4 +1,5 @@
 #include "api_internal.hpp"
+#include "edit_ops.hpp"
 #include "../geometry/geometry.hpp"
 #include "generated/api/snapshot_appliers.hpp"
 #include <spdlog/spdlog.h>
@@ -866,6 +867,21 @@ namespace
     }
 }
 
+namespace le::edit
+{
+    std::expected<void, std::string> add_ruler(LeHandle &handle, std::span<const Point> points)
+    {
+        if (points.size() < 2)
+            return std::unexpected("a ruler needs at least 2 points");
+        handle.add_ruler(std::vector<Point>(points.begin(), points.end()));
+        return {};
+    }
+
+    void finish_ruler(LeHandle &handle) { handle.finish_active_ruler(); }
+
+    void clear_rulers(LeHandle &handle) { handle.clear_rulers(); }
+}
+
 extern "C"
 {
     int32_t le_get_mode(LeHandle *handle)
@@ -930,7 +946,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->finish_active_ruler();
+        le::edit::finish_ruler(*handle);
     }
 
     void le_clear_rulers(LeHandle *handle)
@@ -938,7 +954,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->clear_rulers();
+        le::edit::clear_rulers(*handle);
     }
 
     void le_arm_move(LeHandle *handle)

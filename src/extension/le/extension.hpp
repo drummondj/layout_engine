@@ -5,6 +5,7 @@
 // extension states the version it targets with a static_assert.
 
 #include "api.hpp"
+#include "core/session_types.hpp"
 #include "database.hpp"
 #include "database/wire_helpers.hpp"
 #include "generated/api/edit_types.hpp"
@@ -203,6 +204,14 @@ namespace le::ext
         std::expected<Rect, std::string> shape_bbox(const std::vector<GeometryId> &shapes) const;
         /// @brief Only when valid(): micron conversion; an error if no Technology has been read.
         std::expected<Units, std::string> units() const;
+        /// @brief Only when valid(): the selection, in the order it was made.
+        std::span<const SelectedObject> selection() const;
+        /// @brief Only when valid(): bumped on every selection change.
+        uint64_t selection_version() const;
+        /// @brief Only when valid(): every ruler, the one being drawn (if any) last.
+        std::span<const Ruler> rulers() const;
+        /// @brief Only when valid(): what the design view shows and where.
+        ViewState view() const;
         // Only when valid().
 #include "generated/api/extension_current_decls.inc"
 
@@ -217,7 +226,8 @@ namespace le::ext
     /// validate and are undoable: they record into the open undo step,
     /// which write(label) opens. Edits made through unrecorded_root() are
     /// neither - use it for bulk work such as importing. When the view ends
-    /// it bumps the database's mutation version and wakes the renderer.
+    /// it wakes the renderer, and bumps the database's mutation version if
+    /// unrecorded_root() was used (the members bump it as they edit).
     /// Don't call le_* functions while holding one.
     class WriteView
     {
@@ -240,7 +250,11 @@ namespace le::ext
         /// recorded for undo, and a change made through a get_<type>()
         /// pointer reaches mutation listeners and incremental rendering only
         /// after note_<type>_changed().
-        Root &unrecorded_root() { return *root_; }
+        Root &unrecorded_root()
+        {
+            root_lent_ = true;
+            return *root_;
+        }
 #include "generated/api/extension_current_decls.inc"
 #include "generated/api/extension_edit_decls.inc"
 
@@ -285,6 +299,83 @@ namespace le::ext
         /// indexes shift down by one.
         std::expected<void, std::string> remove_shape_piece(GeometryId shape, PieceKind kind, size_t index);
 
+        // Session state beyond the database: the selection, the design view
+        // and rulers. Not undoable, and not a database change.
+
+        /// @brief The selection, in the order it was made.
+        std::span<const SelectedObject> selection() const;
+        /// @brief Bumped on every selection change.
+        uint64_t selection_version() const;
+        /// @brief Selects every piece of a Shape, Wire, Route or
+        /// PhysicalPort, or a whole Row, Placement or Region, adding to the
+        /// selection; an error if it doesn't exist or has no geometry.
+        std::expected<void, std::string> select(SelectableObject object);
+        /// @brief Adds one entry - a single piece, or a whole Row, Placement
+        /// or Region - to the selection; an error if it doesn't exist.
+        std::expected<void, std::string> select_entry(const SelectedObject &entry);
+        /// @brief Removes one entry from the selection, if it's there.
+        void deselect(const SelectedObject &entry);
+        void clear_selection();
+
+        /// @brief What the design view shows and where.
+        ViewState view() const;
+        /// @brief Opens `design`'s Abstract in the design view, closing any
+        /// Layout, and makes it the current Abstract; changing the view
+        /// clears the selection and rulers.
+        std::expected<void, std::string> open_abstract(DesignId design);
+        /// @brief Opens `design`'s Layout, closing any Abstract, and makes
+        /// it the current Layout.
+        std::expected<void, std::string> open_layout(DesignId design);
+        /// @brief Fits the open view's boundary (a Layout's DIEAREA, an
+        /// Abstract's declared size) into the viewport.
+        void fit_view(int padding_px = 0);
+        /// @brief Fits `area` into the viewport.
+        void fit_rect(Rect area, int padding_px = 0);
+        /// @brief Zooms by `factor` (new scale = scale * (1 + factor), so
+        /// 0.1 zooms in 10%) keeping pixel (x, y), top-left origin, fixed.
+        void zoom(double factor, int x_px, int y_px);
+        /// @brief Pans by a fraction of the viewport's size, toward
+        /// increasing x/y (1.0 moves one viewport width).
+        void pan(double x_factor, double y_factor);
+        void set_view_flip(ViewFlip flip);
+
+        /// @brief Every ruler, the one being drawn (if any) last.
+        std::span<const Ruler> rulers() const;
+        /// @brief Adds a finished ruler through `points` (at least 2).
+        std::expected<void, std::string> add_ruler(std::span<const Point> points);
+        /// @brief Finishes the ruler being drawn, if any.
+        void finish_ruler();
+        void clear_rulers();
+
+        // Reading and writing files. Each also logs what it reports, as
+        // read_lef and friends do in Tcl. A read is part of the open undo
+        // step, if any, and saturates the change log (mutation listeners
+        // get `everything`).
+
+        /// @brief Reads a LEF file, its MACROs into the Library named
+        /// `library` (created if missing).
+        std::expected<void, std::string> read_lef(const std::string &path, const std::string &library);
+        /// @brief Reads a DEF file, its DESIGN into the Library named `library`.
+        std::expected<void, std::string> read_def(const std::string &path, const std::string &library);
+        /// @brief Reads SystemVerilog/Verilog files into the Library named
+        /// `library`: elaborated as a netlist, or syntax-only RTL.
+        std::expected<void, std::string> read_verilog(std::span<const std::string> files, bool netlist, const std::string &library);
+        /// @brief Loads a native database (.led) file; only into an empty database.
+        std::expected<void, std::string> read_db(const std::string &path, bool with_session = false);
+        /// @brief Writes a LEF file: `abstracts` if any, else every Abstract
+        /// in `library` if valid, else the current Abstract (none for
+        /// TECHNOLOGY_ONLY).
+        std::expected<void, std::string> write_lef(const std::string &path, std::span<const AbstractId> abstracts, LibraryId library = {},
+                                                   LefLayerWriteMode layers = LefLayerWriteMode::NONE);
+        /// @brief Writes a DEF file for `layout`, or the current Layout if invalid.
+        std::expected<void, std::string> write_def(const std::string &path, LayoutId layout = {});
+        /// @brief Saves the whole database, and with `with_session` the
+        /// session, to a native database (.led) file.
+        std::expected<void, std::string> write_db(const std::string &path, bool with_session = false);
+        /// @brief Writes stub Verilog modules for `library`'s Abstract-only
+        /// Designs; an invalid `library` means the only one.
+        std::expected<void, std::string> write_verilog_stubs(const std::string &path, LibraryId library = {});
+
     private:
         LeHandle *handle_;
         std::unique_lock<std::shared_mutex> lock_;
@@ -292,6 +383,7 @@ namespace le::ext
         uint64_t begin_; // the change log's end when the view opened
         bool owns_step_ = false;
         bool succeeded_ = true;
+        bool root_lent_ = false; // unrecorded_root() was called
     };
 
     /// @brief Builds one Shape from geometry in microns, converted to dbu at
