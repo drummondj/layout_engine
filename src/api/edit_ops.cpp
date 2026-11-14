@@ -2,7 +2,7 @@
 
 #include "../database/hierarchical_resolver.hpp"
 #include "../editing/editing.hpp"
-#include "../geometry/shape_ops.hpp"
+#include "shape_ops.hpp"
 #include "generated/api/snapshot_appliers.hpp"
 #include "le_handle.hpp"
 #include "placement_move.hpp"

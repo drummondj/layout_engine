@@ -7,7 +7,7 @@
 // locks - le::edit's shape ops (api/edit_ops.cpp) call this under the
 // handle's lock and do the mutation-version bump and undo recording.
 
-#include "geometry.hpp"
+#include "../geometry/geometry.hpp"
 #include "../database/wire_helpers.hpp"
 
 #include <expected>

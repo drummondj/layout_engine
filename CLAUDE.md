@@ -36,17 +36,18 @@ fails on a temp path that isn't unique to its process.
   `rename_propagation.hpp` (Schematic<->Layout linking, design in
   `plans/LINKING_STRATEGY_RESEARCH.md`), `wire_helpers.hpp` (Wire <->
   Shape conversion, `WireBuilder`, and `GeometryId`, a Shape or a Wire).
-- `src/geometry/` — `Geometry`, a Boost.Geometry wrapper (bbox, overlap,
-  transforms, union/buffer, label placement, piece hit-tests,
-  ITERATE expansion) over the database's `Point`/`Rect`/`Polygon`/`Path`/
-  `Shape`. `shape_ops.hpp` backs the `shape_*` Tcl commands (boolean ops,
-  conversions, sizing) on a Shape's merged area; a holed result is emitted
-  as exact rects since `Polygon` can't hold a hole. Results go to the
-  current Abstract/Layout's `free_shapes` unless `-parent` says otherwise -
-  never written by `write_lef`/`write_def`. `placement_geometry.hpp`
-  (which view a placed Design resolves to; placement world bboxes) and
-  `row_geometry.hpp` (a Row's synthesized footprint) serve both `api` and
-  `pipelines`.
+- `src/geometry/` — `Geometry`, a Boost.Geometry wrapper over the
+  database's `Point`/`Rect`/`Polygon`/`Path`/`Shape`: all static, one
+  header per concern (`geometry_core.hpp` bboxes and Boost conversions,
+  `transforms.hpp`, `piece_hit_test.hpp`, `label_placement.hpp`,
+  `iterate_expansion.hpp`, `area_ops.hpp` booleans/conversions/sizing on
+  a Shape's merged area, a holed result emitted as exact rects since
+  `Polygon` can't hold a hole), each a class `Geometry` derives from, so
+  callers include `geometry.hpp` and write `Geometry::name`.
+  `placement_geometry.hpp` (which view a placed Design resolves to;
+  placement world bboxes) and `row_geometry.hpp` (a Row's synthesized
+  footprint) serve both `api` and `pipelines`. Nothing here writes to a
+  Root.
 - `src/core/` — header-only code needed by more than one other module
   that isn't geometry: `flightlines.hpp` (net connections of the selected
   placements), `object_filters.hpp` (the Layers panel's value filters:
@@ -157,8 +158,11 @@ fails on a temp path that isn't unique to its process.
   with `std::expected` errors, validating, bumping the mutation version
   and recording undo; the caller holds the exclusive lock. Extensions
   reach them through `le::ext::WriteView`.
-  Its header-only helpers: `hit_test.hpp` (Placement, Abstract-view and
-  Layout-view hit-tests), `placement_move.hpp`/`fin_grid.hpp` (Placement
+  Its header-only helpers: `hit_test.hpp` (Placement, Row, Abstract-view
+  and Layout-view hit-tests), `shape_ops.hpp` (the `shape_*` ops: resolve
+  inputs, run the `Geometry` area op, store each result as a new Shape in
+  the current Abstract/Layout's `free_shapes` unless `-parent` says
+  otherwise - never written by `write_lef`/`write_def`), `placement_move.hpp`/`fin_grid.hpp` (Placement
   Move planning and snapping: SITE rows for CORE cells, fin grid,
   manufacturing grid), `shape_resize.hpp` (Resize handles and snapping;
   also how Move snaps paths/vias). The C API has no `std::` types,

@@ -4,7 +4,7 @@
 #include "le/extension.hpp"
 #include "le/extension_overlay.hpp"
 #include "edit_ops.hpp"
-#include "../geometry/shape_ops.hpp"
+#include "shape_ops.hpp"
 #include "le_handle.hpp"
 
 #include <spdlog/spdlog.h>

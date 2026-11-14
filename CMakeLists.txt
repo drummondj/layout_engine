@@ -1353,7 +1353,7 @@ add_executable(backend_tests
     src/database/tests/schema_version_test.cpp
     src/database/tests/wire_helpers_test.cpp
     src/geometry/tests/geometry_test.cpp
-    src/geometry/tests/shape_ops_test.cpp
+    src/api/tests/shape_ops_test.cpp
     src/editing/tests/editing_test.cpp
     src/io/tests/lef_reader_test.cpp
     src/io/tests/lef_reader_utils_test.cpp
@@ -1383,7 +1383,7 @@ add_executable(backend_tests
     src/api/tests/shape_resize_test.cpp
     src/core/tests/object_filters_test.cpp
     src/core/tests/resource_path_test.cpp
-    src/geometry/tests/row_geometry_test.cpp
+    src/api/tests/row_hit_test_test.cpp
     src/gui/gui_provider.cpp
     src/gui/tests/gui_provider_test.cpp
 )
