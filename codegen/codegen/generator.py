@@ -19,6 +19,7 @@ from codegen.templates import (
     compact_vector_hpp_j2,
 )
 from codegen import descriptor as schema_descriptor
+from codegen import emitters
 from codegen import extension_schema
 from codegen import migration as schema_migration
 import json
@@ -277,7 +278,7 @@ def generate(
     for klass in HEADER_ONLY_CLASSES:
         header_file = f"{output_dir}/{klass}.hpp"
         with open(header_file, "w") as f:
-            f.write(supplementary_templates[f"{klass}.hpp"].render(schema=schema))
+            f.write(supplementary_templates[f"{klass}.hpp"].render(schema=schema, emit=emitters))
 
     descriptor_json = schema_descriptor.descriptor_json(descriptor)
     delimiter = "LEDESC"

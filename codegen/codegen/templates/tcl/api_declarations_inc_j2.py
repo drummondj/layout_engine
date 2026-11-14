@@ -151,7 +151,7 @@ int le_update_{{klass.to_snake_case()}}(LeHandle *handle, {{klass.update_api_par
 
 // --- delete_<type> - cascades to every owned pool-backed child reachable
 // through Klass.tcl_child_list_fields(), however many schema-graph levels
-// deep that goes for this particular class (see Klass.delete_api_body()'s
+// deep that goes for this particular class (see c_api.delete_api_body()'s
 // own docstring for the full recursive-at-codegen-time mechanism and the
 // undo/redo ordering it depends on) - a class with no such fields (most
 // of the ~35) gets a trivial, non-cascading delete instead. Returns 0 on

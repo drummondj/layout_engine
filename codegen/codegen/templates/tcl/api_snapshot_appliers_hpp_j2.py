@@ -10,7 +10,7 @@ TEMPLATE = """#pragma once
 // path (input.cpp's move_click_unlocked).
 //
 // One apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&) per
-// class - see Klass.apply_snapshot_body() (schema.py) for how the body
+// class - see c_api.apply_snapshot_body() (codegen/emitters/c_api.py) for how the body
 // is built. Reduces a *whole* field snapshot to a single real
 // Root::update_<klass>() call, so it stays consistent with every index/
 // uniqueness invariant update_<klass>() itself already maintains - no
@@ -23,7 +23,7 @@ namespace le
 {% for klass in classes %}
     inline bool apply_{{klass.to_snake_case()}}_snapshot(Root &root, {{klass.name}}Id id, const {{klass.name}}Data &data)
     {
-{{klass.apply_snapshot_body()}}
+{{emit.c_api.apply_snapshot_body(klass)}}
     }
 {% endfor %}
 }

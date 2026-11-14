@@ -307,8 +307,13 @@ fails on a temp path that isn't unique to its process.
 
 `codegen/` is this project's fork of
 [cmg](https://github.com/johndru-astrophysics/cmg) (INDEXED_POOLS export
-style). Every `Klass` in `schema.py` becomes an `XxxData` struct, an
-`XxxId` `{index, generation}` handle, and a generational
+style). `codegen/codegen/schema.py`'s `Klass`/`Field` are the model and
+its derived queries; `codegen/codegen/emitters/` holds the C++ bodies
+emitted from it (C API, `le::edit` ops, `Root::update_<type>`), which
+templates call as `emit.<module>.<function>(klass)`, each with unit tests
+in `codegen/tests/test_emitters.py`. Every `Klass` in `schema.py`
+becomes an `XxxData` struct, an `XxxId` `{index, generation}` handle,
+and a generational
 `Pool<XxxData, XxxId>`. `Root` (generated `root.hpp`) owns every pool and
 index and exposes `create_x`/`get_x`/`update_x`/`delete_x` per class.
 `update_x` is the only way a pooled field changes after creation (each
