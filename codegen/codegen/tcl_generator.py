@@ -10,6 +10,8 @@ import shutil
 
 import jinja2
 
+from codegen import emitters
+
 from codegen.templates.tcl import (
     api_declarations_inc_j2,
     api_edit_ops_decls_inc_j2,
@@ -162,6 +164,7 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
             search_scopes=search_scopes,
             render_of_check_cpp=render_of_check_cpp,
             render_default_scope_cpp=render_default_scope_cpp,
+            emit=emitters,
         )
         with open(path, "w") as f:
             f.write(content)

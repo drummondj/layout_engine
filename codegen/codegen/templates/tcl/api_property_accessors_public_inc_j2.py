@@ -177,25 +177,25 @@ int le_set_current_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}I
 // --- create_<type>/update_<type>/delete_<type>: the C-to-C++ half
 // (argument parsing, micron-to-dbu, id conversion, locking, logging),
 // calling le::edit's ops (edit_ops_defs.inc) for the rest. Bodies:
-// Klass.create_api_body()/update_api_body()/delete_api_body(). ---
+// codegen/emitters/c_api.py. ---
 {% for klass in classes %}
 Le{{klass.name}}Id le_create_{{klass.to_snake_case()}}(LeHandle *handle{% if klass.create_api_params() %}, {{klass.create_api_params()}}{% endif %})
 {
-{{klass.create_api_body()}}
+{{emit.c_api.create_api_body(klass)}}
 }
 {% endfor %}
 
 {% for klass in classes %}
 int le_update_{{klass.to_snake_case()}}(LeHandle *handle, {{klass.update_api_params()}})
 {
-{{klass.update_api_body()}}
+{{emit.c_api.update_api_body(klass)}}
 }
 {% endfor %}
 
 {% for klass in classes %}
 int le_delete_{{klass.to_snake_case()}}(LeHandle *handle, Le{{klass.name}}Id id)
 {
-{{klass.delete_api_body()}}
+{{emit.c_api.delete_api_body(klass)}}
 }
 
 int le_delete_{{klass.to_snake_case()}}_batch(LeHandle *handle, const Le{{klass.name}}Id *ids, int32_t count)

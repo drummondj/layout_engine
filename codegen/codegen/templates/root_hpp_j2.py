@@ -334,7 +334,7 @@ namespace {{schema.namespace}} {
             if (!before) return false;
             const ChangeParent parent_before = change_parent_(id, *before);
             const bool applied = [&]() -> bool {
-{{klass.update_root_body()}}
+{{emit.root.update_root_body(klass)}}
             }();
             if (applied) {
                 log_change_(ChangeKlass::{{klass.name}}, ChangeOp::UPDATE, id, parent_before);

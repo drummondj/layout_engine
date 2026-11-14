@@ -1,4 +1,5 @@
 import unittest
+from codegen.emitters import c_api
 from codegen.schema import Schema, Klass, Field, to_snake_case, to_camel_case
 
 
@@ -158,10 +159,10 @@ class TestSmallUnsignedCreateFields(unittest.TestCase):
         self.assertEqual(self.schema.get_field("Marker", "count").create_struct_init_expr(), "static_cast<unsigned short>(count)")
 
     def test_create_and_update_reject_an_out_of_range_value(self):
-        create = self.klass.create_api_body()
+        create = c_api.create_api_body(self.klass)
         self.assertIn("if (has_index && (index < 0 || index > 255))", create)
         self.assertIn("if (count < 0 || count > 65535)", create)
-        update = self.klass.update_api_body()
+        update = c_api.update_api_body(self.klass)
         self.assertIn("if (has_index && (index < 0 || index > 255))", update)
         self.assertIn("if (has_count && (count < 0 || count > 65535))", update)
 
@@ -169,29 +170,3 @@ class TestSmallUnsignedCreateFields(unittest.TestCase):
         self.assertEqual(self.schema.get_field("Marker", "index")._optional_default_cpp(), "static_cast<unsigned char>(0)")
 
 
-class TestUpdateCheck(unittest.TestCase):
-    """Klass.create_check/update_check: the generated edit op asks a hand-written
-    function before changing anything."""
-
-    def test_update_op_calls_the_check_before_updating(self):
-        klass = Klass(name="Marker", description="", update_check="check_marker_update",
-                      fields=[Field(name="size", description="", type="int")])
-        Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
-        body = klass.update_op_body()
-        check = body.index("if (const std::optional<std::string> refused = check_marker_update(root, before, changes))")
-        self.assertIn("return std::unexpected(*refused);", body)
-        self.assertLess(check, body.index("root.update_marker("))
-
-    def test_create_op_calls_the_check_before_creating(self):
-        klass = Klass(name="Marker", description="", create_check="check_marker_create",
-                      fields=[Field(name="size", description="", type="int")])
-        Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
-        body = klass.create_op_body()
-        check = body.index("if (const std::optional<std::string> refused = check_marker_create(root, data))")
-        self.assertLess(check, body.index("root.create_marker("))
-
-    def test_no_check_by_default(self):
-        klass = Klass(name="Marker", description="", fields=[Field(name="size", description="", type="int")])
-        Schema(name="t", description="", namespace="t", classes=[klass], version="1.0.0").link()
-        self.assertNotIn("refused", klass.update_op_body())
-        self.assertNotIn("refused", klass.create_op_body())
