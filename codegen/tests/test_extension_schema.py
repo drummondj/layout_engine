@@ -5,6 +5,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from codegen.emitters import tcl_procs
 from codegen import extension_schema
 from codegen import migration as m
 from codegen.descriptor import build_descriptor, build_extension_descriptor, fingerprint
@@ -392,9 +393,9 @@ class TestExtensionOwnedShapes(unittest.TestCase):
         schema = self.core()
         self.assertEqual(extension_schema.apply(schema, [self.extension(self.BOX)]), [])
         schema.link()
-        self.assertEqual(schema.get_klass("HelloBox").tcl_help_attributes(), " {extension hello_ext}")
-        self.assertEqual(schema.get_klass("Item").tcl_help_attributes(), "", "a core class")
-        options = schema.get_klass("Item").create_tcl_help_options()
+        self.assertEqual(tcl_procs.tcl_help_attributes(schema.get_klass("HelloBox")), " {extension hello_ext}")
+        self.assertEqual(tcl_procs.tcl_help_attributes(schema.get_klass("Item")), "", "a core class")
+        options = tcl_procs.create_tcl_help_options(schema.get_klass("Item"))
         self.assertIn("{-hello_box {type token required 0 description {Parent HelloBox token - give exactly one of the parent flags} extension hello_ext}}", options)
         self.assertEqual(options.count(" extension "), 1, "only the option the extension implies")
 
