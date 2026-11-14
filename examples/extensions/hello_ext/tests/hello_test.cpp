@@ -171,7 +171,7 @@ TEST(HelloExt, AWriteViewEditIsSeenByReaders)
     le::ext::ExtensionContext ctx(session.handle, "hello_ext");
     {
         le::ext::WriteView view = ctx.write();
-        view.root().create_library(le::LibraryData{.name = "bulk"});
+        view.unrecorded_root().create_library(le::LibraryData{.name = "bulk"});
     }
     EXPECT_EQ(hello::library_count(ctx), 1);
 }

@@ -213,12 +213,12 @@ namespace le::ext
     };
 
     /// @brief An exclusively locked, writable view of the handle's database.
-    /// Its create_<type>/update_<type>/delete_<type> are undoable: they
-    /// record into the open undo step, which write(label) opens. Edits made
-    /// straight through root() are NOT undoable - use it for bulk work such
-    /// as importing. When the view ends it bumps the database's mutation
-    /// version and wakes the renderer. Don't call le_* functions while
-    /// holding one.
+    /// Its create_<type>/update_<type>/delete_<type> and shape operations
+    /// validate and are undoable: they record into the open undo step,
+    /// which write(label) opens. Edits made through unrecorded_root() are
+    /// neither - use it for bulk work such as importing. When the view ends
+    /// it bumps the database's mutation version and wakes the renderer.
+    /// Don't call le_* functions while holding one.
     class WriteView
     {
     public:
@@ -234,7 +234,13 @@ namespace le::ext
         /// @brief Records the undo step this view opened as failed.
         void fail() { succeeded_ = false; }
 
-        Root &root() { return *root_; }
+        /// @brief The database, read-only; edit it through the members below.
+        const Root &root() const { return *root_; }
+        /// @brief The database, writable directly: not validated, not
+        /// recorded for undo, and a change made through a get_<type>()
+        /// pointer reaches mutation listeners and incremental rendering only
+        /// after note_<type>_changed().
+        Root &unrecorded_root() { return *root_; }
 #include "generated/api/extension_current_decls.inc"
 #include "generated/api/extension_edit_decls.inc"
 

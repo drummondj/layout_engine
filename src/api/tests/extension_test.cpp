@@ -10,6 +10,8 @@
 #include <memory>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
+#include <utility>
 
 namespace
 {
@@ -124,6 +126,11 @@ TEST(ExtensionContext, CurrentObjectsAreReadableInsideViewsAndTransactions)
 
     le_destroy(handle);
 }
+
+// Writing straight to the database has to be asked for by name: root()
+// is read-only, unrecorded_root() the writable Root that bypasses undo.
+static_assert(std::is_same_v<decltype(std::declval<le::ext::WriteView &>().root()), const le::Root &>);
+static_assert(std::is_same_v<decltype(std::declval<le::ext::WriteView &>().unrecorded_root()), le::Root &>);
 
 TEST(WriteViewEdits, ALabelledViewIsOneUndoStep)
 {
