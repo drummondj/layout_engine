@@ -1,6 +1,5 @@
 #include "mode_toolbar.hpp"
 
-#include "IconsLucide.h"
 #include "compact_button.hpp"
 #include "gui_provider.hpp"
 #include "imgui.h"
@@ -28,12 +27,11 @@ namespace le::gui
                 ImGui::SetTooltip("%s", shortcut);
         }
 
-        // `icon` is one of the ICON_LC_* constants (IconsLucide.h). No
-        // resting background (matching mode_selector.cpp's unselected
+        // No resting background (matching mode_selector.cpp's unselected
         // buttons) - every button here is a momentary action, so
         // ButtonHovered/ButtonActive alone give it a press/hover cue.
         // `disabled_reason` non-null greys it out and replaces its tooltip.
-        bool draw_button(const char *icon, const char *label, const char *shortcut, const char *disabled_reason = nullptr)
+        bool draw_button(Icon icon, const char *label, const char *shortcut, const char *disabled_reason = nullptr)
         {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
             ImGui::BeginDisabled(disabled_reason != nullptr);
@@ -51,9 +49,9 @@ namespace le::gui
         // next frame would otherwise flicker the button back to unarmed
         // until the queued command lands. Armed keeps a permanent
         // highlighted background (compact_button.hpp's own
-        // kSelectedIconButtonColor); unarmed draws only the icon glyph.
+        // kSelectedIconButtonColor); unarmed draws only the icon.
         // Clicking while armed is a no-op - a plain `!armed` guard rather
-        // than BeginDisabled(armed), which would also fade the glyph.
+        // than BeginDisabled(armed), which would also fade the icon.
         // A pending arm the backend refuses (nothing suitable selected)
         // never shows up as armed - it expires after this many frames
         // rather than leaving the button highlighted forever.
@@ -66,7 +64,7 @@ namespace le::gui
         };
 
         template <typename OnArm>
-        void draw_tool_button(const char *icon, const char *label, const char *shortcut, bool backend_armed, ToolButtonState &state, OnArm on_arm,
+        void draw_tool_button(Icon icon, const char *label, const char *shortcut, bool backend_armed, ToolButtonState &state, OnArm on_arm,
                               const char *disabled_reason = nullptr)
         {
             if (state.has_pending && (backend_armed || ImGui::GetFrameCount() - state.pending_since_frame > kPendingArmFrames))
@@ -88,7 +86,7 @@ namespace le::gui
         }
     }
 
-    bool draw_toolbar_button(const char *icon, const char *label, const char *tooltip) { return draw_button(icon, label, tooltip); }
+    bool draw_toolbar_button(Icon icon, const char *label, const char *tooltip) { return draw_button(icon, label, tooltip); }
 
     void draw_mode_toolbar(GuiProvider &provider, const std::function<void()> &extra)
     {
@@ -96,7 +94,7 @@ namespace le::gui
         switch (mode)
         {
         case LE_MODE_SELECT:
-            if (draw_button(ICON_LC_CIRCLE_X, "Deselect All", "ctrl-d"))
+            if (draw_button(Icon::SelectNone, "Deselect All", "ctrl-d"))
                 provider.deselect_all();
             break;
 
@@ -109,7 +107,7 @@ namespace le::gui
             // le_arm_move also refuses FIXED and COVER placements.
             const bool mixed_selection = placement_count > 0 && provider.state().status_bar.selection_count > placement_count;
             const bool locked = placement_count > 0 && provider.state().placement_move.locked_count > 0;
-            draw_tool_button(ICON_LC_MOVE, "Move", "ctrl-m", provider.state().is_move_armed, move_state,
+            draw_tool_button(Icon::Move, "Move", "ctrl-m", provider.state().is_move_armed, move_state,
                              [&]
                              { provider.arm_move(); },
                              mixed_selection ? "Not available with placements and other objects selected together"
@@ -120,7 +118,7 @@ namespace le::gui
             // to place it; its snap options appear in the secondary
             // toolbar while armed.
             static ToolButtonState resize_state;
-            draw_tool_button(ICON_LC_SCALING, "Resize", "ctrl-r", provider.state().is_resize_armed, resize_state,
+            draw_tool_button(Icon::Resize, "Resize", "ctrl-r", provider.state().is_resize_armed, resize_state,
                              [&]
                              { provider.arm_resize(); },
                              // le_arm_resize refuses a selection with a
@@ -130,7 +128,7 @@ namespace le::gui
             // Delete: removes the selected shape pieces (and any shape left
             // empty), never their owners.
             ImGui::SameLine();
-            if (draw_button(ICON_LC_TRASH_2, "Delete", "Del",
+            if (draw_button(Icon::Delete, "Delete", "Del",
                             provider.state().selected_shape_piece_count == 0 ? "Select shape parts to delete first" : nullptr))
                 provider.delete_selected_pieces();
 
@@ -139,7 +137,7 @@ namespace le::gui
             // Disabled while a Move is under way.
             ImGui::SameLine();
             const bool all_fixed = placement_count > 0 && provider.state().placement_move.all_fixed;
-            if (draw_button(all_fixed ? ICON_LC_LOCK_OPEN : ICON_LC_LOCK, all_fixed ? "Unlock" : "Lock", nullptr,
+            if (draw_button(all_fixed ? Icon::Unlock : Icon::Lock, all_fixed ? "Unlock" : "Lock", nullptr,
                             placement_count == 0                             ? "Select placements to lock or unlock first"
                             : provider.state().placement_move.is_move_anchored ? "Not available while moving (Esc to cancel the move)"
                                                                                : nullptr))
@@ -147,16 +145,16 @@ namespace le::gui
 
             // No Rotate/Align buttons until those features exist.
             ImGui::SameLine();
-            if (draw_button(ICON_LC_UNDO_2, "Undo", "ctrl-z"))
+            if (draw_button(Icon::Undo, "Undo", "ctrl-z"))
                 provider.undo();
             ImGui::SameLine();
-            if (draw_button(ICON_LC_REDO_2, "Redo", "shift-ctrl-z"))
+            if (draw_button(Icon::Redo, "Redo", "shift-ctrl-z"))
                 provider.redo();
             break;
         }
 
         case LE_MODE_RULER:
-            if (draw_button(ICON_LC_CIRCLE_X, "Clear Rulers", nullptr))
+            if (draw_button(Icon::ClearRulers, "Clear Rulers", nullptr))
                 provider.clear_rulers();
             break;
 

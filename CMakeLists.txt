@@ -455,28 +455,10 @@ le_fetch_declare(
 )
 FetchContent_MakeAvailable(imgui)
 
-# Lucide icon font (src/gui/components/ - ModeSelector/ModeToolbar and
-# any later toolbar button) - Dear ImGui has no icon-widget concept of
-# its own; the standard technique is merging a small icon font's glyphs
-# into the same font atlas as the regular text font (ImFontConfig::MergeMode,
-# see le_gui.cpp's own font-setup code) and drawing an icon as plain text
-# via its own Unicode codepoint. Lucide (MIT) rather than the more common
-# Font Awesome: its outline/stroke icon style suits the toolbars better
-# than Font Awesome's free tier, which is mostly filled "Solid" glyphs.
-# IconsLucide.h (juliettef/IconFontCppHeaders - ICON_LC_* codepoint
-# constants for C/C++) has to be pinned to the *exact* commit that
-# generated it against a specific lucide-static release - its own
-# generated header comment names the version each regeneration was built
-# from (here, "Lucide 1.17.0"); an unpinned `main`/`@latest` fetch of
-# either half alone risks the two drifting out of sync (a later Lucide
-# release renumbering/removing codepoints this header's own constants
-# still point at). DOWNLOAD_NO_EXTRACT - both are a single loose file,
-# not an archive with a build system inside like every other
-# FetchContent dependency above.
 # nlohmann/json - the settings file (settings.cpp's
 # le_save_settings/le_load_settings) and the saved session (session.cpp). The release's own
 # single-header amalgamation, pinned by version, same loose-file
-# DOWNLOAD_NO_EXTRACT treatment as the icon header below.
+# DOWNLOAD_NO_EXTRACT treatment as portable-file-dialogs below.
 le_fetch_declare(
     nlohmann_json_header
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
@@ -514,34 +496,7 @@ le_fetch_declare(
 )
 FetchContent_MakeAvailable(portable_file_dialogs_header)
 
-le_fetch_declare(
-    icon_font_header
-    URL https://raw.githubusercontent.com/juliettef/IconFontCppHeaders/780f04406084230c1b034c2c34c0c0b8b9b1829b/IconsLucide.h
-    DOWNLOAD_NO_EXTRACT TRUE
-)
-FetchContent_MakeAvailable(icon_font_header)
-
-le_fetch_declare(
-    lucide_font
-    URL https://unpkg.com/lucide-static@1.17.0/font/lucide.ttf
-    DOWNLOAD_NO_EXTRACT TRUE
-)
-FetchContent_MakeAvailable(lucide_font)
 le_write_fetched_sources()
-# Also copied into the build tree next to where le_shell/le_tcl.so land
-# (not just left in FetchContent's own cache dir under FETCHCONTENT_BASE_DIR)
-# - LE_LUCIDE_FONT_PATH (below) is this build machine's own
-# absolute FetchContent cache path, correct for a local dev/ctest run but
-# never valid once le_shell is copied to another machine; le_gui.cpp's
-# own runtime fallback looks for a file named exactly "lucide.ttf" right
-# next to the running executable when that compile-time path doesn't
-# exist (mirroring pipelines.cpp's default_blend2d_font_face() fallback). Having a
-# real copy sitting right next to le_shell in the build tree also means
-# Dockerfile.linux-release's own bundle stage can just `cp` it alongside
-# le_shell the same simple way it already does for every other bundled
-# file, rather than needing to know this FetchContent-internal path.
-file(COPY "${lucide_font_SOURCE_DIR}/lucide.ttf" DESTINATION "${PROJECT_BINARY_DIR}")
-
 enable_testing()
 include(GoogleTest)
 
@@ -822,16 +777,21 @@ add_library(gui STATIC
     src/gui/components/file_dialog.cpp
     src/gui/components/design_saver.cpp
 )
-target_include_directories(gui PUBLIC src/gui)
-# IconsLucide.h is PUBLIC: Lucide is the GUI's icon set, extensions' too.
-target_include_directories(gui PUBLIC ${icon_font_header_SOURCE_DIR})
+target_include_directories(gui PUBLIC src/gui ${PROJECT_BINARY_DIR})
 target_include_directories(gui PRIVATE ${portable_file_dialogs_header_SOURCE_DIR})
-# le_gui.cpp's own font-setup code loads this from disk at runtime
-# (ImGui merges icon glyphs into the text font atlas by loading a real
-# .ttf file, not compiling one in) - a build-tree path is fine for this
-# local-dev prototype, same as this project's own fixture-path compile
-# definitions elsewhere (e.g. API_TEST_FIXTURES_DIR).
-target_compile_definitions(gui PRIVATE LE_LUCIDE_FONT_PATH="${lucide_font_SOURCE_DIR}/lucide.ttf" LE_FONT_DIR="${LE_FONT_DIR}")
+target_compile_definitions(gui PRIVATE LE_FONT_DIR="${LE_FONT_DIR}")
+# The icon set (le::Icon, drawn by components/icon.hpp), generated from the
+# SVG symbol sheet; public, since extensions' GUI code uses it too.
+set(LE_ICON_SHEET ${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/cad-icons-hairline.svg)
+add_custom_command(
+    OUTPUT ${LE_GENERATED_DIR}/gui/icons.hpp
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_icons.py ${LE_ICON_SHEET} ${LE_GENERATED_DIR}/gui/icons.hpp
+    DEPENDS ${LE_ICON_SHEET} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_icons.py
+    COMMENT "Generating the icon set from ${LE_ICON_SHEET}"
+    VERBATIM
+)
+add_custom_target(le_icons DEPENDS ${LE_GENERATED_DIR}/gui/icons.hpp)
+add_dependencies(gui le_icons)
 # spdlog::spdlog directly (not just transitively through api, which links
 # pipelines - spdlog's own consumer - PRIVATE, so nothing propagates this
 # far): le_gui.cpp uses spdlog/fmt directly, and without this it silently
@@ -1113,7 +1073,6 @@ if(SWIG_FOUND AND TCL_FOUND)
     install(FILES
         src/tcl/le_tcl_procs.tcl
         ${LE_GENERATED_DIR}/tcl/le_tcl_procs_generated.tcl
-        ${PROJECT_BINARY_DIR}/lucide.ttf
         DESTINATION . COMPONENT bundle)
     install(DIRECTORY ${LE_FONT_DIR}/ DESTINATION fonts COMPONENT bundle)
     if(TARGET tbb)
@@ -1415,6 +1374,9 @@ add_test(NAME test_scratch_paths_unique
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_test_scratch_paths.py ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME test_scratch_paths_check_unit
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/test_check_test_scratch_paths.py)
+add_test(NAME generate_icons_unit
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/tests/test_generate_icons.py)
+set_tests_properties(generate_icons_unit PROPERTIES ENVIRONMENT "CXX=${CMAKE_CXX_COMPILER}")
 
 # Code built with LE_COMPILE_OPTIONS fails to build when a non-void function
 # can fall off its end.

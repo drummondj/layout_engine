@@ -639,13 +639,12 @@ void le_ext_my_ext_register_gui(le::ext::GuiRegistry &registry)
   focus. Keys Layout Engine uses (Z F D S E R M, 0-9, the arrows, Escape,
   Delete, with any modifiers) are refused, and so is a combination another
   extension took first; each refusal is logged.
-- **Icons:** Lucide is the built-in icon set, used for every core button.
-  `#include <IconsLucide.h>` and use its `ICON_LC_*` names, for a toolbar
-  `icon` or in text (`ImGui::Text(ICON_LC_BOOK_PLUS " Add")`), for a
-  consistent look. Prefer them to fonts of your own.
-- **Fonts**, when Lucide can't do: `add_icon_glyphs(file, ranges)`
-  merges glyphs from a font file into the icon fonts, so a toolbar `icon`
-  can use them; `add_font(name, file, size)` adds a font for your
+- **Icons:** `le::Icon` is the built-in icon set, used for every core
+  button: a toolbar button's `icon`, or `le::ext::icon(le::Icon::Move)` in
+  your windows (an ImGui item, the font size unless you pass one; follow it
+  with `ImGui::SameLine()` for a label). They're vector paths, sharp at any
+  size, in the text color.
+- **Fonts:** `add_font(name, file, size)` adds a font for your
   windows, fetched with `ctx.font(name)`. Files are relative to your
   extension directory: list them under `resources` so the bundle installs
   them.
@@ -853,8 +852,8 @@ The first version.
   `remove_shape_piece` on `WriteView`.
 - Microns: `units()` on `ReadView` and `WriteView` (`Units`, `PointUm`,
   `RectUm`), and `WriteView::build_shape` (`ShapeBuilder`).
-- GUI: `<IconsLucide.h>` (the built-in icon set), `GuiRegistry` (`add_window`, `add_menu_item`, `add_toolbar_button`,
-  `add_key_binding`, `add_settings_panel`, `add_icon_glyphs`, `add_font`),
+- GUI: `le::Icon` and `le::ext::icon` (the built-in icon set), `GuiRegistry` (`add_window`, `add_menu_item`, `add_toolbar_button`,
+  `add_key_binding`, `add_settings_panel`, `add_font`),
   `GuiWindow`, `Dock`, `GuiMenuItem`, `GuiToolbarButton`, `ToolbarModes`,
   `GuiKeyBinding`, `ExtGuiContext` (with `font`), `register_all_gui()`.
 - Overlays: `Registry::add_overlay`, `OverlayContext`, `request_redraw()`.

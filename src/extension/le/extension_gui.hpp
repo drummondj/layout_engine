@@ -5,6 +5,7 @@
 // design by running a Tcl command, so the change lands in the console's
 // history and in undo like every core GUI action.
 
+#include "generated/gui/icons.hpp"
 #include "le/extension.hpp"
 
 #include <imgui.h>
@@ -114,7 +115,7 @@ namespace le::ext
     /// @brief A button in the design view's toolbar, after the core ones.
     struct GuiToolbarButton
     {
-        std::string icon;    // UTF-8: text, or a glyph from add_icon_glyphs
+        Icon icon{};         // from the built-in set (le::Icon)
         std::string label;   // under the icon
         std::string tooltip; // on hover (empty: none)
         uint32_t modes = TOOLBAR_ALL_MODES;
@@ -147,17 +148,18 @@ namespace le::ext
         /// @brief A collapsible section of the Settings panel - for this
         /// extension's settings (Registry::add_settings saves them).
         void add_settings_panel(void (*draw)(ExtGuiContext &));
-        /// @brief Merges glyphs (`ranges`: ImGui pairs, 0-terminated) from a
-        /// font file into the GUI's icon fonts, for toolbar icons and text.
-        /// `file` is relative to the extension's directory (a resource).
-        void add_icon_glyphs(std::string file, std::vector<ImWchar> ranges);
         /// @brief A font for this extension's windows, fetched with
-        /// ExtGuiContext::font(name). `file` as for add_icon_glyphs.
+        /// ExtGuiContext::font(name). `file` is relative to the extension's
+        /// directory (a resource).
         void add_font(std::string name, std::string file, float size_px);
 
     private:
         std::string extension_name_;
     };
+
+    /// @brief Draws `icon` as an ImGui item `size` px square (0: the current
+    /// font size) in the text color - beside a label, `ImGui::SameLine()`.
+    void icon(Icon icon, float size = 0.0f);
 
     /// @brief Calls each extension's `le_ext_<name>_register_gui` (those
     /// with GUI_SOURCES), in dependency order - generated; le_shell calls it

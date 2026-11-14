@@ -1,5 +1,7 @@
 #pragma once
 
+#include "generated/gui/icons.hpp"
+
 #include <functional>
 
 namespace le::gui
@@ -18,5 +20,5 @@ namespace le::gui
 
     // One momentary button in the toolbar's style: `icon` over `label`,
     // `tooltip` on hover (null or empty: none). True when clicked.
-    bool draw_toolbar_button(const char *icon, const char *label, const char *tooltip);
+    bool draw_toolbar_button(Icon icon, const char *label, const char *tooltip);
 }
