@@ -175,6 +175,64 @@ proc register_command_help {name usage description options {attributes {}}} {
     dict set ::command_help $name [dict merge $attributes [dict create usage $usage description $description options $options]]
 }
 
+# --- Option parsing shared by every command ---
+
+# Makes the calling command return its registered usage line when
+# `arguments` include -help anywhere.
+proc _return_usage_if_help {command arguments} {
+    if {[lsearch -exact $arguments -help] >= 0} {
+        return -level 2 [dict get $::command_help $command usage]
+    }
+}
+
+# Parses `arguments` for `command` into a dict: every flag of `defaults`
+# (flag -> default value) with the given ones applied. Without
+# `positional_var`, `arguments` are `-flag value` pairs and anything else
+# is an unknown flag. With it, each of `switches` is a bare flag (1 if
+# given, else 0), a flag of `defaults` takes the next word, and every other
+# word is appended to the caller's `positional_var`, in order.
+proc _parse_options {command defaults arguments {switches {}} {positional_var {}}} {
+    set opts $defaults
+    if {$positional_var eq {}} {
+        foreach {flag value} $arguments {
+            if {![dict exists $defaults $flag]} {
+                error "$command: unknown flag $flag"
+            }
+            dict set opts $flag $value
+        }
+        return $opts
+    }
+    upvar 1 $positional_var positional
+    set positional {}
+    foreach flag $switches {
+        dict set opts $flag 0
+    }
+    for {set i 0} {$i < [llength $arguments]} {incr i} {
+        set word [lindex $arguments $i]
+        if {$word in $switches} {
+            dict set opts $word 1
+        } elseif {[dict exists $defaults $word]} {
+            if {[incr i] >= [llength $arguments]} {
+                error "$command: $word requires a value"
+            }
+            dict set opts $word [lindex $arguments $i]
+        } else {
+            lappend positional $word
+        }
+    }
+    return $opts
+}
+
+# Fails with "<command>: <flag> is required" for the first of `required`
+# that `opts` (a _parse_options result) leaves empty.
+proc _require_options {command opts required} {
+    foreach flag $required {
+        if {[dict get $opts $flag] eq {}} {
+            error "$command: $flag is required"
+        }
+    }
+}
+
 # `help ?pattern?` - one line per registered command whose name matches
 # `pattern` (Tcl `string match` glob syntax, default `*` - every
 # command), e.g. `help get_*` lists every search command. Just the bare
@@ -738,9 +796,7 @@ proc generate_command_docs {{path {}}} {
 # shadowing (and thereby recursing into) the shim's own SWIG-bound ones. ---
 
 proc undo {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "undo \[-help\] - Undoes the most recently recorded command or edit"
-    }
+    _return_usage_if_help undo $args
     set result [undo_command]
     if {$result < 0} {
         error "undo: some steps could not be applied - see the log"
@@ -755,9 +811,7 @@ register_command_help undo \
     }
 
 proc redo {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "redo \[-help\] - Redoes the most recently undone command or edit"
-    }
+    _return_usage_if_help redo $args
     set result [redo_command]
     if {$result < 0} {
         error "redo: some steps could not be applied - see the log"
@@ -772,9 +826,7 @@ register_command_help redo \
     }
 
 proc command_history {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "command_history \[-help\] - Lists every typed command, in order"
-    }
+    _return_usage_if_help command_history $args
     set count [command_history_count]
     set lines {}
     for {set i 0} {$i < $count} {incr i} {
@@ -801,9 +853,7 @@ register_command_help command_history \
 # recall log - instead, since that's what a user typing `history` actually
 # wants here.
 proc history {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "history \[-help\] - Alias for command_history - lists every typed command, in order"
-    }
+    _return_usage_if_help history $args
     return [command_history {*}$args]
 }
 register_command_help history \
@@ -814,16 +864,8 @@ register_command_help history \
     }
 
 proc set_viewport_size {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "set_viewport_size -width <int> -height <int> \[-help\] - Sets the render viewport's pixel size"
-    }
-    array set opts {-width {} -height {}}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "set_viewport_size: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    _return_usage_if_help set_viewport_size $args
+    array set opts [_parse_options set_viewport_size {-width {} -height {}} $args]
     if {$opts(-width) eq {} || $opts(-height) eq {}} {
         error "set_viewport_size: -width and -height are required"
     }
@@ -860,13 +902,7 @@ proc open_design {name args} {
     if {$name eq "-help" || [lsearch -exact $args "-help"] >= 0} {
         return "open_design <name> \[-view abstract|layout\] \[-help\] - Selects <name>'s Design as this session's current view"
     }
-    array set opts {-view abstract}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "open_design: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    array set opts [_parse_options open_design {-view abstract} $args]
     if {$opts(-view) ne "abstract" && $opts(-view) ne "layout"} {
         error "open_design: -view $opts(-view) is not supported - only \"abstract\" or \"layout\" are meaningful"
     }
@@ -904,16 +940,8 @@ register_command_help open_design \
 
 # --- zoom (backed by zoom_cmd/le_zoom) ---
 proc zoom {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "zoom -factor <double> \[-help\] - Zooms the current view in or out, anchored at the viewport center"
-    }
-    array set opts {-factor {}}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "zoom: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    _return_usage_if_help zoom $args
+    array set opts [_parse_options zoom {-factor {}} $args]
     if {$opts(-factor) eq ""} {
         error "zoom: -factor is required"
     }
@@ -930,21 +958,13 @@ register_command_help zoom \
 
 # --- zoom_area (backed by zoom_area_cmd -> le_fit_rect) ---
 proc zoom_area {rect args} {
-    if {$rect eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "zoom_area {{llx lly} {urx ury}} \[-padding <int>\] \[-help\] - Fits the viewport's pan/scale to a micron-space rectangle"
-    }
+    _return_usage_if_help zoom_area [list $rect {*}$args]
     # Same {{llx lly} {urx ury}} Rect form every generated -bbox/-rects
     # flag and shape_bbox's own result use.
     if {[llength $rect] != 2 || [llength [lindex $rect 0]] != 2 || [llength [lindex $rect 1]] != 2} {
         error "zoom_area: rect must be {{llx lly} {urx ury}}, got \"$rect\""
     }
-    array set opts {-padding 0}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "zoom_area: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    array set opts [_parse_options zoom_area {-padding 0} $args]
     lassign [concat {*}$rect] llx lly urx ury
     zoom_area_cmd $llx $lly $urx $ury $opts(-padding)
     return ""
@@ -1300,9 +1320,7 @@ register_command_help get_selection \
     }
 
 proc select {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "select <tokens> \[-help\] - Adds the given shape:/wire:/row:/placement:/region: tokens to the current selection"
-    }
+    _return_usage_if_help select $args
     if {[llength $args] < 1} {
         error "select: expected at least one <token>, got \"$args\""
     }
@@ -1481,9 +1499,7 @@ register_command_help arm_resize \
     }
 
 proc set_shape_snap_mode {kind args} {
-    if {$kind eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "set_shape_snap_mode <kind> <mode> \[-help\] - Sets what a resized or moved shape of one kind snaps to"
-    }
+    _return_usage_if_help set_shape_snap_mode [list $kind {*}$args]
     if {[llength $args] != 1} {
         error "set_shape_snap_mode: expected exactly 2 arguments (kind, mode), got [expr {1 + [llength $args]}]"
     }
@@ -1519,9 +1535,7 @@ register_command_help get_shape_snap_mode \
     }
 
 proc shape_snap_mode_available {kind args} {
-    if {$kind eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "shape_snap_mode_available <kind> <mode> \[-help\] - Returns whether a resize snap mode has anything to snap to"
-    }
+    _return_usage_if_help shape_snap_mode_available [list $kind {*}$args]
     if {[llength $args] != 1} {
         error "shape_snap_mode_available: expected exactly 2 arguments (kind, mode), got [expr {1 + [llength $args]}]"
     }
@@ -1676,9 +1690,7 @@ proc _take_library_flag {command arglist} {
 
 rename read_lef _read_lef_cmd
 proc read_lef {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "read_lef -library <name> <path> \[-help\] - Reads a LEF file into the shared Technology and a named Library"
-    }
+    _return_usage_if_help read_lef $args
     lassign [_take_library_flag read_lef $args] library positional
     if {[llength $positional] != 1} {
         error "read_lef: expected exactly one <path> argument, got \"$positional\""
@@ -1695,9 +1707,7 @@ register_command_help read_lef \
 
 rename read_def _read_def_cmd
 proc read_def {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "read_def -library <name> <path> \[-help\] - Reads a DEF file into a new Layout in a named Library"
-    }
+    _return_usage_if_help read_def $args
     lassign [_take_library_flag read_def $args] library positional
     if {[llength $positional] != 1} {
         error "read_def: expected exactly one <path> argument, got \"$positional\""
@@ -1722,34 +1732,16 @@ register_command_help read_def \
 # bare mutually-exclusive flags (exactly one required) rather than
 # {flag value} pairs.
 proc read_verilog {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "read_verilog -netlist|-rtl -library <name> <path> \[<path> ...\] \[-help\] - Reads one or more SystemVerilog/Verilog files"
-    }
+    _return_usage_if_help read_verilog $args
     lassign [_take_library_flag read_verilog $args] library args
-    set is_netlist -1
-    set positional {}
-    foreach arg $args {
-        switch -- $arg {
-            -netlist {
-                if {$is_netlist == 0} {
-                    error "read_verilog: -netlist and -rtl are mutually exclusive"
-                }
-                set is_netlist 1
-            }
-            -rtl {
-                if {$is_netlist == 1} {
-                    error "read_verilog: -netlist and -rtl are mutually exclusive"
-                }
-                set is_netlist 0
-            }
-            default {
-                lappend positional $arg
-            }
-        }
+    set opts [_parse_options read_verilog {} $args {-netlist -rtl} positional]
+    if {[dict get $opts -netlist] && [dict get $opts -rtl]} {
+        error "read_verilog: -netlist and -rtl are mutually exclusive"
     }
-    if {$is_netlist < 0} {
+    if {![dict get $opts -netlist] && ![dict get $opts -rtl]} {
         error "read_verilog: exactly one of -netlist or -rtl is required"
     }
+    set is_netlist [dict get $opts -netlist]
     if {[llength $positional] < 1} {
         error "read_verilog: expected at least one <path> argument, got \"$args\""
     }
@@ -1766,30 +1758,8 @@ register_command_help read_verilog \
     }
 
 proc write_verilog_stubs {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "write_verilog_stubs \[-library <token>\] <filename> \[-help\] - Writes stub Verilog modules for a Library's LEF-only Designs"
-    }
-    array set opts {-library ""}
-    set positional {}
-    set i 0
-    set n [llength $args]
-    while {$i < $n} {
-        set arg [lindex $args $i]
-        switch -- $arg {
-            -library {
-                incr i
-                if {$i >= $n} {
-                    error "write_verilog_stubs: -library requires a value"
-                }
-                set opts(-library) [lindex $args $i]
-                incr i
-            }
-            default {
-                lappend positional $arg
-                incr i
-            }
-        }
-    }
+    _return_usage_if_help write_verilog_stubs $args
+    array set opts [_parse_options write_verilog_stubs {-library ""} $args {} positional]
     if {[llength $positional] != 1} {
         error "write_verilog_stubs: expected exactly one <filename> argument, got \"$args\""
     }
@@ -1825,54 +1795,8 @@ register_command_help link \
 # mirrors zoom_area's own {flag value} loop shape just above, extended
 # with a couple of bare (no-value) flags.
 proc write_lef {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "write_lef \[-abstract <token>\] \[-library <token>\] \[-abstracts <tokens>\] \[-include_tech\] \[-tech_only\] <filename> \[-help\] - Writes a LEF file"
-    }
-    array set opts {-abstract "" -library "" -abstracts "" -include_tech 0 -tech_only 0}
-    set positional {}
-    set i 0
-    set n [llength $args]
-    while {$i < $n} {
-        set arg [lindex $args $i]
-        switch -- $arg {
-            -abstract {
-                incr i
-                if {$i >= $n} {
-                    error "write_lef: -abstract requires a value"
-                }
-                set opts(-abstract) [lindex $args $i]
-                incr i
-            }
-            -library {
-                incr i
-                if {$i >= $n} {
-                    error "write_lef: -library requires a value"
-                }
-                set opts(-library) [lindex $args $i]
-                incr i
-            }
-            -abstracts {
-                incr i
-                if {$i >= $n} {
-                    error "write_lef: -abstracts requires a value"
-                }
-                set opts(-abstracts) [lindex $args $i]
-                incr i
-            }
-            -include_tech {
-                set opts(-include_tech) 1
-                incr i
-            }
-            -tech_only {
-                set opts(-tech_only) 1
-                incr i
-            }
-            default {
-                lappend positional $arg
-                incr i
-            }
-        }
-    }
+    _return_usage_if_help write_lef $args
+    array set opts [_parse_options write_lef {-abstract "" -library "" -abstracts ""} $args {-include_tech -tech_only} positional]
     if {[llength $positional] != 1} {
         error "write_lef: expected exactly one <filename> argument, got \"$args\""
     }
@@ -1925,30 +1849,8 @@ register_command_help write_lef \
     }
 
 proc write_def {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "write_def \[-layout <token>\] <filename> \[-help\] - Writes a DEF file"
-    }
-    array set opts {-layout ""}
-    set positional {}
-    set i 0
-    set n [llength $args]
-    while {$i < $n} {
-        set arg [lindex $args $i]
-        switch -- $arg {
-            -layout {
-                incr i
-                if {$i >= $n} {
-                    error "write_def: -layout requires a value"
-                }
-                set opts(-layout) [lindex $args $i]
-                incr i
-            }
-            default {
-                lappend positional $arg
-                incr i
-            }
-        }
-    }
+    _return_usage_if_help write_def $args
+    array set opts [_parse_options write_def {-layout ""} $args {} positional]
     if {[llength $positional] != 1} {
         error "write_def: expected exactly one <filename> argument, got \"$args\""
     }
@@ -1990,9 +1892,7 @@ proc ::db_command_args {command args_list} {
 }
 
 proc write_db {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "write_db <filename> \[-no_session\] \[-help\] - Saves the whole database to a native .led file"
-    }
+    _return_usage_if_help write_db $args
     lassign [::db_command_args write_db $args] filename with_session
     if {[write_db_cmd $filename $with_session] != 0} {
         error "write_db: failed to write \"$filename\" - see the terminal log for the specific reason"
@@ -2009,9 +1909,7 @@ register_command_help write_db \
     }
 
 proc read_db {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "read_db <filename> \[-no_session\] \[-help\] - Loads a native .led database file into an empty session"
-    }
+    _return_usage_if_help read_db $args
     lassign [::db_command_args read_db $args] filename with_session
     return [read_db_cmd $filename $with_session]
 }
@@ -2025,9 +1923,7 @@ register_command_help read_db \
     }
 
 proc db_info {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "db_info <filename> \[-help\] - Describes a native .led database file without loading it"
-    }
+    _return_usage_if_help db_info $args
     if {[llength $args] != 1} {
         error "db_info: expected exactly one <filename> argument, got \"$args\""
     }
@@ -2046,9 +1942,7 @@ register_command_help db_info \
     }
 
 proc migrate_db {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "migrate_db <in> <out> \[-help\] - Rewrites a native .led database file with this build's schema"
-    }
+    _return_usage_if_help migrate_db $args
     if {[llength $args] != 2} {
         error "migrate_db: expected <in> and <out> filenames, got \"$args\""
     }
@@ -2522,9 +2416,7 @@ proc _finish_shape_op {name count} {
 }
 
 proc shape_copy {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "shape_copy <shapes> -layer <token> \[-parent <token>\] \[-help\] - Copies shapes onto another layer"
-    }
+    _return_usage_if_help shape_copy $args
     set opts [_parse_shape_op_args shape_copy $args {-layer "" -parent ""}]
     _require_shapes shape_copy $opts
     if {[dict get $opts -layer] eq ""} {
@@ -2543,9 +2435,7 @@ register_command_help shape_copy \
     }
 
 proc shape_change_layer {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "shape_change_layer <shapes> -layer <token> \[-help\] - Changes the layer of shapes"
-    }
+    _return_usage_if_help shape_change_layer $args
     set opts [_parse_shape_op_args shape_change_layer $args {-layer ""}]
     _require_shapes shape_change_layer $opts
     set layer [dict get $opts -layer]
@@ -2611,9 +2501,7 @@ foreach {name what} {
 }
 
 proc shape_to_polygon {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "shape_to_polygon <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to polygons"
-    }
+    _return_usage_if_help shape_to_polygon $args
     set opts [_parse_shape_op_args shape_to_polygon $args {-layer "" -parent ""}]
     _require_shapes shape_to_polygon $opts
     return [_finish_shape_op shape_to_polygon [shape_to_polygon_cmd [join [dict get $opts shapes]] [dict get $opts -layer] [dict get $opts -parent]]]
@@ -2629,9 +2517,7 @@ register_command_help shape_to_polygon \
     }
 
 proc shape_to_rects {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "shape_to_rects <shapes> \[-direction horizontal|vertical\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Converts shapes to rects"
-    }
+    _return_usage_if_help shape_to_rects $args
     set opts [_parse_shape_op_args shape_to_rects $args {-direction horizontal -layer "" -parent ""}]
     _require_shapes shape_to_rects $opts
     switch -- [dict get $opts -direction] {
@@ -2653,9 +2539,7 @@ register_command_help shape_to_rects \
     }
 
 proc shape_bbox {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "shape_bbox <shapes> \[-help\] - Returns the bounding box of shapes"
-    }
+    _return_usage_if_help shape_bbox $args
     set opts [_parse_shape_op_args shape_bbox $args {}]
     _require_shapes shape_bbox $opts
     set box [shape_bbox_cmd [join [dict get $opts shapes]]]
@@ -2673,9 +2557,7 @@ register_command_help shape_bbox \
     }
 
 proc shape_size {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "shape_size <shapes> \[-by <um>\] \[-x <um>\] \[-y <um>\] \[-layer <token>\] \[-parent <token>\] \[-help\] - Grows or shrinks shapes"
-    }
+    _return_usage_if_help shape_size $args
     set opts [_parse_shape_op_args shape_size $args {-by "" -x "" -y "" -layer "" -parent ""}]
     _require_shapes shape_size $opts
     set by [dict get $opts -by]
@@ -2704,9 +2586,7 @@ register_command_help shape_size \
     }
 
 proc shape_path {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "shape_path <shapes> -width <um> \[-layer <token>\] \[-parent <token>\] \[-help\] - Creates paths along shape outlines"
-    }
+    _return_usage_if_help shape_path $args
     set opts [_parse_shape_op_args shape_path $args {-width "" -layer "" -parent ""}]
     _require_shapes shape_path $opts
     set width [dict get $opts -width]
@@ -2737,9 +2617,7 @@ register_command_help shape_path \
 # polling for the request - the flag is simply never consumed, and this
 # command still returns successfully either way.
 proc show_gui {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "show_gui \[-help\] - Opens a window showing this session's current view"
-    }
+    _return_usage_if_help show_gui $args
     if {[info exists ::le_shell_batch]} {
         error "show_gui: not available in a batch script - run le_shell without a script for the GUI"
     }
@@ -2754,9 +2632,7 @@ register_command_help show_gui \
     }
 
 proc close_gui {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "close_gui \[-help\] - Closes the GUI window, leaving le_shell running"
-    }
+    _return_usage_if_help close_gui $args
     if {[info exists ::le_shell_batch]} {
         error "close_gui: not available in a batch script - run le_shell without a script for the GUI"
     }
@@ -2771,9 +2647,7 @@ register_command_help close_gui \
     }
 
 proc unsaved_changes {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "unsaved_changes \[-help\] - Lists what has changed since it was last saved: design and/or settings"
-    }
+    _return_usage_if_help unsaved_changes $args
     set result {}
     if {[has_unsaved_database_changes_cmd]} {
         lappend result design
@@ -3332,9 +3206,7 @@ register_command_help get_ports \
 # accurate flag-level documentation - only the dispatch body changes).
 
 proc delete_net {args} {
-    if {[lsearch -exact $args "-help"] >= 0} {
-        return "delete_net <id> \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus."
-    }
+    _return_usage_if_help delete_net $args
     if {[llength $args] != 1} {
         error "delete_net: exactly one argument (a Net id) is required"
     }
@@ -3346,19 +3218,11 @@ proc delete_net {args} {
 register_command_help delete_net "delete_net <id> \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus." "Deletes a net." {{<id> {type token required 1 description {Token of the net to delete}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
 
 proc update_net {id args} {
-    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus"
-    }
+    _return_usage_if_help update_net [list $id {*}$args]
     if {[llength $args] == 0} {
         error "update_net: at least one -flag is required"
     }
-    array set opts {-schematic {} -bus {} -name {} -bit_index {}}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "update_net: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    array set opts [_parse_options update_net {-schematic {} -bus {} -name {} -bit_index {}} $args]
 
     if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-bus) eq {} && $opts(-bit_index) eq {}} {
         set new_id [rename_net_cmd $id $opts(-name)]
@@ -3377,19 +3241,11 @@ proc update_net {id args} {
 register_command_help update_net "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus" "Changes the given fields of a net; omitted flags leave a field unchanged." {{-schematic {type token required 0 description {Move it to this schematic (token)}}} {-bus {type token required 0 description {The NetBus this Net is one bit of, if it is part of a multi-bit net}}} {-name {type str required 0 description {The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic}}} {-bit_index {type int required 0 description {Which bit of -bus this net is}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
 
 proc update_instance {id args} {
-    if {$id eq "-help" || [lsearch -exact $args "-help"] >= 0} {
-        return "update_instance <id> \[-schematic <token>\] \[-reference_design <token>\] \[-name <str>\] \[-reference_name <str>\] \[-location <Point>\] \[-rtl_text <str>\] \[-source_file <str>\] \[-diagnostic_summary <str>\] \[-help\] - An instance of another design, or a placeholder for source code that could not be fully read"
-    }
+    _return_usage_if_help update_instance [list $id {*}$args]
     if {[llength $args] == 0} {
         error "update_instance: at least one -flag is required"
     }
-    array set opts {-schematic {} -reference_design {} -name {} -reference_name {} -location {} -rtl_text {} -source_file {} -diagnostic_summary {}}
-    foreach {flag value} $args {
-        if {![info exists opts($flag)]} {
-            error "update_instance: unknown flag $flag"
-        }
-        set opts($flag) $value
-    }
+    array set opts [_parse_options update_instance {-schematic {} -reference_design {} -name {} -reference_name {} -location {} -rtl_text {} -source_file {} -diagnostic_summary {}} $args]
 
     if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-reference_design) eq {} \
             && $opts(-reference_name) eq {} && [llength $opts(-location)] == 0 \

@@ -395,4 +395,29 @@ if {[dict exists $::command_help create_hello_pin]} {
     check_contains "man still lists the extension's purposes" [man set_purpose_visible] "helloPin"
 }
 
+# --- The shared option parser (_parse_options, _require_options,
+# _return_usage_if_help) ---
+proc error_of {script} {
+    catch {uplevel 1 $script} message
+    return $message
+}
+check "-help returns the registered usage" [dict get $::command_help write_def usage] [write_def -help]
+check "-help after other words still returns usage" [dict get $::command_help write_def usage] [write_def out.def -help]
+check "a generated update_<type> -help in the id slot returns usage" [dict get $::command_help update_terminal usage] [update_terminal -help]
+check "an unknown -flag value pair names the command" "create_terminal: unknown flag -bogus" \
+    [error_of {create_terminal -bogus 1}]
+check "a positional command's value flag without a value" "write_def: -layout requires a value" \
+    [error_of {write_def -layout}]
+check "a missing required flag names it" "create_terminal: -name is required" \
+    [error_of {create_terminal -abstract abstract:NONE -direction INPUT}]
+check "read_verilog without -netlist or -rtl" "read_verilog: exactly one of -netlist or -rtl is required" \
+    [error_of {read_verilog -library lib a.v}]
+check "read_verilog with both" "read_verilog: -netlist and -rtl are mutually exclusive" \
+    [error_of {read_verilog -library lib -netlist -rtl a.v}]
+
+set opts [_parse_options demo {-a 1 -b {}} {x -b 2 y -s z} {-s -t} words]
+check "positional mode collects the other words in order" {x y z} $words
+check "positional mode applies value flags over defaults" {-a 1 -b 2 -s 1 -t 0} $opts
+check "pairs mode returns every default" {-a 1 -b 3} [_parse_options demo {-a 1 -b {}} {-b 3}]
+
 puts "le_tcl help system test passed"
