@@ -845,6 +845,17 @@ extern "C"
     void le_set_confirm_overwrite(LeHandle *handle, int32_t confirm);
     int32_t le_confirm_overwrite(LeHandle *handle);
 
+    /// @brief Sets the GUI color theme by name (le_theme_name) - a setting
+    /// (settings.json), "gray" by default. Returns 0, or -1 for an unknown
+    /// name or a null handle.
+    int32_t le_set_theme(LeHandle *handle, const char *name);
+    /// @brief The GUI color theme's name. "gray" if handle is null.
+    const char *le_theme(LeHandle *handle);
+    /// @brief How many GUI color themes there are.
+    int32_t le_theme_count(void);
+    /// @brief The name of theme `index` (0 is the default), "" if out of range.
+    const char *le_theme_name(int32_t index);
+
     int32_t le_flightline_max_fanout(LeHandle *handle);
 
     /// @brief How many Placements are currently selected - nonzero (in Edit

@@ -1,5 +1,6 @@
 #include "api_internal.hpp"
 #include "le/extension.hpp"
+#include "../core/themes.hpp"
 #include <json.hpp>
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -143,6 +144,7 @@ namespace
         j["flightline_max_fanout"] = handle->flightline_max_fanout();
         j["undo_limit"] = handle->command_history.undo_limit();
         j["confirm_overwrite"] = handle->confirm_overwrite;
+        j["theme"] = le::kThemes[handle->theme].name;
         j["max_concurrency"] = handle->max_concurrency_;
         j["placement_snap_mode"] = kPlacementSnapNames[static_cast<size_t>(handle->placement_snap_mode())];
         nlohmann::json shape_snap = nlohmann::json::object();
@@ -288,6 +290,14 @@ namespace
             else
                 warn("confirm_overwrite");
         }
+        if (j.contains("theme"))
+        {
+            const auto theme = j["theme"].is_string() ? le::find_theme(j["theme"].get<std::string>()) : std::nullopt;
+            if (theme)
+                handle->theme = *theme;
+            else
+                warn("theme");
+        }
 
         if (j.contains("placement_snap_mode"))
         {
@@ -389,6 +399,35 @@ extern "C"
             return 1;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
         return handle->confirm_overwrite ? 1 : 0;
+    }
+
+    int32_t le_set_theme(LeHandle *handle, const char *name)
+    {
+        if (!handle || !name)
+            return -1;
+        const std::optional<size_t> theme = le::find_theme(name);
+        if (!theme)
+            return -1;
+        HandleWriteLock lock(handle);
+        handle->theme = *theme;
+        return 0;
+    }
+
+    const char *le_theme(LeHandle *handle)
+    {
+        if (!handle)
+            return le::kThemes[0].name.data();
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return le::kThemes[handle->theme].name.data();
+    }
+
+    int32_t le_theme_count() { return static_cast<int32_t>(le::kThemes.size()); }
+
+    const char *le_theme_name(int32_t index)
+    {
+        if (index < 0 || index >= le_theme_count())
+            return "";
+        return le::kThemes[static_cast<size_t>(index)].name.data();
     }
 
     int32_t le_flightline_max_fanout(LeHandle *handle)

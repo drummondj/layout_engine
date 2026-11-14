@@ -1413,6 +1413,10 @@ void set_grid_spacing_um_command(double minor_um, double major_um)
 
 int get_confirm_overwrite_command() { return le_confirm_overwrite(session()); }
 void set_confirm_overwrite_command(int confirm) { le_set_confirm_overwrite(session(), confirm); }
+const char *get_theme_command() { return le_theme(session()); }
+int set_theme_command(const char *name) { return le_set_theme(session(), name); }
+int theme_count_command() { return le_theme_count(); }
+const char *theme_name_command(int index) { return le_theme_name(index); }
 
 double get_ruler_label_size_command()
 {

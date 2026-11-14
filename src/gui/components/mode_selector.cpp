@@ -89,7 +89,7 @@ namespace le::gui
             const bool selected = display_mode == mode;
             // Selected keeps a permanent highlighted background (a
             // neutral dark gray - compact_button.hpp's own
-            // kSelectedIconButtonColor, not the theme's own blue
+            // kSelectedIconButtonColor, not the theme's own
             // ButtonActive); unselected now draws no resting background
             // at all - only the icon glyph - so ButtonHovered/ButtonActive
             // stay themed for hover/press feedback but the idle state is

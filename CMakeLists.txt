@@ -809,6 +809,7 @@ add_library(gui STATIC
     src/gui/le_gui.cpp
     src/gui/gui_provider.cpp
     src/gui/panels.cpp
+    src/gui/theme.cpp
     src/gui/components/status_bar.cpp
     src/gui/components/library_browser.cpp
     src/gui/components/property_viewer.cpp

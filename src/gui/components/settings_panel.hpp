@@ -6,7 +6,7 @@ namespace le::gui
 {
     class GuiProvider;
 
-    // The Settings panel - grid spacing, ruler and label font sizes,
+    // The Settings panel - the color theme, grid spacing, ruler and label font sizes,
     // hierarchy depth (for this session only) and the flightline fanout
     // limit, plus saving
     // them to / loading them from a JSON settings file: the default one

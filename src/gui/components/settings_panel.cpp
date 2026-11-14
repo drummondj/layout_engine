@@ -3,6 +3,7 @@
 #include "committed_field.hpp"
 #include "file_dialog.hpp"
 #include "gui_provider.hpp"
+#include "../../core/themes.hpp"
 #include "imgui.h"
 
 #include <cstdio>
@@ -27,6 +28,34 @@ namespace le::gui
     {
         const GuiProvider::State::Settings &settings = provider.state().settings;
         static constexpr const char *kNoTechnology = "Read a technology LEF first - grid spacing is set in microns";
+
+        // One swatch per theme, its background with an accent bar; the
+        // current one is outlined.
+        section("Appearance");
+        ImGui::TextUnformatted("Theme");
+        const float swatch = ImGui::GetFrameHeight() * 1.4f;
+        for (size_t i = 0; i < kThemes.size(); ++i)
+        {
+            const Theme &theme = kThemes[i];
+            if (i > 0)
+                ImGui::SameLine();
+            ImGui::PushID(static_cast<int>(i));
+            const ImVec2 min = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("##theme", ImVec2(swatch, swatch)))
+                provider.set_theme(i);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%.*s", static_cast<int>(theme.label.size()), theme.label.data());
+            const ImVec2 max(min.x + swatch, min.y + swatch);
+            ImDrawList *draw = ImGui::GetWindowDrawList();
+            const float rounding = ImGui::GetStyle().FrameRounding;
+            draw->AddRectFilled(min, max, ImGui::GetColorU32(ImVec4(theme.background.r, theme.background.g, theme.background.b, 1.0f)), rounding);
+            draw->AddRectFilled(ImVec2(min.x, max.y - swatch * 0.3f), max,
+                                ImGui::GetColorU32(ImVec4(theme.accent.r, theme.accent.g, theme.accent.b, 1.0f)), rounding,
+                                ImDrawFlags_RoundCornersBottom);
+            const bool current = settings.theme == i;
+            draw->AddRect(min, max, ImGui::GetColorU32(current ? ImGuiCol_Text : ImGuiCol_Border), rounding, 0, current ? 2.5f : 1.0f);
+            ImGui::PopID();
+        }
 
         section("Grid");
         static CommittedField<double> minor_field;

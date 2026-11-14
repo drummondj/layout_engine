@@ -2,6 +2,7 @@
 
 #include "api.hpp"
 #include "gui_provider.hpp"
+#include "theme.hpp"
 #include "panels.hpp"
 #include "components/status_bar.hpp"
 #include "components/library_browser.hpp"
@@ -89,79 +90,12 @@ namespace le::gui
             return std::move(*path);
         }
 
-        // A dark, low-saturation ("pastel") ImGui theme - applied once,
-        // right after ImGui::CreateContext() below, in place of Dear
-        // ImGui's own built-in default style.
-        void set_dark_pastel_imgui_style()
+        // The ImGui style's sizes and spacing - applied once, right after
+        // ImGui::CreateContext() below. Its colors come from the theme
+        // setting (apply_theme_colors), reapplied whenever it changes.
+        void set_imgui_style_metrics()
         {
             ImGuiStyle &style = ImGui::GetStyle();
-            ImVec4 *colors = style.Colors;
-
-            // Backgrounds
-            colors[ImGuiCol_WindowBg] = ImVec4(0.12f, 0.13f, 0.15f, 1.00f); // Dark grey base
-            colors[ImGuiCol_ChildBg] = ImVec4(0.14f, 0.15f, 0.17f, 1.00f);
-            colors[ImGuiCol_PopupBg] = ImVec4(0.10f, 0.10f, 0.12f, 0.95f);
-            colors[ImGuiCol_Border] = ImVec4(0.30f, 0.33f, 0.42f, 0.40f);
-
-            // Text
-            colors[ImGuiCol_Text] = ImVec4(0.90f, 0.93f, 0.95f, 1.00f);
-            colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.65f, 0.70f, 1.00f);
-
-            // Headers
-            colors[ImGuiCol_Header] = ImVec4(0.36f, 0.42f, 0.55f, 0.60f);
-            colors[ImGuiCol_HeaderHovered] = ImVec4(0.44f, 0.50f, 0.68f, 0.80f);
-            colors[ImGuiCol_HeaderActive] = ImVec4(0.46f, 0.55f, 0.75f, 1.00f);
-
-            // Buttons
-            colors[ImGuiCol_Button] = ImVec4(0.28f, 0.34f, 0.48f, 0.70f);
-            colors[ImGuiCol_ButtonHovered] = ImVec4(0.36f, 0.45f, 0.65f, 0.85f);
-            colors[ImGuiCol_ButtonActive] = ImVec4(0.40f, 0.50f, 0.70f, 1.00f);
-
-            // Frames
-            colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.22f, 0.28f, 1.00f);
-            colors[ImGuiCol_FrameBgHovered] = ImVec4(0.28f, 0.32f, 0.42f, 1.00f);
-            colors[ImGuiCol_FrameBgActive] = ImVec4(0.32f, 0.38f, 0.50f, 1.00f);
-
-            // Tabs
-            colors[ImGuiCol_Tab] = ImVec4(0.26f, 0.30f, 0.42f, 0.80f);
-            colors[ImGuiCol_TabHovered] = ImVec4(0.36f, 0.42f, 0.58f, 1.00f);
-            colors[ImGuiCol_TabActive] = ImVec4(0.42f, 0.50f, 0.68f, 1.00f);
-            colors[ImGuiCol_TabUnfocused] = ImVec4(0.20f, 0.24f, 0.32f, 0.80f);
-            colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.30f, 0.36f, 0.50f, 1.00f);
-
-            // Titles
-            colors[ImGuiCol_TitleBg] = ImVec4(0.20f, 0.25f, 0.30f, 1.00f);
-            colors[ImGuiCol_TitleBgActive] = ImVec4(0.25f, 0.30f, 0.40f, 1.00f);
-            colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.10f, 0.12f, 0.15f, 0.75f);
-
-            // Scrollbars
-            colors[ImGuiCol_ScrollbarBg] = ImVec4(0.13f, 0.14f, 0.18f, 1.00f);
-            colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.25f, 0.30f, 0.38f, 0.60f);
-            colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.35f, 0.40f, 0.50f, 0.80f);
-            colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.45f, 0.50f, 0.65f, 1.00f);
-
-            // Checkboxes / Radios
-            colors[ImGuiCol_CheckMark] = ImVec4(0.80f, 0.85f, 1.00f, 1.00f);
-
-            // Sliders
-            colors[ImGuiCol_SliderGrab] = ImVec4(0.50f, 0.65f, 0.90f, 1.00f);
-            colors[ImGuiCol_SliderGrabActive] = ImVec4(0.60f, 0.75f, 1.00f, 1.00f);
-
-            // Resize grip
-            colors[ImGuiCol_ResizeGrip] = ImVec4(0.30f, 0.40f, 0.50f, 0.60f);
-            colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.40f, 0.50f, 0.60f, 0.80f);
-            colors[ImGuiCol_ResizeGripActive] = ImVec4(0.50f, 0.60f, 0.80f, 1.00f);
-
-            // Separators
-            colors[ImGuiCol_Separator] = ImVec4(0.35f, 0.40f, 0.48f, 0.70f);
-            colors[ImGuiCol_SeparatorHovered] = ImVec4(0.50f, 0.60f, 0.72f, 0.90f);
-            colors[ImGuiCol_SeparatorActive] = ImVec4(0.65f, 0.70f, 0.85f, 1.00f);
-
-            // Menu bar
-            colors[ImGuiCol_MenuBarBg] = ImVec4(0.14f, 0.15f, 0.17f, 1.00f);
-
-            // Drag & drop
-            colors[ImGuiCol_DragDropTarget] = ImVec4(0.50f, 0.85f, 1.00f, 0.90f);
 
             // Shape metrics
             style.WindowRounding = 8.0f;
@@ -1107,7 +1041,9 @@ namespace le::gui
 
             IMGUI_CHECKVERSION();
             ImGui::CreateContext();
-            set_dark_pastel_imgui_style();
+            set_imgui_style_metrics();
+            size_t applied_theme = 0;
+            apply_theme_colors(ImGui::GetStyle(), le::kThemes[applied_theme]);
             ImGuiIO &io = ImGui::GetIO();
             // Deliberately NOT ImGuiConfigFlags_NavEnableKeyboard - this
             // app has its own complete keyboard-shortcut system
@@ -1359,6 +1295,11 @@ namespace le::gui
                 // debounced or delayed by refresh() in any way.
                 provider.refresh();
                 const bool is_rendering = provider.state().is_rendering;
+                if (provider.state().settings.theme != applied_theme)
+                {
+                    applied_theme = provider.state().settings.theme;
+                    apply_theme_colors(ImGui::GetStyle(), le::kThemes[applied_theme]);
+                }
 
                 // show_loading_overlay - whether to draw the spinner/
                 // "Loading design..." text: only once a render has run for
@@ -1441,7 +1382,7 @@ namespace le::gui
                 // The Layout/Abstract design view always renders on pure
                 // black, regardless of the current ImGui theme (unlike
                 // every other dock panel, which follows
-                // set_dark_pastel_imgui_style()'s own WindowBg/ChildBg) -
+                // the theme's WindowBg/ChildBg) -
                 // an explicit user request, not derived from the
                 // rendered design content itself (which already draws
                 // its own background via the pipelines module,

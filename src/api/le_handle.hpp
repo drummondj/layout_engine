@@ -1749,6 +1749,8 @@ struct LeHandle
         // Whether the GUI asks before a Save overwrites a design file (a
         // setting, saved in settings.json).
         bool confirm_overwrite = true;
+        // The GUI color theme, an index into le::kThemes (a setting).
+        size_t theme = 0;
         // Grid spacing (um) from a settings file read before any
         // Technology existed to convert it to dbu - applied by api.cpp once
         // one does.

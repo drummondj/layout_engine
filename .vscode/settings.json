@@ -12,5 +12,6 @@
     "[c]": {
         "editor.defaultFormatter": "ms-vscode.cpptools",
         "editor.formatOnSave": true
-    }
+    },
+    "git.ignoreLimitWarning": true
 }
