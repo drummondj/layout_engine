@@ -314,8 +314,8 @@ fails on a temp path that isn't unique to its process.
 `codegen/` is this project's fork of
 [cmg](https://github.com/johndru-astrophysics/cmg) (INDEXED_POOLS export
 style). `codegen/codegen/schema.py`'s `Klass`/`Field` are the model and
-its derived queries; `codegen/codegen/emitters/` holds the C++ bodies
-emitted from it (C API, `le::edit` ops, `Root::update_<type>`), which
+its derived queries; `codegen/codegen/emitters/` holds the code emitted
+from it (C API, `le::edit` ops, `Root::update_<type>`, the Tcl procs), which
 templates call as `emit.<module>.<function>(klass)`, each with unit tests
 in `codegen/tests/test_emitters.py`. Every `Klass` in `schema.py`
 becomes an `XxxData` struct, an `XxxId` `{index, generation}` handle,

@@ -93,7 +93,7 @@ proc current_{{snake}} {args} {
 set current_{{snake}}_options {}
 lappend current_{{snake}}_options {<id> {type token required 0 description {A friendly-id token to select as current - omit to just read the current value}}}
 lappend current_{{snake}}_options {-help {type flag required 0 description {Show this usage message and return immediately}}}
-register_command_help current_{{snake}} "current_{{snake}} \\[<id>\\] \\[-help\\] - Returns the current {{klass.name}}, selecting it first if <id> is given" "Returns the current {{klass.name}} (empty if none is set); with <id>, selects it first. get_ commands without -of search within it." $current_{{snake}}_options{{klass.tcl_help_attributes()}}
+register_command_help current_{{snake}} "current_{{snake}} \\[<id>\\] \\[-help\\] - Returns the current {{klass.name}}, selecting it first if <id> is given" "Returns the current {{klass.name}} (empty if none is set); with <id>, selects it first. get_ commands without -of search within it." $current_{{snake}}_options{{emit.tcl_procs.tcl_help_attributes(klass)}}
 {% endfor %}
 
 # --- get_<type> search ---
@@ -159,7 +159,7 @@ lappend get_{{plural}}_options {-of {type token... required 0 description {Searc
 {%- endif %}
 lappend get_{{plural}}_options {-filter {type expr required 0 description {Keep only objects matching this expression over their properties}}}
 lappend get_{{plural}}_options {-help {type flag required 0 description {Show this usage message and return immediately}}}
-register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}} objects matching the given names and filters, as tokens. {{klass.name}}: {{klass.tcl_description_escaped()}}" $get_{{plural}}_options{{klass.tcl_help_attributes()}}
+register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}} objects matching the given names and filters, as tokens. {{klass.name}}: {{klass.tcl_description_escaped()}}" $get_{{plural}}_options{{emit.tcl_procs.tcl_help_attributes(klass)}}
 {% endfor %}
 
 # --- create_<type> - `create_<type> [-flag value...]`, one flag per
@@ -168,7 +168,7 @@ register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}
 # scope/optionality conventions this follows uniformly). A parent flag
 # whose own Klass has has_current_access=True (e.g. -abstract, since
 # Abstract does) defaults to current_<parent_klass> when omitted (see
-# Klass.create_tcl_current_defaults() - only when every other parent
+# tcl_procs.create_tcl_current_defaults() - only when every other parent
 # flag was also left empty, for a multi-parent class), the same way
 # get_<type>'s own default (-of omitted) scope already derives from
 # current_abstract - so create_terminal needs no explicit -abstract once
@@ -185,11 +185,11 @@ register_command_help get_{{plural}} "{{usage_line}}" "Returns the {{klass.name}
 {%- set parent_fields = klass.get_parent_fields() %}
 proc create_{{snake}} {args} {
     _return_usage_if_help create_{{snake}} $args
-    array set opts [_parse_options create_{{snake}} {{'{'}}{{klass.create_tcl_flag_defaults()}}{{'}'}} $args]
-{%- if klass.create_tcl_aliases() %}
-{{klass.create_tcl_aliases()}}
+    array set opts [_parse_options create_{{snake}} {{'{'}}{{emit.tcl_procs.create_tcl_flag_defaults(klass)}}{{'}'}} $args]
+{%- if emit.tcl_procs.create_tcl_aliases(klass) %}
+{{emit.tcl_procs.create_tcl_aliases(klass)}}
 {%- endif %}
-{{klass.create_tcl_current_defaults()}}
+{{emit.tcl_procs.create_tcl_current_defaults(klass)}}
     {%- if parent_fields|length > 1 %}
     set provided_parents 0
     {%- for pf in parent_fields %}
@@ -210,18 +210,18 @@ proc create_{{snake}} {args} {
         }
     }
     {%- endif %}
-    _require_options create_{{snake}} [array get opts] {{'{'}}{{klass.create_tcl_required_flags()}}{{'}'}}
-{%- if klass.tcl_reference_token_checks('create_' ~ snake) %}
-{{klass.tcl_reference_token_checks('create_' ~ snake)}}
+    _require_options create_{{snake}} [array get opts] {{'{'}}{{emit.tcl_procs.create_tcl_required_flags(klass)}}{{'}'}}
+{%- if emit.tcl_procs.tcl_reference_token_checks(klass, 'create_' ~ snake) %}
+{{emit.tcl_procs.tcl_reference_token_checks(klass, 'create_' ~ snake)}}
 {%- endif %}
-{{klass.cmd_tcl_preamble('create')}}
-    set new_id [create_{{snake}}_cmd {{klass.create_tcl_call_args()}}]
+{{emit.tcl_procs.cmd_tcl_preamble(klass, 'create')}}
+    set new_id [create_{{snake}}_cmd {{emit.tcl_procs.create_tcl_call_args(klass)}}]
     if {$new_id eq {}} {
         error "create_{{snake}}: failed - see the error above"
     }
     return $new_id
 }
-register_command_help create_{{snake}} "{{klass.create_tcl_usage()}}" "Creates a {{klass.name}} and returns its token. {{klass.name}}: {{klass.tcl_description_escaped()}}" {{'{'}}{{klass.create_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
+register_command_help create_{{snake}} "{{emit.tcl_procs.create_tcl_usage(klass)}}" "Creates a {{klass.name}} and returns its token. {{klass.name}}: {{klass.tcl_description_escaped()}}" {{'{'}}{{emit.tcl_procs.create_tcl_help_options(klass)}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{emit.tcl_procs.tcl_help_attributes(klass)}}
 {% endfor %}
 
 # --- update_<type> - `update_<type> <id> -flag value...` - mutates an
@@ -253,18 +253,18 @@ proc update_{{snake}} {id args} {
     if {[llength $args] == 0} {
         error "update_{{snake}}: at least one -flag is required"
     }
-    array set opts [_parse_options update_{{snake}} {{'{'}}{{klass.update_tcl_flag_defaults()}}{{'}'}} $args]
-{%- if klass.tcl_reference_token_checks('update_' ~ snake) %}
-{{klass.tcl_reference_token_checks('update_' ~ snake)}}
+    array set opts [_parse_options update_{{snake}} {{'{'}}{{emit.tcl_procs.update_tcl_flag_defaults(klass)}}{{'}'}} $args]
+{%- if emit.tcl_procs.tcl_reference_token_checks(klass, 'update_' ~ snake) %}
+{{emit.tcl_procs.tcl_reference_token_checks(klass, 'update_' ~ snake)}}
 {%- endif %}
-{{klass.cmd_tcl_preamble('update')}}
-    set new_id [update_{{snake}}_cmd $id {{klass.update_tcl_call_args()}}]
+{{emit.tcl_procs.cmd_tcl_preamble(klass, 'update')}}
+    set new_id [update_{{snake}}_cmd $id {{emit.tcl_procs.update_tcl_call_args(klass)}}]
     if {$new_id eq {}} {
         error "update_{{snake}}: failed to update \\"$id\\""
     }
     return $new_id
 }
-register_command_help update_{{snake}} "{{klass.update_tcl_usage()}}" "Changes the given fields of a {{klass.name}}; omitted flags leave a field unchanged." {{'{'}}{{klass.update_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
+register_command_help update_{{snake}} "{{emit.tcl_procs.update_tcl_usage(klass)}}" "Changes the given fields of a {{klass.name}}; omitted flags leave a field unchanged." {{'{'}}{{emit.tcl_procs.update_tcl_help_options(klass)}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{emit.tcl_procs.tcl_help_attributes(klass)}}
 {% endfor %}
 
 # --- delete_<type> - `delete_<type> <ids> [-help]` - deletes one object,
@@ -287,6 +287,6 @@ proc delete_{{snake}} {args} {
     }
     return 0
 }
-register_command_help delete_{{snake}} "{{klass.delete_tcl_usage()}}" "Deletes a {{klass.name}}, or a list of them, and everything they own." {{'{'}}{{klass.delete_tcl_help_options()}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{klass.tcl_help_attributes()}}
+register_command_help delete_{{snake}} "{{emit.tcl_procs.delete_tcl_usage(klass)}}" "Deletes a {{klass.name}}, or a list of them, and everything they own." {{'{'}}{{emit.tcl_procs.delete_tcl_help_options(klass)}} {-help {type flag required 0 description {Show this usage message and return immediately}}}{{'}'}}{{emit.tcl_procs.tcl_help_attributes(klass)}}
 {% endfor %}
 """

@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from codegen.emitters import c_api, edit_ops, root
+from codegen.emitters import c_api, edit_ops, root, tcl_procs
 from codegen.schema import Field, Klass, Schema
 from examples import eda
 
@@ -81,11 +81,55 @@ class TestEmittersOverAHierarchy(unittest.TestCase):
         )
 
 
+class TestTclProcEmitters(unittest.TestCase):
+    """The generated create_/update_/delete_<type> procs' text, for the
+    example EDA schema's Instance: a required parent, a required name and an
+    optional plain reference to a Module."""
+
+    def setUp(self):
+        self.schema = copy.deepcopy(eda.schema)
+        self.schema.link()
+        self.instance = self.schema.get_klass("Instance")
+
+    def test_usage_marks_optional_flags(self):
+        self.assertEqual(tcl_procs.create_tcl_usage(self.instance),
+                         "create_instance -module <token> \\[-reference <token>\\] -name <str> \\[-help\\] - An instance")
+        self.assertEqual(tcl_procs.update_tcl_usage(self.instance),
+                         "update_instance <id> \\[-module <token>\\] \\[-reference <token>\\] \\[-name <str>\\] \\[-help\\] - An instance")
+        self.assertEqual(tcl_procs.delete_tcl_usage(self.instance), "delete_instance <ids> \\[-help\\] - An instance.")
+
+    def test_flags_defaults_and_required(self):
+        self.assertEqual(tcl_procs.create_tcl_flag_defaults(self.instance), "-module {} -reference {} -name {}")
+        self.assertEqual(tcl_procs.update_tcl_flag_defaults(self.instance), "-module {} -reference {} -name {}")
+        self.assertEqual(tcl_procs.create_tcl_required_flags(self.instance), "-module -name")
+
+    def test_update_passes_a_has_flag_for_each_optional_reference(self):
+        self.assertEqual(tcl_procs.create_tcl_call_args(self.instance), "$opts(-module) $opts(-reference) $opts(-name)")
+        self.assertEqual(
+            tcl_procs.update_tcl_call_args(self.instance),
+            "[expr {$opts(-module) ne {} ? 1 : 0}] $opts(-module) [expr {$opts(-reference) ne {} ? 1 : 0}] $opts(-reference) $opts(-name)",
+        )
+
+    def test_a_reference_token_is_checked_before_the_call(self):
+        checks = tcl_procs.tcl_reference_token_checks(self.instance, "create_instance")
+        self.assertIn("![module_token_resolves $opts(-reference)]", checks)
+        self.assertIn('error "create_instance: unknown module', checks)
+
+
 class TestTheModelHoldsNoEmitters(unittest.TestCase):
     def test_klass_has_no_body_emitters(self):
         for name in ("create_api_body", "update_api_body", "delete_api_body", "apply_snapshot_body", "create_op_body",
                      "update_op_body", "delete_op_body", "delete_batch_op_body", "update_root_body"):
             self.assertFalse(hasattr(Klass, name), name)
+
+    def test_neither_class_has_the_tcl_proc_emitters(self):
+        for name in ("cmd_tcl_preamble", "create_tcl_usage", "update_tcl_usage", "delete_tcl_usage", "create_tcl_help_options",
+                     "update_tcl_help_options", "delete_tcl_help_options", "create_tcl_flag_defaults", "update_tcl_flag_defaults",
+                     "create_tcl_required_flags", "create_tcl_call_args", "update_tcl_call_args", "create_tcl_aliases",
+                     "create_tcl_current_defaults", "tcl_help_attributes", "tcl_reference_token_checks"):
+            self.assertFalse(hasattr(Klass, name), name)
+        for name in ("cmd_tcl_preamble", "_list_compound_tcl_preamble", "cmd_tcl_call_args", "tcl_help_type_label"):
+            self.assertFalse(hasattr(Field, name), name)
 
 
 if __name__ == "__main__":

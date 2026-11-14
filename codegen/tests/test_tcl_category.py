@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from codegen.emitters import tcl_procs
 from codegen import tcl_generator
 from codegen.schema import TCL_CATEGORIES
 from examples import eda
@@ -26,7 +27,7 @@ class TestTclCategory(unittest.TestCase):
 
     def test_the_category_reaches_every_generated_registration(self):
         self.klass.tcl_category = "Layout"
-        self.assertEqual(self.klass.tcl_help_attributes(), " {category Layout}")
+        self.assertEqual(tcl_procs.tcl_help_attributes(self.klass), " {category Layout}")
         code, text, _ = self.generate()
         self.assertEqual(code, 0)
         snake = self.klass.to_snake_case()
@@ -37,7 +38,7 @@ class TestTclCategory(unittest.TestCase):
 
     def test_no_category_adds_nothing(self):
         self.klass.tcl_category = None
-        self.assertEqual(self.klass.tcl_help_attributes(), "")
+        self.assertEqual(tcl_procs.tcl_help_attributes(self.klass), "")
 
     def test_an_unknown_category_is_refused(self):
         self.klass.tcl_category = "Misc"
