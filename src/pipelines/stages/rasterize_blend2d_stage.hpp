@@ -914,9 +914,10 @@ namespace le
         void set_thread_count(uint32_t thread_count) { thread_count_ = thread_count; }
         uint32_t thread_count() const { return thread_count_; }
 
-        /// @brief How often a frame started cutting a node off at
-        /// kMaxImageDimensionPx (each warned once, not every frame after).
-        size_t crop_warnings() const { return crop_warnings_; }
+        /// @brief How often a frame started drawing a node coarser than the
+        /// view to fit kMaxImageDimensionPx (each warned once, not every
+        /// frame after).
+        size_t downscale_warnings() const { return downscale_warnings_; }
 
     protected:
         RasterizeOutput compute(const HierarchyResolverStage::OutputHandle &culled, const ViewRenderOptions &options) override
@@ -931,7 +932,7 @@ namespace le
             std::erase_if(path_outline_cache_by_chunk_, [](const auto &entry)
                           { return entry.second.source.expired(); });
 
-            bool any_cropped = false;
+            bool any_downscaled = false;
             for (const auto &[id, data] : culled->view_data)
             {
                 // A nested node covers only what its visible instances show
@@ -941,21 +942,27 @@ namespace le
 
                 const double width_dbu = static_cast<double>(local_bbox.ur.x - local_bbox.ll.x);
                 const double height_dbu = static_cast<double>(local_bbox.ur.y - local_bbox.ll.y);
+                // A node too big for kMaxImageDimensionPx at the view's scale
+                // (abutting copies of a large cell seen at their seam show
+                // opposite ends of it) is drawn at the largest scale that
+                // fits. Shapes still size their lines and labels for the
+                // view's scale; ComposeStage scales the image back up.
+                const double max_px = static_cast<double>(kMaxImageDimensionPx);
+                const double fit = std::min({1.0, max_px / std::max(width_dbu * options.scale, 1.0), max_px / std::max(height_dbu * options.scale, 1.0)});
+                const double node_scale = options.scale * fit;
                 // Clamped as doubles: casting an out-of-range double to int is UB.
-                const double wanted_width = std::ceil(width_dbu * options.scale);
-                const double wanted_height = std::ceil(height_dbu * options.scale);
-                const auto to_pixels = [](double wanted)
-                { return wanted >= 1.0 ? static_cast<int>(std::min(wanted, static_cast<double>(kMaxImageDimensionPx))) : 1; };
-                const int pixel_width = to_pixels(wanted_width);
-                const int pixel_height = to_pixels(wanted_height);
-                const bool cropped = wanted_width > kMaxImageDimensionPx || wanted_height > kMaxImageDimensionPx;
-                if (cropped && !any_cropped && !cropping_)
+                const auto to_pixels = [&](double dbu)
+                { return std::clamp(static_cast<int>(std::min(std::ceil(dbu * node_scale), max_px)), 1, kMaxImageDimensionPx); };
+                const int pixel_width = to_pixels(width_dbu);
+                const int pixel_height = to_pixels(height_dbu);
+                const bool downscaled = fit < 1.0;
+                if (downscaled && !any_downscaled && !downscaling_)
                 {
-                    ++crop_warnings_;
-                    spdlog::warn("render: a cell needs {:.0f} x {:.0f} px at this zoom, more than the {} px limit - it is cut off at the limit",
-                                 wanted_width, wanted_height, kMaxImageDimensionPx);
+                    ++downscale_warnings_;
+                    spdlog::warn("render: a cell needs {:.0f} x {:.0f} px at this zoom, more than the {} px limit - it is drawn at {:.0f}% resolution",
+                                 std::ceil(width_dbu * options.scale), std::ceil(height_dbu * options.scale), kMaxImageDimensionPx, fit * 100.0);
                 }
-                any_cropped = any_cropped || cropped;
+                any_downscaled = any_downscaled || downscaled;
 
                 BLImage image(pixel_width, pixel_height, BL_FORMAT_PRGB32);
 
@@ -968,7 +975,7 @@ namespace le
                     BLContext context(target, create_info);
                     context.clear_all();
                     context.translate(0.0, static_cast<double>(pixel_height));
-                    context.scale(options.scale, -options.scale);
+                    context.scale(node_scale, -node_scale);
                     context.translate(static_cast<double>(-local_bbox.ll.x), static_cast<double>(-local_bbox.ll.y));
                     return context;
                 };
@@ -1026,11 +1033,12 @@ namespace le
 
                 // ComposeStage composites BLImages natively, so these are
                 // the finished RasterizedImage - no format conversion.
-                result.images.emplace(id, RasterizedImage{std::move(image), local_bbox.ll, std::move(over_placements), cropped, std::move(labels)});
+                result.images.emplace(id, RasterizedImage{.image = std::move(image), .local_origin = local_bbox.ll, .over_placements = std::move(over_placements),
+                                                          .scale = node_scale, .labels = std::move(labels)});
             }
 
-            // Warned once per run of cropped frames, not on every pan.
-            cropping_ = any_cropped;
+            // Warned once per run of such frames, not on every pan.
+            downscaling_ = any_downscaled;
             return result;
         }
 
@@ -1116,7 +1124,7 @@ namespace le
         std::unordered_map<int, MonospaceFontEntry> monospace_font_cache_;
 
         uint32_t thread_count_ = 8;
-        bool cropping_ = false; // the last frame cut a node off
-        size_t crop_warnings_ = 0;
+        bool downscaling_ = false; // the last frame drew a node coarser to fit
+        size_t downscale_warnings_ = 0;
     };
 }

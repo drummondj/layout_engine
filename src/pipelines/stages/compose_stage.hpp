@@ -145,7 +145,7 @@ namespace le
                 BLContext hierarchy_ctx(hierarchy);
                 hierarchy_ctx.clear_all();
                 std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> composed_cache;
-                draw_node_and_children(hierarchy_ctx, options.top_level, own_it->second, *input->culled, input->images, composed_cache, options.scale);
+                draw_node_and_children(hierarchy_ctx, options.top_level, own_it->second, *input->culled, input->images, composed_cache);
                 hierarchy_ctx.end();
 
                 // A mirrored view draws the hierarchy mirrored; the labels
@@ -162,8 +162,8 @@ namespace le
                 base_ctx.blit_image(BLPoint(0, 0), hierarchy);
                 base_ctx.restore();
                 labels_drawn_ = 0;
-                const BLMatrix2D top_to_pixel = combine_outer_after_inner(flip, dbu_to_pixel_matrix(own_it->second.local_origin, height, options.scale));
-                draw_labels(base_ctx, options.top_level, top_to_pixel, *input->culled, input->images, BLBox(0, 0, width, height), options.scale,
+                const BLMatrix2D top_to_pixel = combine_outer_after_inner(flip, dbu_to_pixel_matrix(own_it->second.local_origin, height, own_it->second.scale));
+                draw_labels(base_ctx, options.top_level, top_to_pixel, *input->culled, input->images, BLBox(0, 0, width, height), own_it->second.scale,
                             std::min(options.label_min_size_px, options.label_max_size_px));
                 base_ctx.end();
                 base_input_ = input;
@@ -764,8 +764,7 @@ namespace le
             BLContext &ctx, const HierarchyId &id, const RasterizedImage &own,
             const HierarchyResolverOutput &culled,
             const std::unordered_map<HierarchyId, RasterizedImage, HierarchyIdHash> &rasterized,
-            std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> &composed_cache,
-            double scale)
+            std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> &composed_cache)
         {
             ctx.blit_image(BLPoint(0, 0), own.image);
 
@@ -777,7 +776,7 @@ namespace le
             {
                 for (const ViewPlacementData &placement : tile->placements)
                 {
-                    const BLImage child_image = compose_node(placement.id, culled, rasterized, composed_cache, scale);
+                    const BLImage child_image = compose_node(placement.id, culled, rasterized, composed_cache);
                     if (child_image.is_empty())
                         continue; // degrade - child wasn't rasterized
 
@@ -799,8 +798,8 @@ namespace le
                     // combine_outer_after_inner rather than two separate
                     // ctx.set_transform() calls.
                     const BLMatrix2D child_to_parent_dbu = child_image_to_parent_dbu_matrix(
-                        placement.transform, child_raw_it->second.local_origin, child_image.height(), scale);
-                    const BLMatrix2D parent_dbu_to_pixel = dbu_to_pixel_matrix(own.local_origin, own.image.height(), scale);
+                        placement.transform, child_raw_it->second.local_origin, child_image.height(), child_raw_it->second.scale);
+                    const BLMatrix2D parent_dbu_to_pixel = dbu_to_pixel_matrix(own.local_origin, own.image.height(), own.scale);
                     const BLMatrix2D combined = combine_outer_after_inner(parent_dbu_to_pixel, child_to_parent_dbu);
 
                     ctx.save();
@@ -824,8 +823,7 @@ namespace le
         static BLImage compose_node(
             const HierarchyId &id, const HierarchyResolverOutput &culled,
             const std::unordered_map<HierarchyId, RasterizedImage, HierarchyIdHash> &rasterized,
-            std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> &composed_cache,
-            double scale)
+            std::unordered_map<HierarchyId, BLImage, HierarchyIdHash> &composed_cache)
         {
             if (const auto it = composed_cache.find(id); it != composed_cache.end())
                 return it->second;
@@ -851,7 +849,7 @@ namespace le
             BLImage result(own.image.width(), own.image.height(), BL_FORMAT_PRGB32);
             BLContext ctx(result);
             ctx.clear_all();
-            draw_node_and_children(ctx, id, own, culled, rasterized, composed_cache, scale);
+            draw_node_and_children(ctx, id, own, culled, rasterized, composed_cache);
             ctx.end();
 
             composed_cache.emplace(id, result);

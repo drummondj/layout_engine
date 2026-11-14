@@ -21,7 +21,7 @@ namespace le
 {
     /// @brief The widest or tallest image a node is rasterized to, and the
     /// largest viewport (le_set_viewport_size). A node bigger than this at
-    /// the current zoom is cut off at the limit.
+    /// the current zoom is drawn at the largest scale that fits.
     constexpr int kMaxImageDimensionPx = 8192;
 
     /// @brief How the view is mirrored on screen (le_set_view_flip): about
