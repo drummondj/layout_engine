@@ -1,4 +1,5 @@
 #include "api_internal.hpp"
+#include "edit_ops.hpp"
 #include "hit_test.hpp"
 #include "../geometry/geometry.hpp"
 #include "../geometry/row_geometry.hpp"
@@ -697,6 +698,188 @@ namespace le::api_detail
     }
 }
 
+namespace
+{
+    // Selects every piece of `shape_id`; whether it has any. A bare id
+    // can't name one piece.
+    bool select_all_pieces_of(LeHandle &handle, const le::ShapeData &shape, le::ShapeId shape_id)
+    {
+        for (size_t i = 0; i < shape.rects.size(); i++)
+            handle.select(shape_id, le::PieceKind::RECT, i);
+        for (size_t i = 0; i < shape.polygons.size(); i++)
+            handle.select(shape_id, le::PieceKind::POLYGON, i);
+        for (size_t i = 0; i < shape.paths.size(); i++)
+            handle.select(shape_id, le::PieceKind::PATH, i);
+        for (size_t i = 0; i < shape.vias.size(); i++)
+            handle.select(shape_id, le::PieceKind::VIA, i);
+        for (size_t i = 0; i < shape.via_iterates.size(); i++)
+            handle.select(shape_id, le::PieceKind::VIA_ITERATE, i);
+        return !shape.rects.empty() || !shape.polygons.empty() || !shape.paths.empty() || !shape.vias.empty() || !shape.via_iterates.empty();
+    }
+
+    // The same for a Wire: its pieces are those of the Shape it converts
+    // to (le::wire_to_shape) - its paths, then its vias.
+    bool select_all_pieces_of(LeHandle &handle, const le::WireData &wire, le::WireId wire_id)
+    {
+        size_t paths = 0;
+        le::for_each_wire_path(wire, [&](size_t, size_t)
+                               { handle.select(wire_id, le::PieceKind::PATH, paths++); });
+        for (size_t i = 0; i < wire.vias.size(); i++)
+            handle.select(wire_id, le::PieceKind::VIA, i);
+        return paths > 0 || !wire.vias.empty();
+    }
+
+    // How many pieces of `kind` a Shape or Wire has.
+    size_t piece_count(const le::ShapeData &shape, le::PieceKind kind)
+    {
+        switch (kind)
+        {
+        case le::PieceKind::RECT:
+            return shape.rects.size();
+        case le::PieceKind::POLYGON:
+            return shape.polygons.size();
+        case le::PieceKind::PATH:
+            return shape.paths.size();
+        case le::PieceKind::VIA:
+            return shape.vias.size();
+        case le::PieceKind::VIA_ITERATE:
+            return shape.via_iterates.size();
+        }
+        return 0;
+    }
+
+    size_t piece_count(const le::WireData &wire, le::PieceKind kind)
+    {
+        size_t paths = 0;
+        switch (kind)
+        {
+        case le::PieceKind::PATH:
+            le::for_each_wire_path(wire, [&](size_t, size_t)
+                                   { ++paths; });
+            return paths;
+        case le::PieceKind::VIA:
+            return wire.vias.size();
+        default:
+            return 0;
+        }
+    }
+
+    template <class... Fs>
+    struct Overloaded : Fs...
+    {
+        using Fs::operator()...;
+    };
+}
+
+namespace le::edit
+{
+    std::expected<void, std::string> select(LeHandle &handle, SelectableObject object)
+    {
+        using Result = std::expected<void, std::string>;
+        const Root &root = handle.root;
+        const auto pieces = [](bool any, const char *kind) -> Result
+        {
+            if (!any)
+                return std::unexpected(fmt::format("{} has no geometry to select", kind));
+            return {};
+        };
+        const auto whole = [&](auto id, const auto *data, const char *kind) -> Result
+        {
+            if (!data)
+                return std::unexpected(fmt::format("no such {}", kind));
+            handle.select(id);
+            return {};
+        };
+        return std::visit(Overloaded{
+                              [&](ShapeId id) -> Result
+                              {
+                                  const ShapeData *shape = root.get_shape(id);
+                                  if (!shape)
+                                      return std::unexpected("no such Shape");
+                                  return pieces(select_all_pieces_of(handle, *shape, id), "Shape");
+                              },
+                              [&](WireId id) -> Result
+                              {
+                                  const WireData *wire = root.get_wire(id);
+                                  if (!wire)
+                                      return std::unexpected("no such Wire");
+                                  return pieces(select_all_pieces_of(handle, *wire, id), "Wire");
+                              },
+                              [&](RouteId id) -> Result
+                              {
+                                  if (!root.get_route(id))
+                                      return std::unexpected("no such Route");
+                                  bool any = false;
+                                  for (WireId wire_id : root.get_route_wires(id))
+                                      if (const WireData *wire = root.get_wire(wire_id))
+                                          any |= select_all_pieces_of(handle, *wire, wire_id);
+                                  for (ShapeId shape_id : root.get_route_shapes(id))
+                                      if (const ShapeData *shape = root.get_shape(shape_id))
+                                          any |= select_all_pieces_of(handle, *shape, shape_id);
+                                  return pieces(any, "Route");
+                              },
+                              [&](PhysicalPortId id) -> Result
+                              {
+                                  if (!root.get_physical_port(id))
+                                      return std::unexpected("no such PhysicalPort");
+                                  bool any = false;
+                                  for (PhysicalPortSegmentId segment_id : root.get_physical_port_segments(id))
+                                      for (ShapeId shape_id : root.get_physical_port_segment_shapes(segment_id))
+                                          if (const ShapeData *shape = root.get_shape(shape_id))
+                                              any |= select_all_pieces_of(handle, *shape, shape_id);
+                                  return pieces(any, "PhysicalPort");
+                              },
+                              [&](RowId id) -> Result { return whole(id, root.get_row(id), "Row"); },
+                              [&](PlacementId id) -> Result { return whole(id, root.get_placement(id), "Placement"); },
+                              [&](RegionId id) -> Result { return whole(id, root.get_region(id), "Region"); },
+                          },
+                          object);
+    }
+
+    std::expected<void, std::string> select_entry(LeHandle &handle, const SelectedObject &entry)
+    {
+        const Root &root = handle.root;
+        if (const auto *piece = std::get_if<ShapePiece>(&entry))
+        {
+            if (piece->shape_id.valid() == piece->wire_id.valid())
+                return std::unexpected("a piece names exactly one Shape or Wire");
+            size_t count = 0;
+            if (piece->wire_id.valid())
+            {
+                const WireData *wire = root.get_wire(piece->wire_id);
+                if (!wire)
+                    return std::unexpected("no such Wire");
+                count = piece_count(*wire, piece->piece_kind);
+            }
+            else
+            {
+                const ShapeData *shape = root.get_shape(piece->shape_id);
+                if (!shape)
+                    return std::unexpected("no such Shape");
+                count = piece_count(*shape, piece->piece_kind);
+            }
+            if (piece->piece_index >= count)
+                return std::unexpected(fmt::format("no piece {} of that kind - it has {}", piece->piece_index, count));
+            handle.select_any(entry);
+            return {};
+        }
+        if (const auto *row = std::get_if<RowId>(&entry))
+            return select(handle, *row);
+        if (const auto *placement = std::get_if<PlacementId>(&entry))
+            return select(handle, *placement);
+        return select(handle, std::get<RegionId>(entry));
+    }
+
+    void deselect_entry(LeHandle &handle, const SelectedObject &entry)
+    {
+        std::visit([&](const auto &object)
+                   { handle.deselect(object); },
+                   entry);
+    }
+
+    void clear_selection(LeHandle &handle) { handle.clear_selection(); }
+}
+
 extern "C"
 {
     void le_deselect_all(LeHandle *handle)
@@ -704,7 +887,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->clear_selection();
+        le::edit::clear_selection(*handle);
     }
 
     int32_t le_selected_shape_piece_count(LeHandle *handle)
@@ -778,156 +961,40 @@ extern "C"
             return 1;
         HandleWriteLock lock(handle);
 
-        // Shared by SHAPE/ROUTE/PHYSICAL_PORT below - selects every rect/
-        // polygon/path entry of one Shape, since a bare ShapeId can't
-        // express "just this one piece" (see this function's own
-        // api.hpp doc comment). Returns whether it actually selected
-        // anything, so a caller resolving several child Shapes (Route/
-        // PhysicalPort) can tell "no geometry anywhere" apart from
-        // "some/all of them had real geometry" with one shared check.
-        const auto select_all_pieces_of = [&](le::ShapeId shape_id) -> bool
-        {
-            const le::ShapeData *shape = handle->root.get_shape(shape_id);
-            if (!shape)
-                return false;
-            for (size_t i = 0; i < shape->rects.size(); i++)
-                handle->select(shape_id, le::PieceKind::RECT, i);
-            for (size_t i = 0; i < shape->polygons.size(); i++)
-                handle->select(shape_id, le::PieceKind::POLYGON, i);
-            for (size_t i = 0; i < shape->paths.size(); i++)
-                handle->select(shape_id, le::PieceKind::PATH, i);
-            for (size_t i = 0; i < shape->vias.size(); i++)
-                handle->select(shape_id, le::PieceKind::VIA, i);
-            for (size_t i = 0; i < shape->via_iterates.size(); i++)
-                handle->select(shape_id, le::PieceKind::VIA_ITERATE, i);
-            return !shape->rects.empty() || !shape->polygons.empty() || !shape->paths.empty() || !shape->vias.empty() || !shape->via_iterates.empty();
-        };
-        // The same for a Wire - its pieces are those of the Shape it
-        // converts to (le::wire_to_shape): its paths, then its vias.
-        const auto select_all_pieces_of_wire = [&](le::WireId wire_id) -> bool
-        {
-            const le::WireData *wire = handle->root.get_wire(wire_id);
-            if (!wire)
-                return false;
-            size_t paths = 0;
-            le::for_each_wire_path(*wire, [&](size_t, size_t)
-                                   { handle->select(wire_id, le::PieceKind::PATH, paths++); });
-            for (size_t i = 0; i < wire->vias.size(); i++)
-                handle->select(wire_id, le::PieceKind::VIA, i);
-            return paths > 0 || !wire->vias.empty();
-        };
-
+        le::SelectableObject object;
         switch (ref.kind)
         {
         case LE_OBJECT_KIND_SHAPE:
-        {
-            const le::ShapeId shape_id{.index = ref.index, .generation = ref.generation};
-            if (!handle->root.get_shape(shape_id))
-            {
-                spdlog::error("select: no such Shape");
-                return 1;
-            }
-            if (!select_all_pieces_of(shape_id))
-            {
-                spdlog::error("select: Shape has no geometry to select");
-                return 1;
-            }
-            return 0;
-        }
-        case LE_OBJECT_KIND_ROUTE:
-        {
-            // A Route's own shapes ride the exact same ShapeId+piece
-            // selection Terminal/Obstruction/Shape already use above -
-            // Route (like Blockage/PhysicalPort) has a real backing
-            // Shape per piece of routed geometry, unlike Row/Region.
-            const le::RouteId id{.index = ref.index, .generation = ref.generation};
-            if (!handle->root.get_route(id))
-            {
-                spdlog::error("select: no such Route");
-                return 1;
-            }
-            bool any_selected = false;
-            for (le::WireId wire_id : handle->root.get_route_wires(id))
-                any_selected |= select_all_pieces_of_wire(wire_id);
-            for (le::ShapeId shape_id : handle->root.get_route_shapes(id))
-                any_selected |= select_all_pieces_of(shape_id);
-            if (!any_selected)
-            {
-                spdlog::error("select: Route has no geometry to select");
-                return 1;
-            }
-            return 0;
-        }
+            object = id_from_ref<le::ShapeId>(ref);
+            break;
         case LE_OBJECT_KIND_WIRE:
-        {
-            const le::WireId id{.index = ref.index, .generation = ref.generation};
-            if (!handle->root.get_wire(id))
-            {
-                spdlog::error("select: no such Wire");
-                return 1;
-            }
-            if (!select_all_pieces_of_wire(id))
-            {
-                spdlog::error("select: Wire has no geometry to select");
-                return 1;
-            }
-            return 0;
-        }
+            object = id_from_ref<le::WireId>(ref);
+            break;
+        case LE_OBJECT_KIND_ROUTE:
+            object = id_from_ref<le::RouteId>(ref);
+            break;
         case LE_OBJECT_KIND_PHYSICAL_PORT:
-        {
-            const le::PhysicalPortId id{.index = ref.index, .generation = ref.generation};
-            if (!handle->root.get_physical_port(id))
-            {
-                spdlog::error("select: no such PhysicalPort");
-                return 1;
-            }
-            bool any_selected = false;
-            for (le::PhysicalPortSegmentId segment_id : handle->root.get_physical_port_segments(id))
-                for (le::ShapeId shape_id : handle->root.get_physical_port_segment_shapes(segment_id))
-                    any_selected |= select_all_pieces_of(shape_id);
-            if (!any_selected)
-            {
-                spdlog::error("select: PhysicalPort has no geometry to select");
-                return 1;
-            }
-            return 0;
-        }
+            object = id_from_ref<le::PhysicalPortId>(ref);
+            break;
         case LE_OBJECT_KIND_ROW:
-        {
-            const le::RowId id{.index = ref.index, .generation = ref.generation};
-            if (!handle->root.get_row(id))
-            {
-                spdlog::error("select: no such Row");
-                return 1;
-            }
-            handle->select(id);
-            return 0;
-        }
+            object = id_from_ref<le::RowId>(ref);
+            break;
         case LE_OBJECT_KIND_PLACEMENT:
-        {
-            const le::PlacementId id{.index = ref.index, .generation = ref.generation};
-            if (!handle->root.get_placement(id))
-            {
-                spdlog::error("select: no such Placement");
-                return 1;
-            }
-            handle->select(id);
-            return 0;
-        }
+            object = id_from_ref<le::PlacementId>(ref);
+            break;
         case LE_OBJECT_KIND_REGION:
-        {
-            const le::RegionId id{.index = ref.index, .generation = ref.generation};
-            if (!handle->root.get_region(id))
-            {
-                spdlog::error("select: no such Region");
-                return 1;
-            }
-            handle->select(id);
-            return 0;
-        }
+            object = id_from_ref<le::RegionId>(ref);
+            break;
         default:
             spdlog::error("select: unsupported object kind (only Shape/Route/PhysicalPort/Row/Placement/Region can be selected)");
             return 1;
         }
+        const std::expected<void, std::string> selected = le::edit::select(*handle, object);
+        if (!selected)
+        {
+            spdlog::error("select: {}", selected.error());
+            return 1;
+        }
+        return 0;
     }
 }

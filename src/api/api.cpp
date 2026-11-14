@@ -614,6 +614,368 @@ namespace le::api_detail
     }
 }
 
+namespace
+{
+    // A failed read's or write's error text: the ERROR lines it reported,
+    // else a generic line.
+    std::string io_failure(std::string_view verb, const std::string &path, const std::vector<std::string> &messages, int code)
+    {
+        std::string text;
+        for (const std::string &message : messages)
+            if (message.starts_with("ERROR"))
+                text += (text.empty() ? "" : "\n") + message;
+        return text.empty() ? fmt::format("{} {} failed (code {})", verb, path, code) : text;
+    }
+
+    // Logs `message` as `verb`'s error and returns it as one.
+    std::unexpected<std::string> logged_error(std::string_view verb, std::string message)
+    {
+        spdlog::error("{}: {}", verb, message);
+        return std::unexpected(std::move(message));
+    }
+
+    // Opens one view of `design`: both "current view" trackers move together
+    // - LeHandle's (what the design view renders) and the generated
+    // current_<type> one (Tcl's default scope) - and the other view closes.
+    std::expected<void, std::string> open_view(LeHandle &handle, le::DesignId design, bool layout)
+    {
+        if (!handle.root.get_design(design))
+            return std::unexpected("unknown Design");
+        const le::AbstractId abstract_id = layout ? le::AbstractId{} : handle.root.get_design_abstract(design);
+        const le::LayoutId layout_id = layout ? handle.root.get_design_layout(design) : le::LayoutId{};
+        handle.set_current_abstract(abstract_id);
+        handle.set_current_layout(layout_id);
+        handle.current_abstract_id = abstract_id;
+        handle.current_layout_id = layout_id;
+        return {};
+    }
+}
+
+namespace le::edit
+{
+    std::expected<void, std::string> open_abstract(LeHandle &handle, DesignId design) { return open_view(handle, design, false); }
+
+    std::expected<void, std::string> open_layout(LeHandle &handle, DesignId design) { return open_view(handle, design, true); }
+
+    std::expected<void, std::string> read_lef(LeHandle &handle, const std::string &path, const std::string &library)
+    {
+        LeHandle *const h = &handle;
+        if (library.empty())
+            return logged_error("read_lef", "a library name is required");
+
+        // The Technology's layer count before this read, so the default-
+        // visibility pass below touches only the layers it adds: a layer
+        // the user has since made visible stays so across later reads.
+        size_t old_layer_count = 0;
+        {
+            const auto existing_technology_ids = h->root.get_technology_ids();
+            if (!existing_technology_ids.empty())
+                old_layer_count = h->root.get_technology_layers(existing_technology_ids.front()).size();
+        }
+
+        const CleanAcrossRead clean(h);
+        le::LEFReader reader;
+        int result = 0;
+        {
+            RecordedRead recorded(h->root, h->command_history.current(), /*tracks_links=*/false);
+            result = reader.read_lef(std::filesystem::path(path).string(), h->root, library);
+            if (result == 0)
+                recorded.commit();
+        }
+        // The readers create through Root directly, which never bumps the
+        // version itself - without this, anything keyed on it (the render
+        // graph's LayerGenerationStage, ensure_view_layers_current) keeps
+        // what it computed before the read. Also on failure: the rollback
+        // put the content back, but saturated the change log.
+        h->root.bump_mutation_version();
+        if (result != 0)
+        {
+            clean.commit_failed(h);
+            return std::unexpected(io_failure("read_lef", path, reader.messages(), result));
+        }
+
+        // Rebuilt after every successful read, so a later file's new
+        // layers are picked up too.
+        const auto technology_ids = h->root.get_technology_ids();
+        if (!technology_ids.empty())
+        {
+            // Every physical layer this read added defaults to hidden
+            // unless it's ROUTING or CUT.
+            const auto &layers = h->root.get_technology_layers(technology_ids.front());
+            for (size_t i = old_layer_count; i < layers.size(); ++i)
+            {
+                const le::LayerData *layer = h->root.get_layer(layers[i]);
+                if (layer && layer->type != "ROUTING" && layer->type != "CUT")
+                    h->set_layer_name_visible(layer->name, false);
+            }
+
+            rebuild_view_layers(h, technology_ids.front());
+            apply_pending_grid_um_unlocked(h); // a settings file read before any Technology existed
+
+            // The session's one Technology is the current one: it has no
+            // separate "open" step, so a read is where it becomes current.
+            h->current_technology_id = technology_ids.front();
+        }
+
+        clean.commit(h);
+        return {};
+    }
+
+    std::expected<void, std::string> read_def(LeHandle &handle, const std::string &path, const std::string &library)
+    {
+        LeHandle *const h = &handle;
+        if (library.empty())
+            return logged_error("read_def", "a library name is required");
+
+        const CleanAcrossRead clean(h);
+        le::DEFReader reader;
+        int result = 0;
+        {
+            RecordedRead recorded(h->root, h->command_history.current(), /*tracks_links=*/false);
+            result = reader.read_def(std::filesystem::path(path).string(), h->root, library);
+            if (result == 0)
+                recorded.commit();
+        }
+        h->root.bump_mutation_version(); // see read_lef
+        if (result != 0)
+        {
+            clean.commit_failed(h);
+            return std::unexpected(io_failure("read_def", path, reader.messages(), result));
+        }
+
+        // NONDEFAULTRULES may have created the session's Technology even
+        // with no LEF read yet; DEF adds no layers, so the view layers stay.
+        const auto technology_ids = h->root.get_technology_ids();
+        if (!technology_ids.empty())
+            h->current_technology_id = technology_ids.front();
+        apply_pending_grid_um_unlocked(h); // a settings file read before any Technology existed
+
+        clean.commit(h);
+        return {};
+    }
+
+    std::expected<void, std::string> read_verilog(LeHandle &handle, std::span<const std::string> files, bool netlist, const std::string &library)
+    {
+        LeHandle *const h = &handle;
+        if (files.empty())
+            return logged_error("read_verilog", "no files given");
+        if (library.empty())
+            return logged_error("read_verilog", "a library name is required");
+
+        std::vector<std::string> filenames(files.begin(), files.end());
+
+        // A netlist elaborates gate-level instances of LEF-only cells (an
+        // Abstract, no Schematic) only if a module for each is elaborated
+        // with it, so stubs for them go into a temporary file read in the
+        // same call - only files elaborated together share one
+        // Compilation. RTL reads never elaborate, so need none.
+        std::string stub_path;
+        if (netlist)
+        {
+            std::vector<std::string> ambiguous;
+            const std::string stub_source = le::generate_verilog_stubs_for_read(h->root, h->root.get_library_by_name(library), ambiguous);
+            for (const std::string &name : ambiguous)
+            {
+                const std::vector<le::DesignId> designs = le::designs_named(h->root, name);
+                spdlog::warn("read_verilog: libraries {} all have a cell {} - no stub module for it, so give it a module "
+                             "or read into one of those libraries",
+                             le::library_names_of(h->root, designs), name);
+            }
+
+            if (!stub_source.empty())
+            {
+                const std::filesystem::path candidate = std::filesystem::temp_directory_path() /
+                    fmt::format("le_verilog_stubs_{}_{}.v", getpid(), reinterpret_cast<uintptr_t>(h));
+                std::ofstream stub_file(candidate);
+                if (stub_file)
+                {
+                    stub_file << stub_source;
+                    stub_file.close();
+                    stub_path = candidate.string();
+                    filenames.push_back(stub_path);
+                }
+                else
+                {
+                    spdlog::warn("read_verilog: could not write temporary stub file {} - LEF-only leaf cells may fail to elaborate",
+                                 candidate.string());
+                }
+            }
+        }
+
+        const CleanAcrossRead clean(h);
+        le::SVReader reader;
+        int result = 0;
+        {
+            RecordedRead recorded(h->root, h->command_history.current(), /*tracks_links=*/true);
+            result = netlist ? reader.read_netlist(filenames, h->root, library) : reader.read_rtl(filenames, h->root, library);
+            if (result == 0)
+                recorded.commit();
+        }
+        h->root.bump_mutation_version(); // see read_lef
+
+        if (!stub_path.empty())
+        {
+            std::error_code ec;
+            std::filesystem::remove(stub_path, ec);
+        }
+
+        if (result != 0)
+        {
+            clean.commit_failed(h);
+            return std::unexpected(io_failure("read_verilog", files.front(), reader.messages(), result));
+        }
+        clean.commit(h);
+        return {};
+    }
+
+    std::expected<void, std::string> write_verilog_stubs(LeHandle &handle, const std::string &path, LibraryId library)
+    {
+        if (!library.valid())
+        {
+            const auto library_ids = handle.root.get_library_ids();
+            if (library_ids.size() != 1)
+                return logged_error("write_verilog_stubs",
+                                    fmt::format("no -library given and {} Libraries exist - need exactly 1 to default to", library_ids.size()));
+            library = library_ids.front();
+        }
+        else if (!handle.root.get_library(library))
+            return logged_error("write_verilog_stubs", "unknown library");
+
+        const std::string stub_source = le::generate_verilog_stubs(handle.root, library);
+        std::ofstream out(path);
+        if (!out)
+            return logged_error("write_verilog_stubs", fmt::format("could not open {} for writing", path));
+        out << stub_source;
+        return {};
+    }
+
+    std::expected<void, std::string> write_lef(LeHandle &handle, const std::string &path, std::span<const AbstractId> abstracts,
+                                               LibraryId library, LefLayerWriteMode layers)
+    {
+        le::LEFWriter::LayerWriteMode mode = le::LEFWriter::LayerWriteMode::None;
+        if (layers == LefLayerWriteMode::INCLUDE_WITH_ABSTRACT)
+            mode = le::LEFWriter::LayerWriteMode::IncludeWithAbstract;
+        else if (layers == LefLayerWriteMode::TECHNOLOGY_ONLY)
+            mode = le::LEFWriter::LayerWriteMode::TechnologyOnly;
+
+        // An explicit list, else the Library's Abstracts, else the current
+        // one; none for a Technology-only write.
+        std::vector<le::AbstractId> abstract_ids;
+        if (mode != le::LEFWriter::LayerWriteMode::TechnologyOnly)
+        {
+            if (!abstracts.empty())
+                abstract_ids.assign(abstracts.begin(), abstracts.end());
+            else if (library.valid())
+            {
+                for (const le::DesignId design_id : handle.root.get_library_designs(library))
+                {
+                    const le::AbstractId design_abstract_id = handle.root.get_design_abstract(design_id);
+                    if (design_abstract_id.valid())
+                        abstract_ids.push_back(design_abstract_id);
+                }
+            }
+            else if (handle.current_abstract_id.valid())
+                abstract_ids.push_back(handle.current_abstract_id);
+            else
+                return logged_error("write_lef", "no Abstract or Library given and no current Abstract set");
+        }
+
+        le::LEFWriter writer;
+        const int result = writer.write_lef(path, handle.root, abstract_ids, mode);
+        if (result != 0)
+            return std::unexpected(io_failure("write_lef", path, writer.messages(), result));
+        return {};
+    }
+
+    std::expected<void, std::string> write_def(LeHandle &handle, const std::string &path, LayoutId layout)
+    {
+        if (!layout.valid())
+            layout = handle.current_layout_id;
+        if (!layout.valid())
+            return logged_error("write_def", "no Layout given and no current Layout set");
+
+        le::DEFWriter writer;
+        const int result = writer.write_def(path, handle.root, layout);
+        if (result != 0)
+            return std::unexpected(io_failure("write_def", path, writer.messages(), result));
+        return {};
+    }
+
+    std::expected<void, std::string> write_db(LeHandle &handle, const std::string &path, bool with_session)
+    {
+        if (path.empty())
+            return logged_error("write_db", "a file path is required");
+        le::persistence::SaveOptions options;
+        if (with_session)
+            options.session_json = session_to_json(&handle);
+        const le::persistence::SaveReport report = le::persistence::save_native(handle.root, path, options);
+        if (!report.ok())
+            return logged_error("write_db", report.error);
+        if (report.dangling_references)
+            spdlog::warn("write_db: {} reference(s) to objects that no longer exist were written as unset", report.dangling_references);
+        spdlog::info("write_db: wrote {} objects ({} bytes) to {}", report.objects, report.file_bytes, path);
+        handle.saved_mutation_version = handle.root.mutation_version(); // the design is saved
+        handle.db_path = path;
+        return {};
+    }
+
+    std::expected<void, std::string> read_db(LeHandle &handle, const std::string &path, bool with_session)
+    {
+        LeHandle *const h = &handle;
+        if (path.empty())
+            return logged_error("read_db", "a file path is required");
+        // Loading replaces the database wholesale, so it would silently
+        // discard anything already read or created - only into an empty
+        // one.
+        if (!le::persistence::database_is_empty(h->root))
+            return logged_error("read_db", "the database already has data in it - read_db only loads into an empty session");
+
+        const le::persistence::LoadReport report = le::persistence::load_native(h->root, path);
+        if (!report.ok())
+            return logged_error("read_db", report.error);
+        for (const std::string &warning : report.warnings)
+            spdlog::warn("read_db: {}", warning);
+        if (!report.schema_matches)
+            spdlog::info("read_db: {} was written with {}; its fields were matched by name", path,
+                         report.file_schema_version == le::schema_info::kVersion
+                             ? std::string("older extension schemas")
+                             : fmt::format("schema version {} (this build: {})", report.file_schema_version, le::schema_info::kVersion));
+
+        // Every object is new (Ids restart at {i, 0}): nothing that held an
+        // Id from before may survive.
+        h->root.bump_mutation_version();
+        h->command_history.clear_undo_redo();
+        h->clear_selection();
+        h->current_technology_id = {};
+        h->current_abstract_id = {};
+        h->current_schematic_id = {};
+        h->current_layout_id = {};
+
+        // What read_lef sets up after a Technology first appears.
+        const auto technology_ids = h->root.get_technology_ids();
+        if (!technology_ids.empty())
+        {
+            for (le::LayerId layer_id : h->root.get_technology_layers(technology_ids.front()))
+            {
+                const le::LayerData *layer = h->root.get_layer(layer_id);
+                if (layer && layer->type != "ROUTING" && layer->type != "CUT")
+                    h->set_layer_name_visible(layer->name, false);
+            }
+            rebuild_view_layers(h, technology_ids.front());
+            apply_pending_grid_um_unlocked(h);
+            h->current_technology_id = technology_ids.front();
+        }
+
+        if (with_session && !report.session_json.empty())
+            apply_session_json(h, report.session_json, path);
+
+        spdlog::info("read_db: read {} objects from {}", report.objects, path);
+        h->saved_mutation_version = h->root.mutation_version(); // matches the file
+        h->db_path = path;
+        return {};
+    }
+}
+
 extern "C"
 {
     // Generated TCL property-reading surface (public, externally-linked
@@ -653,100 +1015,12 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
         if (!path)
         {
             spdlog::error("read_lef: path is null");
             return 1;
         }
-        if (!library_name || !library_name[0])
-        {
-            spdlog::error("read_lef: a library name is required");
-            return 1;
-        }
-
-        // Snapshot the Technology's own layer count before
-        // this read, so the default-visibility pass below (after the read)
-        // can tell which physical layers this specific call newly
-        // introduced, as opposed to ones a prior le_read_lef call already
-        // defaulted - LEF layers are only ever appended to a Technology
-        // within a session (see LEFReader's own is_technology_empty()-
-        // gated create-vs-reuse), so get_technology_layers' existing
-        // declaration-order prefix stays stable across reads and re-
-        // running the default over it would silently re-hide a layer the
-        // user has since made visible via the layer manager.
-        size_t old_layer_count = 0;
-        {
-            const auto existing_technology_ids = handle->root.get_technology_ids();
-            if (!existing_technology_ids.empty())
-                old_layer_count = handle->root.get_technology_layers(existing_technology_ids.front()).size();
-        }
-
-        const CleanAcrossRead clean(handle);
-        const std::filesystem::path lef_path(path);
-        le::LEFReader reader;
-        int result = 0;
-        {
-            RecordedRead recorded(handle->root, handle->command_history.current(), /*tracks_links=*/false);
-            result = reader.read_lef(lef_path.string(), handle->root, library_name);
-            if (result == 0)
-                recorded.commit();
-        }
-        // The readers create through Root directly, which never bumps the
-        // version itself - without this, anything keyed on it (the render
-        // graph's LayerGenerationStage, ensure_view_layers_current) kept
-        // whatever it computed before the read - a GUI opened before any
-        // LEF would stay blank. Also on failure: the rollback put the
-        // content back, but saturated the change log.
-        handle->root.bump_mutation_version();
-        if (result != 0)
-        {
-            clean.commit_failed(handle);
-            return result;
-        }
-
-        // Rebuilt after every successful read, not just the first, so a
-        // later LEF file's own new physical layers (e.g. a second macro
-        // file with inline LAYER declarations) are picked up too - cheap
-        // relative to a full LEF parse, so correctness here wins over the
-        // small extra cost without needing a benchmark to justify it.
-        const auto technology_ids = handle->root.get_technology_ids();
-        if (!technology_ids.empty())
-        {
-            // Every physical layer this read newly
-            // introduced defaults to hidden unless it's ROUTING or CUT.
-            // BOUNDARY isn't a physical layer at all (a Shape with
-            // purpose=BOUNDARY instead - see Shape.layer/.purpose's own
-            // schema.py comments), so it never reaches this loop - stays
-            // visible via LeHandle::is_layer_name_visible's own default-
-            // true-until-toggled behavior, same as it always has.
-            const auto &layers = handle->root.get_technology_layers(technology_ids.front());
-            for (size_t i = old_layer_count; i < layers.size(); ++i)
-            {
-                const le::LayerData *layer = handle->root.get_layer(layers[i]);
-                if (layer && layer->type != "ROUTING" && layer->type != "CUT")
-                    handle->set_layer_name_visible(layer->name, false);
-            }
-
-            rebuild_view_layers(handle, technology_ids.front());
-            apply_pending_grid_um_unlocked(handle); // a settings file read before any Technology existed
-
-            // Also selects the singleton Technology as the current one for
-            // the generated TCL current-instance mechanism (see
-            // codegen/codegen/tcl_scope.py's own module docstring for why
-            // get_layers/get_vias/etc.'s default scope needs this) -
-            // Technology has no separate "open" step the way a Design/
-            // Abstract does (le_tcl_procs.tcl's open_design), it's
-            // implicitly read alongside everything else in a LEF file, so
-            // this is the one natural chokepoint - shared by every caller
-            // (the GUI directly, or TCL's own read_lef, which calls this
-            // same function), not just the TCL-facing shim. Idempotent to
-            // repeat across multiple le_read_lef calls on the same handle.
-            handle->current_technology_id = technology_ids.front();
-        }
-
-        clean.commit(handle);
-        return 0;
+        return le::edit::read_lef(*handle, path, library_name ? library_name : "") ? 0 : 1;
     }
     catch (...)
     {
@@ -760,51 +1034,12 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
         if (!path)
         {
             spdlog::error("read_def: path is null");
             return 1;
         }
-        if (!library_name || !library_name[0])
-        {
-            spdlog::error("read_def: a library name is required");
-            return 1;
-        }
-
-        const CleanAcrossRead clean(handle);
-        const std::filesystem::path def_path(path);
-        le::DEFReader reader;
-        int result = 0;
-        {
-            RecordedRead recorded(handle->root, handle->command_history.current(), /*tracks_links=*/false);
-            result = reader.read_def(def_path.string(), handle->root, library_name);
-            if (result == 0)
-                recorded.commit();
-        }
-        handle->root.bump_mutation_version(); // see le_read_lef
-        if (result != 0)
-        {
-            clean.commit_failed(handle);
-            return result;
-        }
-
-        // NONDEFAULTRULES may have resolved/created the shared Technology
-        // (DEFReader::technology_id_, same reuse-or-create pattern
-        // le_read_lef's own LEFReader uses) even if no LEF has been read
-        // into this handle yet - mirror le_read_lef's own
-        // current_technology_id selection so the generated TCL
-        // current-instance mechanism still works. Layer-visibility
-        // defaults and ViewLayerSet aren't touched here - DEF doesn't
-        // introduce new physical Layers of its own (see this function's
-        // own api.hpp comment).
-        const auto technology_ids = handle->root.get_technology_ids();
-        if (!technology_ids.empty())
-            handle->current_technology_id = technology_ids.front();
-        apply_pending_grid_um_unlocked(handle); // a settings file read before any Technology existed
-
-        clean.commit(handle);
-        return 0;
+        return le::edit::read_def(*handle, path, library_name ? library_name : "") ? 0 : 1;
     }
     catch (...)
     {
@@ -818,93 +1053,14 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
-        if (!filenames || filename_count <= 0)
+        std::vector<std::string> files;
+        if (filenames && filename_count > 0)
         {
-            spdlog::error("read_verilog: filenames is null or empty");
-            return 1;
+            files.reserve(static_cast<size_t>(filename_count));
+            for (int32_t i = 0; i < filename_count; ++i)
+                files.emplace_back(filenames[i] ? filenames[i] : "");
         }
-        if (!library_name || !library_name[0])
-        {
-            spdlog::error("read_verilog: a library name is required");
-            return 1;
-        }
-
-        std::vector<std::string> filename_strings;
-        filename_strings.reserve(static_cast<size_t>(filename_count));
-        for (int32_t i = 0; i < filename_count; ++i)
-            filename_strings.emplace_back(filenames[i] ? filenames[i] : "");
-
-        // Netlist flavor only - the RTL flavor (read_rtl) never
-        // elaborates against a real slang::ast::Compilation at all (see
-        // SVReader's own class comment), so it has no "unknown module"
-        // failure mode a stub could address. Automatically covers every
-        // LEF-only Design (Abstract but no Schematic) already in this
-        // handle's Root, from any read_lef so far, one per name - a Design that
-        // already has a Schematic (a prior real Verilog read) is
-        // skipped by generate_verilog_stubs itself, so re-running this
-        // on a later read_verilog call never produces a duplicate
-        // module definition. See verilog_stub_writer.hpp's own
-        // top-of-file comment for why this has to be a real file
-        // appended to the same read (not a separate prior read_verilog
-        // call) - only files elaborated together share one Compilation.
-        std::string stub_path;
-        if (is_netlist)
-        {
-            std::vector<std::string> ambiguous;
-            const std::string stub_source =
-                le::generate_verilog_stubs_for_read(handle->root, handle->root.get_library_by_name(library_name), ambiguous);
-            for (const std::string &name : ambiguous)
-            {
-                const std::vector<le::DesignId> designs = le::designs_named(handle->root, name);
-                spdlog::warn("read_verilog: libraries {} all have a cell {} - no stub module for it, so give it a module "
-                             "or read into one of those libraries",
-                             le::library_names_of(handle->root, designs), name);
-            }
-
-            if (!stub_source.empty())
-            {
-                const std::filesystem::path candidate = std::filesystem::temp_directory_path() /
-                    fmt::format("le_verilog_stubs_{}_{}.v", getpid(), reinterpret_cast<uintptr_t>(handle));
-                std::ofstream stub_file(candidate);
-                if (stub_file)
-                {
-                    stub_file << stub_source;
-                    stub_file.close();
-                    stub_path = candidate.string();
-                    filename_strings.push_back(stub_path);
-                }
-                else
-                {
-                    spdlog::warn("read_verilog: could not write temporary stub file {} - LEF-only leaf cells may fail to elaborate",
-                                 candidate.string());
-                }
-            }
-        }
-
-        const CleanAcrossRead clean(handle);
-        le::SVReader reader;
-        int result = 0;
-        {
-            RecordedRead recorded(handle->root, handle->command_history.current(), /*tracks_links=*/true);
-            result = is_netlist ? reader.read_netlist(filename_strings, handle->root, library_name)
-                                : reader.read_rtl(filename_strings, handle->root, library_name);
-            if (result == 0)
-                recorded.commit();
-        }
-        handle->root.bump_mutation_version(); // see le_read_lef
-
-        if (!stub_path.empty())
-        {
-            std::error_code ec;
-            std::filesystem::remove(stub_path, ec);
-        }
-
-        if (result == 0)
-            clean.commit(handle);
-        else
-            clean.commit_failed(handle);
-        return result;
+        return le::edit::read_verilog(*handle, files, is_netlist != 0, library_name ? library_name : "") ? 0 : 1;
     }
     catch (...)
     {
@@ -912,46 +1068,18 @@ extern "C"
         return 1;
     }
 
-    int le_write_verilog_stubs(LeHandle *handle, const char *path, LeLibraryId library_id_c)
+    int le_write_verilog_stubs(LeHandle *handle, const char *path, LeLibraryId library_id)
     try
     {
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
         if (!path)
         {
             spdlog::error("write_verilog_stubs: path is null");
             return 1;
         }
-
-        le::LibraryId library_id{.index = library_id_c.index, .generation = library_id_c.generation};
-        if (library_id.index == UINT32_MAX)
-        {
-            const auto library_ids = handle->root.get_library_ids();
-            if (library_ids.size() != 1)
-            {
-                spdlog::error("write_verilog_stubs: no -library given and {} Libraries exist - need exactly 1 to default to",
-                               library_ids.size());
-                return 1;
-            }
-            library_id = library_ids.front();
-        }
-        else if (!handle->root.get_library(library_id))
-        {
-            spdlog::error("write_verilog_stubs: unknown library");
-            return 1;
-        }
-
-        const std::string stub_source = le::generate_verilog_stubs(handle->root, library_id);
-        std::ofstream out(path);
-        if (!out)
-        {
-            spdlog::error("write_verilog_stubs: could not open {} for writing", path);
-            return 1;
-        }
-        out << stub_source;
-        return 0;
+        return le::edit::write_verilog_stubs(*handle, path, from_c(library_id)) ? 0 : 1;
     }
     catch (...)
     {
@@ -1240,69 +1368,24 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
         if (!path)
         {
             spdlog::error("write_lef: path is null");
             return 1;
         }
-
-        le::LEFWriter::LayerWriteMode mode;
-        switch (layer_write_mode)
-        {
-        case LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT:
-            mode = le::LEFWriter::LayerWriteMode::IncludeWithAbstract;
-            break;
-        case LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY:
-            mode = le::LEFWriter::LayerWriteMode::TechnologyOnly;
-            break;
-        default:
-            mode = le::LEFWriter::LayerWriteMode::None;
-            break;
-        }
-
-        // Abstract resolution order - see this
-        // function's own api.hpp doc comment for the full 4-step
-        // rationale. Skipped entirely in TechnologyOnly mode. Reads
-        // handle->current_abstract_id directly rather than calling
-        // le_current_abstract(handle) - that function takes
-        // handle->mutex_ itself, and this function already holds it
-        // (non-recursive std::mutex, so re-locking here would deadlock).
+        le::LefLayerWriteMode layers = le::LefLayerWriteMode::NONE;
+        if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT)
+            layers = le::LefLayerWriteMode::INCLUDE_WITH_ABSTRACT;
+        else if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY)
+            layers = le::LefLayerWriteMode::TECHNOLOGY_ONLY;
         std::vector<le::AbstractId> abstract_ids;
-        if (mode != le::LEFWriter::LayerWriteMode::TechnologyOnly)
+        if (abstract_ids_c && abstract_id_count > 0)
         {
-            if (abstract_id_count > 0)
-            {
-                abstract_ids.reserve(static_cast<size_t>(abstract_id_count));
-                for (int32_t i = 0; i < abstract_id_count; i++)
-                    abstract_ids.push_back(le::AbstractId{.index = abstract_ids_c[i].index, .generation = abstract_ids_c[i].generation});
-            }
-            else
-            {
-                const le::LibraryId library_id{.index = library_id_c.index, .generation = library_id_c.generation};
-                if (library_id.index != UINT32_MAX)
-                {
-                    for (const le::DesignId design_id : handle->root.get_library_designs(library_id))
-                    {
-                        const le::AbstractId design_abstract_id = handle->root.get_design_abstract(design_id);
-                        if (design_abstract_id.index != UINT32_MAX)
-                            abstract_ids.push_back(design_abstract_id);
-                    }
-                }
-                else if (handle->current_abstract_id.index != UINT32_MAX)
-                {
-                    abstract_ids.push_back(handle->current_abstract_id);
-                }
-                else
-                {
-                    spdlog::error("write_lef: no Abstract or Library given and no current Abstract set");
-                    return 1;
-                }
-            }
+            abstract_ids.reserve(static_cast<size_t>(abstract_id_count));
+            for (int32_t i = 0; i < abstract_id_count; i++)
+                abstract_ids.push_back(from_c(abstract_ids_c[i]));
         }
-
-        le::LEFWriter writer;
-        return writer.write_lef(path, handle->root, abstract_ids, mode);
+        return le::edit::write_lef(*handle, path, abstract_ids, from_c(library_id_c), layers) ? 0 : 1;
     }
     catch (...)
     {
@@ -1310,36 +1393,18 @@ extern "C"
         return 1;
     }
 
-    int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id_c)
+    int le_write_def(LeHandle *handle, const char *path, LeLayoutId layout_id)
     try
     {
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
         if (!path)
         {
             spdlog::error("write_def: path is null");
             return 1;
         }
-
-        // Same "invalid id means use current" convention as le_write_lef
-        // above - read handle->current_layout_id directly rather than
-        // calling le_current_layout(handle), which would re-lock
-        // handle->mutex_ and deadlock (see le_write_lef's own comment).
-        le::LayoutId layout_id{.index = layout_id_c.index, .generation = layout_id_c.generation};
-        if (layout_id.index == UINT32_MAX)
-        {
-            layout_id = handle->current_layout_id;
-        }
-        if (layout_id.index == UINT32_MAX)
-        {
-            spdlog::error("write_def: no Layout given and no current Layout set");
-            return 1;
-        }
-
-        le::DEFWriter writer;
-        return writer.write_def(path, handle->root, layout_id);
+        return le::edit::write_def(*handle, path, from_c(layout_id)) ? 0 : 1;
     }
     catch (...)
     {
@@ -1353,26 +1418,7 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-        if (!path || !path[0])
-        {
-            spdlog::error("write_db: a file path is required");
-            return 1;
-        }
-        le::persistence::SaveOptions options;
-        if (with_session)
-            options.session_json = session_to_json(handle);
-        const le::persistence::SaveReport report = le::persistence::save_native(handle->root, path, options);
-        if (!report.ok())
-        {
-            spdlog::error("write_db: {}", report.error);
-            return 1;
-        }
-        if (report.dangling_references)
-            spdlog::warn("write_db: {} reference(s) to objects that no longer exist were written as unset", report.dangling_references);
-        spdlog::info("write_db: wrote {} objects ({} bytes) to {}", report.objects, report.file_bytes, path);
-        handle->saved_mutation_version = handle->root.mutation_version(); // the design is saved
-        handle->db_path = path;
-        return 0;
+        return le::edit::write_db(*handle, path ? path : "", with_session != 0) ? 0 : 1;
     }
     catch (...)
     {
@@ -1386,66 +1432,7 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-        if (!path || !path[0])
-        {
-            spdlog::error("read_db: a file path is required");
-            return 1;
-        }
-        // Loading replaces the database wholesale, so it would silently
-        // discard anything already read or created - only into an empty
-        // one. (A "close/new design" command would lift this.)
-        if (!le::persistence::database_is_empty(handle->root))
-        {
-            spdlog::error("read_db: the database already has data in it - read_db only loads into an empty session");
-            return 1;
-        }
-
-        const le::persistence::LoadReport report = le::persistence::load_native(handle->root, path);
-        if (!report.ok())
-        {
-            spdlog::error("read_db: {}", report.error);
-            return 1;
-        }
-        for (const std::string &warning : report.warnings)
-            spdlog::warn("read_db: {}", warning);
-        if (!report.schema_matches)
-            spdlog::info("read_db: {} was written with {}; its fields were matched by name", path,
-                         report.file_schema_version == le::schema_info::kVersion
-                             ? std::string("older extension schemas")
-                             : fmt::format("schema version {} (this build: {})", report.file_schema_version, le::schema_info::kVersion));
-
-        // Every object is new (Ids restart at {i, 0}): nothing that held an
-        // Id from before may survive.
-        handle->root.bump_mutation_version();
-        handle->command_history.clear_undo_redo();
-        handle->clear_selection();
-        handle->current_technology_id = {};
-        handle->current_abstract_id = {};
-        handle->current_schematic_id = {};
-        handle->current_layout_id = {};
-
-        // What le_read_lef sets up after a Technology first appears.
-        const auto technology_ids = handle->root.get_technology_ids();
-        if (!technology_ids.empty())
-        {
-            for (le::LayerId layer_id : handle->root.get_technology_layers(technology_ids.front()))
-            {
-                const le::LayerData *layer = handle->root.get_layer(layer_id);
-                if (layer && layer->type != "ROUTING" && layer->type != "CUT")
-                    handle->set_layer_name_visible(layer->name, false);
-            }
-            rebuild_view_layers(handle, technology_ids.front());
-            apply_pending_grid_um_unlocked(handle);
-            handle->current_technology_id = technology_ids.front();
-        }
-
-        if (with_session && !report.session_json.empty())
-            apply_session_json(handle, report.session_json, path);
-
-        spdlog::info("read_db: read {} objects from {}", report.objects, path);
-        handle->saved_mutation_version = handle->root.mutation_version(); // matches the file
-        handle->db_path = path;
-        return 0;
+        return le::edit::read_db(*handle, path ? path : "", with_session != 0) ? 0 : 1;
     }
     catch (...)
     {
@@ -1560,34 +1547,10 @@ extern "C"
         if (!handle || index < 0)
             return 1;
         HandleWriteLock lock(handle);
-
         const auto design_ids = handle->root.get_design_ids();
         if (static_cast<size_t>(index) >= design_ids.size())
             return 1;
-
-        // Moves the Abstract-view "current view" trackers together - two
-        // genuinely separate concepts that happen to both live on
-        // LeHandle: `handle->current_abstract()` (drives GUI rendering)
-        // and the generated has_current_access
-        // one (handle->current_abstract_id, what get_terminals/get_shapes/
-        // etc.'s own default -of-omitted scope and resolve_terminal_id
-        // derive from - see current_abstract_id's own declaration
-        // comment). Selecting a Design from either the GUI or a TCL
-        // script (open_design, itself calling
-        // le_set_current_design_abstract_by_id below - the same shared
-        // entry point) should mean the same thing to both.
-        // Clears current_layout_id and handle->current_layout(): only one
-        // view is "open" at a time
-        // (see le_set_current_design_layout's own comment) - selecting
-        // the Abstract view deactivates the Layout one, same as the
-        // reverse.
-        const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
-        const le::AbstractId abstract_id = handle->root.get_design_abstract(design_id);
-        handle->set_current_abstract(abstract_id);
-        handle->set_current_layout(le::LayoutId{});
-        handle->current_abstract_id = abstract_id;
-        handle->current_layout_id = le::LayoutId{};
-        return 0;
+        return le::edit::open_abstract(*handle, design_ids[static_cast<size_t>(index)]) ? 0 : 1;
     }
 
     int32_t le_library_count(LeHandle *handle)
@@ -1676,19 +1639,7 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
-        const le::DesignId id = from_c(design_id);
-        if (!handle->root.get_design(id))
-            return 1;
-
-        // See le_set_current_design_abstract's own comment above - the
-        // Abstract-view trackers move together, current_layout_id clears.
-        const le::AbstractId abstract_id = handle->root.get_design_abstract(id);
-        handle->set_current_abstract(abstract_id);
-        handle->set_current_layout(le::LayoutId{});
-        handle->current_abstract_id = abstract_id;
-        handle->current_layout_id = le::LayoutId{};
-        return 0;
+        return le::edit::open_abstract(*handle, from_c(design_id)) ? 0 : 1;
     }
 
     int le_set_current_design_layout(LeHandle *handle, int32_t index)
@@ -1696,25 +1647,10 @@ extern "C"
         if (!handle || index < 0)
             return 1;
         HandleWriteLock lock(handle);
-
         const auto design_ids = handle->root.get_design_ids();
         if (static_cast<size_t>(index) >= design_ids.size())
             return 1;
-
-        // Mirror image of le_set_current_design_abstract: activates the
-        // Layout view's own current-instance tracker (what get_rows/
-        // get_placements/get_blockages/etc.'s own default -of-omitted
-        // scope derives from) and handle->current_layout() (what
-        // le_render_pixel_buffer renders), and
-        // deactivates the Abstract-view ones - only one view is "open" at
-        // a time, matching a real GUI showing one editor.
-        const le::DesignId design_id = design_ids[static_cast<size_t>(index)];
-        const le::LayoutId layout_id = handle->root.get_design_layout(design_id);
-        handle->set_current_layout(layout_id);
-        handle->set_current_abstract(le::AbstractId{});
-        handle->current_layout_id = layout_id;
-        handle->current_abstract_id = le::AbstractId{};
-        return 0;
+        return le::edit::open_layout(*handle, design_ids[static_cast<size_t>(index)]) ? 0 : 1;
     }
 
     int le_set_current_design_layout_by_id(LeHandle *handle, LeDesignId design_id)
@@ -1722,18 +1658,7 @@ extern "C"
         if (!handle)
             return 1;
         HandleWriteLock lock(handle);
-
-        const le::DesignId id = from_c(design_id);
-        if (!handle->root.get_design(id))
-            return 1;
-
-        // See le_set_current_design_layout's own comment above.
-        const le::LayoutId layout_id = handle->root.get_design_layout(id);
-        handle->set_current_layout(layout_id);
-        handle->set_current_abstract(le::AbstractId{});
-        handle->current_layout_id = layout_id;
-        handle->current_abstract_id = le::AbstractId{};
-        return 0;
+        return le::edit::open_layout(*handle, from_c(design_id)) ? 0 : 1;
     }
 
     // --- Editing / undo-redo ---

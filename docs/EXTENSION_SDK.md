@@ -220,7 +220,7 @@ le::ext::ExtensionContext ctx(handle, "my_ext");
 | `handle()` | The `LeHandle *`, for any C API call (`le_*`, `api.hpp`). |
 | `read()` | A `ReadView`: `view.root()` is a `const le::Root &`, held under a shared lock for the view's lifetime. |
 | `write(label)` | A `WriteView` whose edits are one undo step named `label` (below). Call `view.fail()` if the operation failed. Inside a typed Tcl command, which is already a step, it joins that one. |
-| `write()` | A `WriteView` that opens no undo step, held under an exclusive lock. `view.root()` is a `const le::Root &`; `view.unrecorded_root()` is the writable `le::Root &`, for bulk work such as importing: edits through it aren't validated or recorded for undo. When the view ends, it bumps the database's mutation version and wakes the renderer. |
+| `write()` | A `WriteView` that opens no undo step, held under an exclusive lock. `view.root()` is a `const le::Root &`; `view.unrecorded_root()` is the writable `le::Root &`, for bulk work such as importing: edits through it aren't validated or recorded for undo. When the view ends, it wakes the renderer, and bumps the database's mutation version if `unrecorded_root()` was used. |
 | `transaction(label)` | A `Transaction`: the C API edits made while it lives become one undo step named `label`. Call `fail()` if the operation failed. It does nothing if a transaction is already open. |
 | `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. Unsynchronized. |
 | `with_data<T>(fn)` | Calls `fn(T &)` on that state with it locked against every other `with_data<T>()` on any thread, and returns what `fn` returns. Use it for state another thread also touches (below). Don't nest it for the same `T`. |
@@ -335,6 +335,48 @@ shapes (never written to LEF/DEF), and an Obstruction, TerminalPort, Route,
 Blockage or PhysicalPortSegment in its own shapes. Left out, it's the open
 view's Abstract or Layout. The operations that create shapes return their
 ids and, like the rest of `WriteView`'s edits, are undoable.
+
+### Selection, the design view, rulers and files
+
+The views also reach the session's state beyond the database, in the same
+types the database uses (ids, dbu). None of it is undoable or counts as a
+database change, except reading a file. Every read is on `ReadView` and
+`WriteView`; every change is on `WriteView`.
+
+| Member | Use |
+|---|---|
+| `selection()` | The selection, in the order it was made: a `std::span<const le::SelectedObject>`, each a `le::ShapePiece` (one rect, polygon, path, via or via array of a Shape or Wire) or a whole `le::RowId`, `PlacementId` or `RegionId`. Valid while the view lives. |
+| `selection_version()` | Bumped on every selection change. |
+| `select(object)` | Adds a whole object (`le::SelectableObject`): every piece of a Shape, Wire, Route or PhysicalPort, or a Row, Placement or Region. An error if it doesn't exist or has no geometry. |
+| `select_entry(entry)`, `deselect(entry)`, `clear_selection()` | Adds or removes one `SelectedObject` (a single piece, say), or clears the selection. |
+| `view()` | A `le::ViewState`: the open Abstract or Layout, the visible dbu area, the scale (pixels per dbu), the viewport's pixel size and its `le::ViewFlip`. |
+| `open_abstract(design)`, `open_layout(design)` | Opens one view of a Design, closing the other, and makes it the current Abstract or Layout. Changing the view clears the selection and rulers. |
+| `fit_view(padding_px)`, `fit_rect(rect, padding_px)` | Fits the open view's boundary, or a dbu rect, into the viewport. |
+| `zoom(factor, x_px, y_px)`, `pan(x_factor, y_factor)`, `set_view_flip(flip)` | As `le_zoom`, `le_pan` and `le_set_view_flip`. |
+| `rulers()` | Every `le::Ruler` (dbu points, and whether it's finished), the one being drawn last. |
+| `add_ruler(points)`, `finish_ruler()`, `clear_rulers()` | Adds a finished ruler (at least 2 points), finishes the one being drawn, or removes them all. |
+| `read_lef(path, library)`, `read_def(path, library)`, `read_verilog(files, netlist, library)`, `read_db(path, with_session)` | Read a file, as the Tcl commands do. A read is part of the open undo step and tells mutation listeners `everything`. |
+| `write_lef(path, abstracts, library, layers)`, `write_def(path, layout)`, `write_db(path, with_session)`, `write_verilog_stubs(path, library)` | Write one; leaving out the Abstracts, Layout or Library means the current one, as in Tcl. |
+
+The ones that can fail return `std::expected<void, std::string>`. A file
+read or write also logs what it reports, as the Tcl commands do, so there is
+no need to log its error again. Reading a large file holds the session's
+lock for as long as it takes, as `read_def` in Tcl does.
+
+```cpp
+le::ext::WriteView view = ctx.write("my_ext_show " + name);
+if (!view.read_def(path, "top"))
+{
+    view.fail();
+    return false; // read_def logged why
+}
+if (const auto placement = find_placement(view.root(), name))   // your own lookup
+{
+    view.clear_selection();
+    view.select(*placement);
+    view.fit_rect(placement_bbox(view.root(), *placement), 20);
+}
+```
 
 **State.** Keep per-session state in `data<T>()`, never in globals or
 statics. `le_shell` and the `le_tcl` module each link their own copy of your
@@ -768,6 +810,9 @@ release without notice.
 - `le::ext::Units`, `PointUm`, `RectUm` and `ShapeBuilder`
 - the shape operations' types: `le::shape_ops::LayerOrPurpose`,
   `le::shape_ops::ShapeParent`, `le::BooleanOp`, `le::FractureDirection`
+- the session state types: `le::SelectedObject`, `le::ShapePiece`,
+  `le::SelectableObject`, `le::Ruler`, `le::ViewState`, `le::ViewFlip`,
+  `le::LefLayerWriteMode`
 - the Tcl helpers `register_command_help` (with its optional attributes
   dict), `help` and `man`
 - the `extensions.json` format and `le_shell`'s `-extensions`/`LE_EXTENSIONS_PATH`
@@ -818,6 +863,16 @@ The first version.
   extension).
 - Mutation listeners: `Registry::add_mutation_listener`, `MutationEvent`
   (added in 0.3, without a version bump: it can't break an extension).
+- Session state on the views (added in 0.3, without a version bump: it
+  can't break an extension): the selection (`selection`,
+  `selection_version`, `select`, `select_entry`, `deselect`,
+  `clear_selection`), the design view (`view`, `open_abstract`,
+  `open_layout`, `fit_view`, `fit_rect`, `zoom`, `pan`, `set_view_flip`),
+  rulers (`rulers`, `add_ruler`, `finish_ruler`, `clear_rulers`) and files
+  (`read_lef`, `read_def`, `read_verilog`, `read_db`, `write_lef`,
+  `write_def`, `write_db`, `write_verilog_stubs`). A `WriteView` no longer
+  bumps the mutation version when it ends unless `unrecorded_root()` was
+  used.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
   and `Registry::resource`.
 - Rendering: `Render(purpose=Purpose(...), tiled=..., per_layer=..., label_field=..., outline_color=..., fill_color=..., fill_pattern=...)` on a class.

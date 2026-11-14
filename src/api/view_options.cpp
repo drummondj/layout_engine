@@ -1,4 +1,5 @@
 #include "api_internal.hpp"
+#include "edit_ops.hpp"
 #include "../geometry/geometry.hpp"
 #include "../geometry/row_geometry.hpp"
 #include "le/extension.hpp"
@@ -500,6 +501,36 @@ namespace le::api_detail
     }
 }
 
+namespace le::edit
+{
+    ViewState view_state(const LeHandle &handle)
+    {
+        const Point pan = handle.pan();
+        const double scale = handle.scale();
+        return ViewState{
+            .abstract = handle.current_abstract(),
+            .layout = handle.current_layout(),
+            .visible_area = Rect{.ll = pan,
+                                 .ur = Point{.x = pan.x + static_cast<int64_t>(handle.viewport_width_px() / scale),
+                                             .y = pan.y + static_cast<int64_t>(handle.viewport_height_px() / scale)}},
+            .scale = scale,
+            .width_px = handle.viewport_width_px(),
+            .height_px = handle.viewport_height_px(),
+            .flip = handle.view_flip(),
+        };
+    }
+
+    void fit_view(LeHandle &handle, int padding_px) { api_detail::fit_scene_unlocked(&handle, padding_px); }
+
+    void fit_rect(LeHandle &handle, Rect area, int padding_px) { handle.fit_to_content(area, padding_px); }
+
+    void zoom(LeHandle &handle, double factor, int x_px, int y_px) { api_detail::zoom_unlocked(&handle, factor, x_px, y_px); }
+
+    void pan(LeHandle &handle, double x_factor, double y_factor) { api_detail::pan_unlocked(&handle, x_factor, y_factor); }
+
+    void set_view_flip(LeHandle &handle, ViewFlip flip) { handle.set_view_flip(flip); }
+}
+
 extern "C"
 {
     int32_t le_hierarchy_depth(LeHandle *handle)
@@ -728,7 +759,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        zoom_unlocked(handle, factor, x, y);
+        le::edit::zoom(*handle, factor, x, y);
     }
 
     void le_pan(LeHandle *handle, double x_factor, double y_factor)
@@ -736,7 +767,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        pan_unlocked(handle, x_factor, y_factor);
+        le::edit::pan(*handle, x_factor, y_factor);
     }
 
     int32_t le_set_view_flip(LeHandle *handle, int32_t flip)
@@ -744,7 +775,7 @@ extern "C"
         if (!handle || flip < LE_VIEW_FLIP_NONE || flip > LE_VIEW_FLIP_VERTICAL)
             return 1;
         HandleWriteLock lock(handle);
-        handle->set_view_flip(static_cast<le::ViewFlip>(flip));
+        le::edit::set_view_flip(*handle, static_cast<le::ViewFlip>(flip));
         return 0;
     }
 
@@ -785,7 +816,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        fit_scene_unlocked(handle, padding_px);
+        le::edit::fit_view(*handle, padding_px);
     }
 
     void le_fit_rect(LeHandle *handle, double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int32_t padding_px)
@@ -794,6 +825,6 @@ extern "C"
             return;
         HandleWriteLock lock(handle);
         const double dbu_per_um = display_dbu_per_um(handle->root);
-        handle->fit_to_content(le::Rect{.ll = {.x = to_dbu(ll_x_um, dbu_per_um), .y = to_dbu(ll_y_um, dbu_per_um)}, .ur = {.x = to_dbu(ur_x_um, dbu_per_um), .y = to_dbu(ur_y_um, dbu_per_um)}}, padding_px);
+        le::edit::fit_rect(*handle, le::Rect{.ll = {.x = to_dbu(ll_x_um, dbu_per_um), .y = to_dbu(ll_y_um, dbu_per_um)}, .ur = {.x = to_dbu(ur_x_um, dbu_per_um), .y = to_dbu(ur_y_um, dbu_per_um)}}, padding_px);
     }
 }

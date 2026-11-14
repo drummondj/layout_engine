@@ -2,6 +2,7 @@
 
 #include "../core/flightlines.hpp"
 #include "../core/object_filters.hpp"
+#include "../core/session_types.hpp"
 #include "../database/database.hpp"
 #include "view_style.hpp"
 
@@ -23,17 +24,6 @@ namespace le
     /// largest viewport (le_set_viewport_size). A node bigger than this at
     /// the current zoom is drawn at the largest scale that fits.
     constexpr int kMaxImageDimensionPx = 8192;
-
-    /// @brief How the view is mirrored on screen (le_set_view_flip): about
-    /// the frame's vertical centre line (HORIZONTAL, left and right swap)
-    /// or its horizontal one (VERTICAL, top and bottom swap). The same dbu
-    /// area shows either way.
-    enum class ViewFlip : uint8_t
-    {
-        NONE,
-        HORIZONTAL,
-        VERTICAL,
-    };
 
     /// @brief What an overlay pass gets besides the canvas: the visible
     /// area (dbu), the zoom (pixels per dbu), the frame's pixel size and

@@ -1,8 +1,10 @@
 #include "le/extension.hpp"
+#include "../../test_support/scratch_dir.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -808,5 +810,296 @@ TEST(ExtensionData, WithDataBlocksAnotherThreadUntilTheFirstReturns)
     // Another extension's state of the same type is a separate slot.
     le::ext::ExtensionContext other(handle, "other_ext");
     EXPECT_EQ(other.with_data<SharedCounter>([](const SharedCounter &counter) { return counter.value; }), 0);
+    le_destroy(handle);
+}
+
+namespace
+{
+    LeObjectRef shape_ref(le::ShapeId id) { return LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation}; }
+
+    std::string fixture(const char *name) { return std::string(API_TEST_FIXTURES_DIR) + "/" + name; }
+}
+
+TEST(SessionSelection, MatchesTheCApi)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    ShapeScene scene;
+    {
+        le::ext::WriteView view = ctx.write();
+        scene = add_shape_scene(view);
+        ASSERT_TRUE(view.select(scene.rects[0]));
+        ASSERT_EQ(view.selection().size(), 1u);
+        const auto &piece = std::get<le::ShapePiece>(view.selection()[0]);
+        EXPECT_EQ(piece.shape_id, scene.rects[0]);
+        EXPECT_EQ(piece.piece_kind, le::PieceKind::RECT);
+    }
+    ASSERT_EQ(le_selection_count(handle), 1);
+    const LeObjectRef ref = le_selected_object_ref(handle, 0);
+    EXPECT_EQ(ref.kind, LE_OBJECT_KIND_SHAPE);
+    EXPECT_EQ(ref.index, scene.rects[0].index);
+
+    // The C API's selection is the same one.
+    ASSERT_EQ(le_select_object_ref(handle, shape_ref(scene.rects[1])), 0);
+    {
+        const le::ext::ReadView view = ctx.read();
+        ASSERT_EQ(view.selection().size(), 2u);
+        EXPECT_EQ(std::get<le::ShapePiece>(view.selection()[1]).shape_id, scene.rects[1]);
+        EXPECT_EQ(static_cast<int64_t>(view.selection_version()), le_selection_version(handle));
+    }
+    {
+        le::ext::WriteView view = ctx.write();
+        view.deselect(le::ShapePiece{.shape_id = scene.rects[0]});
+        ASSERT_EQ(view.selection().size(), 1u);
+        view.clear_selection();
+        EXPECT_TRUE(view.selection().empty());
+    }
+    EXPECT_EQ(le_selection_count(handle), 0);
+    le_destroy(handle);
+}
+
+TEST(SessionSelection, ErrorsComeBackAsValues)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::ext::WriteView view = ctx.write();
+    const ShapeScene scene = add_shape_scene(view);
+
+    const auto unknown = view.select(le::PlacementId{.index = 99, .generation = 0});
+    ASSERT_FALSE(unknown);
+    EXPECT_EQ(unknown.error(), "no such Placement");
+
+    const le::ShapeId empty = view.create_shape({.owner = le::ShapeOwner::in_layout(scene.layout), .layer = scene.m1}).value();
+    const auto nothing = view.select(empty);
+    ASSERT_FALSE(nothing);
+    EXPECT_EQ(nothing.error(), "Shape has no geometry to select");
+
+    const auto past_end = view.select_entry(le::ShapePiece{.shape_id = scene.rects[0], .piece_index = 1});
+    ASSERT_FALSE(past_end);
+    EXPECT_EQ(past_end.error(), "no piece 1 of that kind - it has 1");
+
+    ASSERT_TRUE(view.select_entry(le::ShapePiece{.shape_id = scene.rects[0]}));
+    EXPECT_EQ(view.selection().size(), 1u);
+}
+
+// Selection, the view and rulers are session state: changing them through a
+// labelled view records no undo step and leaves the database saved.
+TEST(SessionSelection, IsNotADatabaseEdit)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    ShapeScene scene;
+    {
+        le::ext::WriteView view = ctx.write();
+        scene = add_shape_scene(view);
+    }
+    const std::string path = le::test::scratch_path("session_state.led");
+    ASSERT_EQ(le_write_db(handle, path.c_str(), 0), 0);
+    ASSERT_EQ(le_has_unsaved_database_changes(handle), 0);
+    {
+        le::ext::WriteView view = ctx.write("session state");
+        ASSERT_TRUE(view.select(scene.rects[0]));
+        ASSERT_TRUE(view.add_ruler(std::vector<le::Point>{{0, 0}, {100, 0}}));
+        view.set_view_flip(le::ViewFlip::VERTICAL);
+    }
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
+    EXPECT_EQ(le_undo(handle), 0) << "nothing to undo";
+    EXPECT_EQ(le_selection_count(handle), 1);
+    le_destroy(handle);
+}
+
+TEST(SessionView, MatchesTheCApi)
+{
+    LeHandle *c_handle = le_create();
+    LeHandle *handle = le_create();
+    for (LeHandle *h : {c_handle, handle})
+    {
+        add_layout(h);
+        le_set_viewport_size(h, 800, 600);
+    }
+    const LeDesignId design = le_library_design_at(c_handle, 0, 0).id;
+
+    ASSERT_EQ(le_set_current_design_layout_by_id(c_handle, design), 0);
+    le_fit_rect(c_handle, 0, 0, 4000, 2000, 10); // no Technology: microns are dbu
+    le_zoom(c_handle, 0.5, 100, 100);
+    le_pan(c_handle, 0.25, -0.5);
+    ASSERT_EQ(le_set_view_flip(c_handle, LE_VIEW_FLIP_HORIZONTAL), 0);
+
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write();
+        ASSERT_TRUE(view.open_layout(le::ext::from_c(design)));
+        view.fit_rect(le::Rect{{0, 0}, {4000, 2000}}, 10);
+        view.zoom(0.5, 100, 100);
+        view.pan(0.25, -0.5);
+        view.set_view_flip(le::ViewFlip::HORIZONTAL);
+    }
+    const le::ViewState state = ctx.read().view();
+    EXPECT_EQ(state.layout, le::ext::from_c(le_current_layout(c_handle)));
+    EXPECT_FALSE(state.abstract.valid());
+    EXPECT_EQ(ctx.current_layout(), state.layout) << "Tcl's current Layout moves with the view";
+    EXPECT_EQ(state.flip, le::ViewFlip::HORIZONTAL);
+    EXPECT_EQ(state.width_px, 800);
+    EXPECT_EQ(state.height_px, 600);
+    const le::ext::ExtensionContext c_ctx(c_handle, "test_ext");
+    const le::ViewState c_state = c_ctx.read().view();
+    EXPECT_DOUBLE_EQ(state.scale, c_state.scale);
+    EXPECT_EQ(state.visible_area.ll.x, c_state.visible_area.ll.x);
+    EXPECT_EQ(state.visible_area.ll.y, c_state.visible_area.ll.y);
+    EXPECT_EQ(state.visible_area.ur.x, c_state.visible_area.ur.x);
+    EXPECT_EQ(state.visible_area.ur.y, c_state.visible_area.ur.y);
+    EXPECT_EQ(state.visible_area.ur.x, state.visible_area.ll.x + static_cast<int64_t>(800 / state.scale));
+
+    {
+        le::ext::WriteView view = ctx.write();
+        const auto unknown = view.open_abstract(le::DesignId{.index = 42, .generation = 0});
+        ASSERT_FALSE(unknown);
+        EXPECT_EQ(unknown.error(), "unknown Design");
+        EXPECT_EQ(view.view().layout, state.layout) << "a failed open changes nothing";
+
+        view.fit_view(0);
+    }
+    le_fit_scene(c_handle, 0);
+    EXPECT_DOUBLE_EQ(ctx.read().view().scale, c_ctx.read().view().scale);
+    le_destroy(c_handle);
+    le_destroy(handle);
+}
+
+TEST(SessionRulers, AddedRulersMatchTheCApi)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write();
+        ASSERT_TRUE(view.create_technology({.database_units_microns = 1000}));
+        const std::vector<le::Point> one{{0, 0}};
+        const auto too_short = view.add_ruler(one);
+        ASSERT_FALSE(too_short);
+        EXPECT_EQ(too_short.error(), "a ruler needs at least 2 points");
+        ASSERT_TRUE(view.add_ruler(std::vector<le::Point>{{0, 0}, {1500, 0}, {1500, 2000}}));
+        ASSERT_EQ(view.rulers().size(), 1u);
+        EXPECT_TRUE(view.rulers()[0].finished);
+    }
+    ASSERT_EQ(le_ruler_count(handle), 1);
+    ASSERT_EQ(le_ruler_point_count(handle, 0), 3);
+    EXPECT_DOUBLE_EQ(le_ruler_point_at(handle, 0, 1).x_um, 1.5);
+    EXPECT_DOUBLE_EQ(le_ruler_point_at(handle, 0, 2).y_um, 2.0);
+
+    {
+        le::ext::WriteView view = ctx.write();
+        view.clear_rulers();
+    }
+    EXPECT_EQ(le_ruler_count(handle), 0);
+    le_destroy(handle);
+}
+
+// A ruler being drawn stays the one clicks append to.
+TEST(SessionRulers, AnAddedRulerGoesAheadOfTheOneBeingDrawn)
+{
+    LeHandle *handle = le_create();
+    add_layout(handle);
+    le_set_viewport_size(handle, 200, 200);
+    le_set_mode(handle, LE_MODE_RULER);
+    le_set_mouse_position(handle, 100, 100);
+    le_mouse_down(handle, 100, 100);
+    le_mouse_up(handle, 100, 100);
+    ASSERT_EQ(le_ruler_count(handle), 1);
+
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write();
+        ASSERT_TRUE(view.add_ruler(std::vector<le::Point>{{0, 0}, {10, 0}}));
+        ASSERT_EQ(view.rulers().size(), 2u);
+        EXPECT_TRUE(view.rulers()[0].finished);
+        EXPECT_FALSE(view.rulers()[1].finished);
+        view.finish_ruler();
+        EXPECT_TRUE(view.rulers()[1].finished);
+    }
+    le_destroy(handle);
+}
+
+TEST(SessionFiles, ReadsMatchTheCApiAndUndo)
+{
+    LeHandle *c_handle = le_create();
+    ASSERT_EQ(le_read_lef(c_handle, fixture("testcell.lef").c_str(), "cells"), 0);
+    ASSERT_EQ(le_read_def(c_handle, fixture("testcell.def").c_str(), "top"), 0);
+
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    {
+        le::ext::WriteView view = ctx.write("read");
+        const auto lef = view.read_lef(fixture("testcell.lef"), "cells");
+        ASSERT_TRUE(lef) << lef.error();
+        const auto def = view.read_def(fixture("testcell.def"), "top");
+        ASSERT_TRUE(def) << def.error();
+        EXPECT_TRUE(view.current_technology().valid());
+    }
+    EXPECT_EQ(le_design_count(handle), le_design_count(c_handle));
+    EXPECT_EQ(le_layer_count(handle), le_layer_count(c_handle));
+    EXPECT_GT(le_design_count(handle), 0);
+
+    ASSERT_EQ(le_undo(handle), 1);
+    EXPECT_EQ(le_design_count(handle), 0) << "both reads were one undo step";
+    le_destroy(c_handle);
+    le_destroy(handle);
+}
+
+TEST(SessionFiles, ErrorsComeBackAsValues)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::ext::WriteView view = ctx.write();
+
+    const auto missing = view.read_lef("/no/such/file.lef", "cells");
+    ASSERT_FALSE(missing);
+    EXPECT_NE(missing.error().find("/no/such/file.lef"), std::string::npos) << missing.error();
+
+    const auto no_library = view.read_lef(fixture("testcell.lef"), "");
+    ASSERT_FALSE(no_library);
+    EXPECT_EQ(no_library.error(), "a library name is required");
+
+    const auto no_layout = view.write_def(le::test::scratch_path("none.def"));
+    ASSERT_FALSE(no_layout);
+    EXPECT_EQ(no_layout.error(), "no Layout given and no current Layout set");
+
+    ASSERT_TRUE(view.read_lef(fixture("testcell.lef"), "cells"));
+    const auto not_empty = view.read_db(le::test::scratch_path("none.led"));
+    ASSERT_FALSE(not_empty);
+    EXPECT_EQ(not_empty.error(), "the database already has data in it - read_db only loads into an empty session");
+}
+
+TEST(SessionFiles, WritesRoundTrip)
+{
+    LeHandle *handle = le_create();
+    le::ext::ExtensionContext ctx(handle, "test_ext");
+    const std::string lef = le::test::scratch_path("written.lef");
+    const std::string db = le::test::scratch_path("written.led");
+    {
+        le::ext::WriteView view = ctx.write();
+        ASSERT_TRUE(view.read_lef(fixture("testcell.lef"), "cells"));
+        const le::LibraryId library = view.root().get_library_by_name("cells");
+        ASSERT_TRUE(library.valid());
+        const auto written = view.write_lef(lef, {}, library, le::LefLayerWriteMode::INCLUDE_WITH_ABSTRACT);
+        ASSERT_TRUE(written) << written.error();
+        const auto saved = view.write_db(db);
+        ASSERT_TRUE(saved) << saved.error();
+    }
+    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
+    EXPECT_STREQ(le_db_path(handle), db.c_str());
+
+    LeHandle *reread = le_create();
+    le::ext::ExtensionContext reread_ctx(reread, "test_ext");
+    {
+        le::ext::WriteView view = reread_ctx.write();
+        const auto loaded = view.read_db(db);
+        ASSERT_TRUE(loaded) << loaded.error();
+    }
+    EXPECT_EQ(le_design_count(reread), le_design_count(handle));
+
+    LeHandle *from_lef = le_create();
+    ASSERT_EQ(le_read_lef(from_lef, lef.c_str(), "cells"), 0);
+    EXPECT_EQ(le_design_count(from_lef), le_design_count(handle));
+    le_destroy(from_lef);
+    le_destroy(reread);
     le_destroy(handle);
 }
