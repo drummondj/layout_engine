@@ -1,5 +1,7 @@
 #include "gui_provider.hpp"
 
+#include "../core/themes.hpp"
+
 #include <cstdio>
 
 namespace le::gui
@@ -63,6 +65,7 @@ namespace le::gui
         state_.settings.manufacturing_grid_um = le_manufacturing_grid_um(handle_);
         state_.settings.ruler_label_size_px = le_ruler_label_size(handle_);
         state_.settings.confirm_overwrite = le_confirm_overwrite(handle_) != 0;
+        state_.settings.theme = le::find_theme(le_theme(handle_)).value_or(0);
         state_.settings.label_min_size_px = le_label_min_size(handle_);
         state_.settings.label_max_size_px = le_label_max_size(handle_);
         state_.database_settings.view_flip = le_view_flip(handle_);
@@ -482,6 +485,12 @@ namespace le::gui
 
     void GuiProvider::set_ruler_label_size(double px) { run_tcl_command("set_ruler_label_size " + tcl_number(px)); }
     void GuiProvider::set_confirm_overwrite(bool confirm) { run_tcl_command(confirm ? "set_confirm_overwrite true" : "set_confirm_overwrite false"); }
+
+    void GuiProvider::set_theme(size_t theme)
+    {
+        if (theme < le::kThemes.size())
+            run_tcl_command("set_theme " + std::string(le::kThemes[theme].name));
+    }
     void GuiProvider::set_max_concurrency(int32_t threads) { run_tcl_command("set_max_concurrency " + std::to_string(threads)); }
     void GuiProvider::set_label_min_size(double px) { run_tcl_command("set_label_min_size " + tcl_number(px)); }
     void GuiProvider::set_label_max_size(double px) { run_tcl_command("set_label_max_size " + tcl_number(px)); }

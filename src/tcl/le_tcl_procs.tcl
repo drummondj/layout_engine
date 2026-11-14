@@ -137,7 +137,7 @@ foreach {_le_category _le_names} {
         get_route_shape_visible set_route_shape_visible get_route_shape_selectable set_route_shape_selectable
     }
     Settings {
-        load_settings save_settings get_confirm_overwrite set_confirm_overwrite
+        load_settings save_settings get_confirm_overwrite set_confirm_overwrite get_theme set_theme
         get_grid_spacing set_grid_spacing get_label_min_size set_label_min_size get_label_max_size set_label_max_size
         get_ruler_label_size set_ruler_label_size get_max_concurrency set_max_concurrency
         get_flightline_max_fanout set_flightline_max_fanout get_undo_limit set_undo_limit
@@ -2822,6 +2822,48 @@ register_command_help set_confirm_overwrite \
     "Sets whether the GUI asks for confirmation before File > Save (or the exit dialog's Save) overwrites an existing design file. True by default; saved with the settings." \
     {
         {<true|false> {type bool required 1 description {true to ask before overwriting, false to save straight away}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc _theme_names {} {
+    set names {}
+    for {set i 0} {$i < [theme_count_command]} {incr i} {
+        lappend names [theme_name_command $i]
+    }
+    return $names
+}
+
+proc set_theme {name} {
+    if {$name eq "-help"} {
+        return "set_theme <name> \[-help\] - Sets the GUI color theme"
+    }
+    if {[set_theme_command $name] != 0} {
+        error "set_theme: unknown theme \"$name\" - expected one of [_theme_names]"
+    }
+    return ""
+}
+register_command_help set_theme \
+    "set_theme <name> \[-help\]" \
+    "Sets the GUI color theme - the window background and the accent color of buttons, tabs and headers: gray (the default), blue, teal, green, brown, red, purple or plum. Saved with the settings." \
+    {
+        {<name> {type str required 1 description {One of gray, blue, teal, green, brown, red, purple, plum}}}
+        {-help {type flag required 0 description {Show this usage message and return immediately}}}
+    }
+
+proc get_theme {args} {
+    if {[lsearch -exact $args "-help"] >= 0} {
+        return "get_theme \[-all\] \[-help\] - Returns the GUI color theme's name, or with -all every theme's"
+    }
+    if {[lsearch -exact $args "-all"] >= 0} {
+        return [_theme_names]
+    }
+    return [get_theme_command]
+}
+register_command_help get_theme \
+    "get_theme \[-all\] \[-help\]" \
+    "Returns the GUI color theme's name, or with -all the list of every theme set_theme accepts, the default first." \
+    {
+        {-all {type flag required 0 description {Return every theme name instead}}}
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 

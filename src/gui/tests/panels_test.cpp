@@ -3,6 +3,8 @@
 #include "gui_provider.hpp"
 #include "components/design_saver.hpp"
 #include "components/library_browser.hpp"
+#include "components/settings_panel.hpp"
+#include "theme.hpp"
 
 #include <gtest/gtest.h>
 #include "../../test_support/scratch_dir.hpp"
@@ -10,6 +12,7 @@
 #include <imgui_internal.h>
 
 #include <atomic>
+#include <cmath>
 #include <filesystem>
 #include <unistd.h>
 #include <thread>
@@ -377,4 +380,77 @@ TEST(TclQuote, KeepsAnyNameOneWord)
     EXPECT_EQ(le::gui::tcl_quote("M1"), "\"M1\"");
     EXPECT_EQ(le::gui::tcl_quote("a}b{c"), "\"a}b{c\"");
     EXPECT_EQ(le::gui::tcl_quote("x [y] $z \"q\" \\"), "\"x \\[y\\] \\$z \\\"q\\\" \\\\\"");
+}
+
+namespace
+{
+    // WCAG 2 contrast ratio between two opaque sRGB colors.
+    double contrast(ImVec4 a, ImVec4 b)
+    {
+        const auto luminance = [](ImVec4 c)
+        {
+            const auto channel = [](float v)
+            { return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+            return 0.2126 * channel(c.x) + 0.7152 * channel(c.y) + 0.0722 * channel(c.z);
+        };
+        const double la = luminance(a);
+        const double lb = luminance(b);
+        return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+    }
+
+    // `c` drawn with its alpha over the opaque `under`.
+    ImVec4 over(ImVec4 c, ImVec4 under)
+    {
+        return {under.x + (c.x - under.x) * c.w, under.y + (c.y - under.y) * c.w, under.z + (c.z - under.z) * c.w, 1.0f};
+    }
+}
+
+// Every theme keeps the near-white text readable: AAA (7:1) on the panel
+// backgrounds and input frames, AA (4.5:1) on buttons.
+TEST(Theme, EveryThemeKeepsTheTextReadable)
+{
+    HeadlessImGui imgui;
+    for (const le::Theme &theme : le::kThemes)
+    {
+        SCOPED_TRACE(std::string(theme.name));
+        ImGuiStyle style;
+        le::gui::apply_theme_colors(style, theme);
+        const ImVec4 text = style.Colors[ImGuiCol_Text];
+        const ImVec4 window = style.Colors[ImGuiCol_WindowBg];
+        EXPECT_EQ(window.x, theme.background.r);
+        for (ImGuiCol background : {ImGuiCol_WindowBg, ImGuiCol_ChildBg, ImGuiCol_MenuBarBg, ImGuiCol_FrameBg})
+            EXPECT_GE(contrast(text, over(style.Colors[background], window)), 7.0) << ImGui::GetStyleColorName(background);
+        EXPECT_GE(contrast(text, over(style.Colors[ImGuiCol_PopupBg], window)), 7.0);
+        for (ImGuiCol button : {ImGuiCol_Button, ImGuiCol_ButtonHovered})
+            EXPECT_GE(contrast(text, over(style.Colors[button], window)), 4.5) << ImGui::GetStyleColorName(button);
+    }
+}
+
+TEST(Theme, NamesAreUniqueAndTheDefaultIsGray)
+{
+    EXPECT_EQ(le::kThemes[0].name, "gray");
+    for (size_t i = 0; i < le::kThemes.size(); ++i)
+        EXPECT_EQ(le::find_theme(le::kThemes[i].name), i);
+    EXPECT_FALSE(le::find_theme("orange"));
+}
+
+// The Settings panel shows the handle's theme and changes it through a
+// queued set_theme, so the change lands in the command history.
+TEST(Theme, TheSettingsPanelReadsAndQueuesTheTheme)
+{
+    Session session;
+    le::gui::GuiProvider provider{session.handle};
+    HeadlessImGui imgui;
+    ASSERT_EQ(le_set_theme(session.handle, "red"), 0);
+    provider.refresh();
+    EXPECT_EQ(provider.state().settings.theme, *le::find_theme("red"));
+    imgui.frame([&] {
+        ImGui::Begin("Settings");
+        le::gui::draw_settings_panel(provider);
+        ImGui::End();
+    });
+    provider.set_theme(*le::find_theme("teal"));
+    const char *command = le_take_next_pending_tcl_command(session.handle);
+    ASSERT_NE(command, nullptr);
+    EXPECT_STREQ(command, "set_theme teal");
 }

@@ -216,6 +216,13 @@ set_undo_limit 30
 check "set_undo_limit round-trips" 30 [get_undo_limit]
 check "set_undo_limit rejects a negative value" 1 [catch {set_undo_limit -1}]
 set_undo_limit 200
+check "theme defaults to gray" gray [get_theme]
+check "get_theme -all lists every theme, the default first" {gray blue teal green brown red purple plum} [get_theme -all]
+set_theme teal
+check "set_theme round-trips" teal [get_theme]
+check "set_theme rejects an unknown name" 1 [catch {set_theme orange}]
+check "a rejected set_theme keeps the theme" teal [get_theme]
+set_theme gray
 if {[catch {set_flightline_max_fanout -1} err]} {
     puts "ok: set_flightline_max_fanout rejects a negative value ($err)"
 } else {

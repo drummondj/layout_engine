@@ -18,6 +18,7 @@
     "polygon": "none",
     "rect": "user"
   },
+  "theme": "teal",
   "undo_limit": 50,
   "version": 3
 }

@@ -11,7 +11,7 @@ Every Tcl command le_shell provides. Objects are named by tokens such as `layer:
 - [Layout](#layout) (54 commands)
 - [Schematic](#schematic) (32 commands)
 - [GUI](#gui) (48 commands)
-- [Settings](#settings) (27 commands)
+- [Settings](#settings) (29 commands)
 - [General](#general) (40 commands)
 
 ## Technology
@@ -3280,7 +3280,7 @@ Fits the view to the rectangle {{llx lly} {urx ury}}, in microns, keeping its as
 
 ## Settings
 
-[`get_confirm_overwrite`](#get_confirm_overwrite), [`get_flightline_max_fanout`](#get_flightline_max_fanout), [`get_grid_spacing`](#get_grid_spacing), [`get_label_max_size`](#get_label_max_size), [`get_label_min_size`](#get_label_min_size), [`get_layer_color`](#get_layer_color), [`get_max_concurrency`](#get_max_concurrency), [`get_placement_snap_mode`](#get_placement_snap_mode), [`get_ruler_label_size`](#get_ruler_label_size), [`get_shape_snap_mode`](#get_shape_snap_mode), [`get_undo_limit`](#get_undo_limit), [`load_settings`](#load_settings), [`placement_snap_mode_available`](#placement_snap_mode_available), [`reset_layer_color`](#reset_layer_color), [`save_settings`](#save_settings), [`set_confirm_overwrite`](#set_confirm_overwrite), [`set_flightline_max_fanout`](#set_flightline_max_fanout), [`set_grid_spacing`](#set_grid_spacing), [`set_label_max_size`](#set_label_max_size), [`set_label_min_size`](#set_label_min_size), [`set_layer_color`](#set_layer_color), [`set_max_concurrency`](#set_max_concurrency), [`set_placement_snap_mode`](#set_placement_snap_mode), [`set_ruler_label_size`](#set_ruler_label_size), [`set_shape_snap_mode`](#set_shape_snap_mode), [`set_undo_limit`](#set_undo_limit), [`shape_snap_mode_available`](#shape_snap_mode_available)
+[`get_confirm_overwrite`](#get_confirm_overwrite), [`get_flightline_max_fanout`](#get_flightline_max_fanout), [`get_grid_spacing`](#get_grid_spacing), [`get_label_max_size`](#get_label_max_size), [`get_label_min_size`](#get_label_min_size), [`get_layer_color`](#get_layer_color), [`get_max_concurrency`](#get_max_concurrency), [`get_placement_snap_mode`](#get_placement_snap_mode), [`get_ruler_label_size`](#get_ruler_label_size), [`get_shape_snap_mode`](#get_shape_snap_mode), [`get_theme`](#get_theme), [`get_undo_limit`](#get_undo_limit), [`load_settings`](#load_settings), [`placement_snap_mode_available`](#placement_snap_mode_available), [`reset_layer_color`](#reset_layer_color), [`save_settings`](#save_settings), [`set_confirm_overwrite`](#set_confirm_overwrite), [`set_flightline_max_fanout`](#set_flightline_max_fanout), [`set_grid_spacing`](#set_grid_spacing), [`set_label_max_size`](#set_label_max_size), [`set_label_min_size`](#set_label_min_size), [`set_layer_color`](#set_layer_color), [`set_max_concurrency`](#set_max_concurrency), [`set_placement_snap_mode`](#set_placement_snap_mode), [`set_ruler_label_size`](#set_ruler_label_size), [`set_shape_snap_mode`](#set_shape_snap_mode), [`set_theme`](#set_theme), [`set_undo_limit`](#set_undo_limit), [`shape_snap_mode_available`](#shape_snap_mode_available)
 
 ### get_confirm_overwrite
 
@@ -3353,6 +3353,16 @@ Returns the snap mode for <kind>: none, user, manufacturing, fin or tracks. See 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
 | `<kind>` | `str` | yes | rect, polygon, path or via |
+
+### get_theme
+
+`get_theme [-all] [-help]`
+
+Returns the GUI color theme's name, or with -all the list of every theme set_theme accepts, the default first.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `-all` | `flag` | no | Return every theme name instead |
 
 ### get_undo_limit
 
@@ -3502,6 +3512,16 @@ Sets what a resized or moved shape of <kind> snaps to. Rects and polygons (Resiz
 | --- | --- | --- | --- |
 | `<kind>` | `str` | yes | rect, polygon, path or via |
 | `<mode>` | `str` | yes | none, user, manufacturing, fin (rect/polygon) or tracks (path/via) |
+
+### set_theme
+
+`set_theme <name> [-help]`
+
+Sets the GUI color theme - the window background and the accent color of buttons, tabs and headers: gray (the default), blue, teal, green, brown, red, purple or plum. Saved with the settings.
+
+| Flag | Type | Required | Description |
+| --- | --- | --- | --- |
+| `<name>` | `str` | yes | One of gray, blue, teal, green, brown, red, purple, plum |
 
 ### set_undo_limit
 

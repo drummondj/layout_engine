@@ -124,6 +124,7 @@ namespace le::gui
                 int32_t undo_limit = 0;
                 int32_t max_concurrency = 0; // "CPUs"
                 bool confirm_overwrite = true; // ask before a Save overwrites a design file
+                size_t theme = 0;              // index into le::kThemes
             } settings;
 
             // The Settings panel's Database Settings: view state saved with
@@ -234,6 +235,8 @@ namespace le::gui
         void set_label_min_size(double px);
         void set_label_max_size(double px);
         void set_confirm_overwrite(bool confirm);
+        // Queues set_theme; `theme` indexes le::kThemes.
+        void set_theme(size_t theme);
         void save_settings(const std::string &path);
         // The close dialog. Direct calls,
         // not queued Tcl commands: the dialog needs the answer this frame,

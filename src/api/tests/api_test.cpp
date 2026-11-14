@@ -7185,6 +7185,37 @@ TEST_F(ApiFixture, ConfirmOverwriteIsASavedSettingOnByDefault)
     le_destroy(other);
 }
 
+// The GUI color theme is a saved setting, gray by default; an unknown name
+// is refused and keeps the current theme.
+TEST_F(ApiFixture, ThemeIsASavedSettingGrayByDefault)
+{
+    EXPECT_STREQ(le_theme(handle), "gray");
+    EXPECT_STREQ(le_theme_name(0), "gray");
+    EXPECT_STREQ(le_theme_name(le_theme_count()), "");
+    EXPECT_EQ(le_set_theme(handle, "orange"), -1);
+    EXPECT_EQ(le_set_theme(handle, nullptr), -1);
+    EXPECT_STREQ(le_theme(handle), "gray");
+    ASSERT_EQ(le_set_theme(handle, "purple"), 0);
+    EXPECT_STREQ(le_theme(handle), "purple");
+    EXPECT_EQ(le_has_unsaved_settings(handle), 1);
+    const std::string path = le::test::scratch_path("le_settings_theme.json");
+    ASSERT_EQ(le_save_settings(handle, path.c_str()), 0);
+    LeHandle *other = le_create();
+    ASSERT_EQ(le_load_settings(other, path.c_str()), 0);
+    EXPECT_STREQ(le_theme(other), "purple");
+    le_destroy(other);
+}
+
+// A settings file naming a theme this build doesn't have keeps the current one.
+TEST_F(ApiFixture, SettingsLoadSkipsAnUnknownTheme)
+{
+    ASSERT_EQ(le_set_theme(handle, "blue"), 0);
+    const std::string path = le::test::scratch_path("le_settings_unknown_theme.json");
+    write_file(path, R"({"theme": "orange"})");
+    ASSERT_EQ(le_load_settings(handle, path.c_str()), 0);
+    EXPECT_STREQ(le_theme(handle), "blue");
+}
+
 // Every settings format ever written has a golden file in
 // fixtures/settings/; each must keep loading into the same settings.
 TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
@@ -7220,6 +7251,8 @@ TEST_F(ApiFixture, SettingsGoldenFilesFromEveryFormatVersionLoad)
         }
         // Older files have no undo_limit: the default.
         EXPECT_EQ(le_undo_limit(other), std::string(name) == "v3.json" ? 50 : 200);
+        // Nor a theme.
+        EXPECT_STREQ(le_theme(other), std::string(name) == "v3.json" ? "teal" : "gray");
         // Migrated on load, so nothing is left over to keep as unknown.
         const std::string saved = le::test::scratch_path("le_settings_golden_resave.json");
         ASSERT_EQ(le_save_settings(other, saved.c_str()), 0);

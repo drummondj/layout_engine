@@ -10,19 +10,17 @@ namespace le::gui
 {
     // Background for a "currently selected/armed" icon button
     // (mode_selector.cpp's own selected mode, mode_toolbar.cpp's armed
-    // Move button) - a neutral dark gray rather than
-    // ImGuiCol_ButtonActive's own themed blue (set_dark_pastel_imgui_style,
-    // le_gui.cpp), which read as too similar to the rest of the theme's
-    // blue-tinted chrome to stand out as a distinct "this one is
-    // active" state. Deliberately a plain literal, not derived from any
-    // themed color, so a future theme change can't silently turn it
-    // blue again.
+    // Move button) - a neutral dark gray rather than the theme's
+    // ImGuiCol_ButtonActive (gui/theme.cpp), which reads as too similar
+    // to the rest of the theme's accent-tinted chrome to stand out as a
+    // distinct "this one is active" state. Deliberately a plain literal,
+    // not derived from the theme, so it stays neutral under every theme.
     constexpr ImVec4 kSelectedIconButtonColor = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
 
     // Draws a single icon glyph (large_icon_font(), icon_font.hpp) in a
     // button of exactly `size` x `size` - safe from the "glyph renders
     // off-center" bug a plain ImGui::Button(icon, ImVec2(size,size))
-    // hits otherwise: the themed FramePadding (set_dark_pastel_imgui_style,
+    // hits otherwise: the themed FramePadding (set_imgui_style_metrics,
     // le_gui.cpp) shrinks RenderTextClipped's own interior clip rect
     // below the glyph's own advance width once a button this small
     // takes an *explicit* fixed size (a normally-sized, auto-sized
