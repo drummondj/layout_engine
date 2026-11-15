@@ -980,54 +980,6 @@ namespace le::edit
     std::vector<PropertyValue> object_properties(const LeHandle &handle, const ObjectId &id) { return build_object_id_properties(handle.root, id); }
 
     std::optional<ObjectId> object_parent(const LeHandle &handle, const ObjectId &id) { return object_id_parent(handle.root, id); }
-
-    std::vector<ObjectId> object_children(const LeHandle &handle, const ObjectId &id)
-    {
-        const Root &root = handle.root;
-        std::vector<ObjectId> children;
-        const auto add = [&](const auto &ids)
-        {
-            for (const auto child : ids)
-                children.emplace_back(child);
-        };
-        std::visit([&](auto typed)
-                   {
-                       using T = decltype(typed);
-                       if constexpr (std::is_same_v<T, LibraryId>)
-                           add(root.get_library_designs(typed));
-                       else if constexpr (std::is_same_v<T, DesignId>)
-                       {
-                           if (const AbstractId abstract = root.get_design_abstract(typed); root.get_abstract(abstract))
-                               children.emplace_back(abstract);
-                       }
-                       else if constexpr (std::is_same_v<T, AbstractId>)
-                       {
-                           add(root.get_abstract_terminals(typed));
-                           add(root.get_abstract_obstructions(typed));
-                           add(root.get_abstract_free_shapes(typed));
-                       }
-                       else if constexpr (std::is_same_v<T, LayoutId>)
-                           add(root.get_layout_free_shapes(typed));
-                       else if constexpr (std::is_same_v<T, TerminalId>)
-                           add(root.get_terminal_ports(typed));
-                       else if constexpr (std::is_same_v<T, TerminalPortId>)
-                           add(root.get_terminal_port_shapes(typed));
-                       else if constexpr (std::is_same_v<T, ObstructionId>)
-                           add(root.get_obstruction_shapes(typed));
-                       else if constexpr (std::is_same_v<T, BlockageId>)
-                           add(root.get_blockage_shapes(typed));
-                       else if constexpr (std::is_same_v<T, RouteId>)
-                       {
-                           add(root.get_route_wires(typed));
-                           add(root.get_route_shapes(typed));
-                       }
-                       else if constexpr (std::is_same_v<T, PhysicalPortSegmentId>)
-                           add(root.get_physical_port_segment_shapes(typed));
-                       else if constexpr (std::is_same_v<T, PhysicalPortId>)
-                           add(root.get_physical_port_segments(typed)); },
-                   id);
-        return children;
-    }
 }
 
 namespace le

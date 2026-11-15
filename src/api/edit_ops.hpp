@@ -325,12 +325,6 @@ namespace le::edit
     std::vector<PropertyValue> object_properties(const LeHandle &handle, const ObjectId &id);
     /// @brief `id`'s owner; nullopt for a class with none or an id that doesn't exist.
     std::optional<ObjectId> object_parent(const LeHandle &handle, const ObjectId &id);
-    /// @brief What the Property Viewer lists under `id`: a Library's
-    /// Designs, a Design's Abstract, the shapes and sub-objects of
-    /// Abstracts, Terminals and their ports, Obstructions, Blockages,
-    /// Routes and PhysicalPorts, and a Layout's free shapes. Nothing for
-    /// other classes, and never a Layout's placements or routes.
-    std::vector<ObjectId> object_children(const LeHandle &handle, const ObjectId &id);
 
     // --- Files ---
     // Each logs what it reports, as the C API always has (the readers and
