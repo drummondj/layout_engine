@@ -12,7 +12,9 @@
 #include "../geometry/shape_op_types.hpp"
 #include "generated/api/edit_types.hpp"
 #include "interaction_types.hpp"
+#include "generated/pipelines/view_layer_purpose.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -142,6 +144,47 @@ namespace le
         /// if the mouse isn't over the design view.
         std::optional<Point> snapped_mouse_position() const;
         bool key_held(Key key) const;
+
+        // The Layers panel, view options and settings, only when valid().
+        // Lengths are dbu, except the micron grid spacing settings.json keeps.
+
+        int hierarchy_depth() const;
+        /// @brief The Layers panel's rows, in drawing order, as of the
+        /// database now.
+        std::vector<LayerRow> layer_rows() const;
+        /// @brief Every purpose some row has a column for, in drawing order.
+        std::vector<ViewLayerPurpose> purposes() const;
+        /// @brief A row's outline color, with any the user picked; nullopt for an unknown row.
+        std::optional<Color> layer_color(const std::string &layer) const;
+        bool layer_visible(const std::string &layer) const;
+        bool layer_selectable(const std::string &layer) const;
+        bool purpose_visible(ViewLayerPurpose purpose) const;
+        bool purpose_selectable(ViewLayerPurpose purpose) const;
+        /// @brief The values `filter` can hide; valid while the view lives.
+        std::span<const std::string> object_filter_values(ObjectFilter filter) const;
+        bool object_filter_visible(ObjectFilter filter, const std::string &value) const;
+        bool object_filter_selectable(ObjectFilter filter, const std::string &value) const;
+        /// @brief Where dbu point `p` is shown to the user: relative to the
+        /// open view's origin and mirrored as the view is, in dbu.
+        std::array<double, 2> display_point(Point p) const;
+        int max_concurrency() const;
+        int flightline_max_fanout() const;
+        bool confirm_overwrite() const;
+        /// @brief The GUI theme, an index into kThemes (core/themes.hpp).
+        size_t theme() const;
+        int64_t minor_grid_spacing() const;
+        int64_t major_grid_spacing() const;
+        /// @brief A grid spacing in microns, including one set before any
+        /// Technology could convert it; <= 0 if unset.
+        double grid_spacing_um(bool major) const;
+        /// @brief The Technology's MANUFACTURINGGRID in dbu, if it has one.
+        std::optional<int64_t> manufacturing_grid() const;
+        double ruler_label_size() const;
+        double label_min_size() const;
+        double label_max_size() const;
+        size_t undo_limit() const;
+        /// @brief Whether any setting changed since the settings were last saved or loaded.
+        bool has_unsaved_settings() const;
         // Only when valid().
 #include "generated/api/view_current_decls.inc"
 
@@ -324,6 +367,48 @@ namespace le
         /// nothing if no drag was started.
         void mouse_up(int x_px, int y_px);
 
+        // The Layers panel, view options and settings (settings.json).
+        // Lengths are dbu, except the micron grid spacing settings.json keeps.
+
+        /// @brief How many Placement levels the design view descends (0
+        /// draws each placement as its outline only).
+        void set_hierarchy_depth(int depth);
+        void set_layer_visible(const std::string &layer, bool visible);
+        void set_layer_selectable(const std::string &layer, bool selectable);
+        void set_purpose_visible(ViewLayerPurpose purpose, bool visible);
+        void set_purpose_selectable(ViewLayerPurpose purpose, bool selectable);
+        void set_object_filter_visible(ObjectFilter filter, const std::string &value, bool visible);
+        void set_object_filter_selectable(ObjectFilter filter, const std::string &value, bool selectable);
+        /// @brief Sizes the design view, each side clamped to 0..8192 pixels.
+        void set_viewport_size(int width_px, int height_px);
+        /// @brief Caps the threads rendering uses (at least 2).
+        void set_max_concurrency(int max_concurrency);
+        /// @brief Nets with more pins than this get no flightlines; negative is ignored.
+        void set_flightline_max_fanout(int max_fanout);
+        void set_confirm_overwrite(bool confirm);
+        /// @brief Picks a theme by name; false (changing nothing) if there's none by that name.
+        bool set_theme(std::string_view name);
+        void set_minor_grid_spacing(int64_t dbu);
+        void set_major_grid_spacing(int64_t dbu);
+        /// @brief Sets the grid in microns (a value <= 0 leaves that one
+        /// alone); before a Technology is read it waits to be converted.
+        void set_grid_spacing_um(double minor_um, double major_um);
+        void set_ruler_label_size(double px);
+        void set_label_min_size(double px);
+        void set_label_max_size(double px);
+        /// @brief Draws row `layer` in `color` (opaque).
+        void set_layer_color(const std::string &layer, Color color);
+        /// @brief Back to the palette's color.
+        void reset_layer_color(const std::string &layer);
+        /// @brief Keeps at most `limit` undo steps, forgetting the oldest.
+        void set_undo_limit(size_t limit);
+        /// @brief Writes settings.json to `path`, or default_settings_path() if empty.
+        std::expected<void, std::string> save_settings(const std::string &path = {});
+        /// @brief Applies a settings.json (any format version) from `path`,
+        /// or default_settings_path() if empty; keys this version doesn't
+        /// know are kept for the next save.
+        std::expected<void, std::string> load_settings(const std::string &path = {});
+
         // Reading and writing files. Each also logs what it reports, as
         // read_lef and friends do in Tcl. A read is part of the open undo
         // step, if any, and saturates the change log (mutation listeners
@@ -420,6 +505,9 @@ namespace le
         bool owns_ = false;
         bool succeeded_ = true;
     };
+
+    /// @brief $HOME/.layout_engine/settings.json; empty if HOME isn't set.
+    std::string default_settings_path();
 
     /// @brief One rendered frame of the design view: premultiplied RGBA8888,
     /// row-major, top to bottom. `data` stays valid for as long as this

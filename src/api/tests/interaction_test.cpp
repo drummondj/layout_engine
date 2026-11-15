@@ -41,9 +41,10 @@ namespace
                                 .value();
                 ASSERT_TRUE(view.open_layout(top));
             }
-            le_set_hierarchy_depth(session.handle(), 1);
-            le_set_viewport_size(session.handle(), 100, 100);
-            session.write().zoom(0.005 - 1.0, 0, 100); // 0.2 um per pixel, (0,0) um at pixel (0,100)
+            le::WriteView view = session.write();
+            view.set_hierarchy_depth(1);
+            view.set_viewport_size(100, 100);
+            view.zoom(0.005 - 1.0, 0, 100); // 0.2 um per pixel, (0,0) um at pixel (0,100)
         }
 
         void click(int x, int y)

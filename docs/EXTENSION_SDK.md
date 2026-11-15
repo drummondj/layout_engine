@@ -898,6 +898,14 @@ The first version.
   `delete_selected_pieces` and `apply_placement_orientation_op`, with
   `interaction_types.hpp`'s `InteractionMode`, `Key`, `PlacementSnapMode`,
   `ShapeSnapMode`, `OrientationOp`, `OrientationOpError` and `ResizeAxis`.
+- The Layers panel, view options and settings on the views (added in 0.3,
+  without a version bump): `layer_rows` (`LayerRow`), `purposes`,
+  layer/purpose visibility and selectability, the value filters
+  (`ObjectFilter`), `set_viewport_size`, `display_point`, hierarchy depth,
+  grid spacing, label and ruler label sizes, layer colors, theme,
+  concurrency, flightline fanout, confirm-overwrite, undo limit,
+  `save_settings`/`load_settings`/`has_unsaved_settings` and
+  `le::default_settings_path()`.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

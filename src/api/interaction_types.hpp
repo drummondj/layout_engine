@@ -1,9 +1,12 @@
 #pragma once
-// The design view's interaction vocabulary - modes, keys, snapping and
-// edit operations - shared by the C++ API (views.hpp) and the code behind
-// it. No dependencies, so any front end can name them.
+// The design view's interaction vocabulary - modes, keys, snapping, edit
+// operations and the Layers panel's rows and filters - shared by the C++
+// API (views.hpp) and the code behind it. Light enough for any front end.
+
+#include "../pipelines/render_style.hpp"
 
 #include <cstdint>
+#include <string>
 
 namespace le
 {
@@ -105,6 +108,32 @@ namespace le
         Y,
         /// @brief A diagonal polygon edge or path segment.
         BOTH,
+    };
+
+    /// @brief A Layers-panel value filter: objects whose value is hidden
+    /// aren't drawn, and unselectable ones aren't hit.
+    enum class ObjectFilter : int32_t
+    {
+        /// @brief A Placement's reference Abstract's CLASS.
+        PLACEMENT_TYPE = 0,
+        /// @brief A Route's USE.
+        ROUTE_USE = 1,
+        PLACEMENT_STATUS = 2,
+        /// @brief A route Wire's or Shape's routing status.
+        ROUTING_STATUS = 3,
+        /// @brief A route Wire's or Shape's SHAPE.
+        ROUTE_SHAPE = 4,
+    };
+
+    /// @brief One row of the Layers panel: a physical layer's, or a
+    /// pseudo-row's (ROW, BOUNDARY, ...), in drawing order.
+    struct LayerRow
+    {
+        std::string name;
+        /// @brief Its outline color, with any color the user picked.
+        Color color;
+        /// @brief False for a pseudo-row.
+        bool has_physical_layer = false;
     };
 
     /// @brief Why apply_placement_orientation_op did nothing.

@@ -1,6 +1,8 @@
 #include "api_internal.hpp"
 #include "le/extension.hpp"
 #include "../core/themes.hpp"
+#include "edit_ops.hpp"
+#include "fin_grid.hpp"
 #include <json.hpp>
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -359,6 +361,152 @@ namespace
     }
 }
 
+namespace le
+{
+    std::string default_settings_path() { return ::default_settings_path(); }
+}
+
+namespace le::edit
+{
+    int max_concurrency(const LeHandle &handle) { return handle.max_concurrency_; }
+
+    void set_max_concurrency(LeHandle &handle, int max_concurrency) { set_max_concurrency_unlocked(&handle, max_concurrency); }
+
+    int flightline_max_fanout(const LeHandle &handle) { return handle.flightline_max_fanout(); }
+
+    void set_flightline_max_fanout(LeHandle &handle, int max_fanout)
+    {
+        if (max_fanout >= 0)
+            handle.set_flightline_max_fanout(max_fanout);
+    }
+
+    bool confirm_overwrite(const LeHandle &handle) { return handle.confirm_overwrite; }
+
+    void set_confirm_overwrite(LeHandle &handle, bool confirm) { handle.confirm_overwrite = confirm; }
+
+    size_t theme(const LeHandle &handle) { return handle.theme; }
+
+    bool set_theme(LeHandle &handle, std::string_view name)
+    {
+        const std::optional<size_t> theme = find_theme(name);
+        if (!theme)
+            return false;
+        handle.theme = *theme;
+        return true;
+    }
+
+    int64_t minor_grid_spacing(const LeHandle &handle) { return handle.minor_grid_spacing(); }
+
+    int64_t major_grid_spacing(const LeHandle &handle) { return handle.major_grid_spacing(); }
+
+    void set_minor_grid_spacing(LeHandle &handle, int64_t dbu) { handle.set_minor_grid_spacing(dbu); }
+
+    void set_major_grid_spacing(LeHandle &handle, int64_t dbu) { handle.set_major_grid_spacing(dbu); }
+
+    double grid_spacing_um(const LeHandle &handle, bool major) { return grid_spacing_um_unlocked(&handle, major); }
+
+    void set_grid_spacing_um(LeHandle &handle, double minor_um, double major_um) { set_grid_spacing_um_unlocked(&handle, minor_um, major_um); }
+
+    std::optional<int64_t> manufacturing_grid(const LeHandle &handle) { return technology_manufacturing_grid(handle.root); }
+
+    double ruler_label_size(const LeHandle &handle) { return handle.ruler_label_size_px(); }
+
+    void set_ruler_label_size(LeHandle &handle, double px) { handle.set_ruler_label_size_px(px); }
+
+    double label_min_size(const LeHandle &handle) { return handle.label_min_size_px(); }
+
+    void set_label_min_size(LeHandle &handle, double px) { handle.set_label_min_size_px(px); }
+
+    double label_max_size(const LeHandle &handle) { return handle.label_max_size_px(); }
+
+    void set_label_max_size(LeHandle &handle, double px) { handle.set_label_max_size_px(px); }
+
+    void set_layer_color(LeHandle &handle, const std::string &layer, Color color)
+    {
+        color.a = 255;
+        handle.set_layer_color(layer, color);
+    }
+
+    void reset_layer_color(LeHandle &handle, const std::string &layer)
+    {
+        if (handle.reset_layer_color(layer) && handle.current_technology_id.valid())
+            rebuild_view_layers(&handle, handle.current_technology_id);
+    }
+
+    size_t undo_limit(const LeHandle &handle) { return handle.command_history.undo_limit(); }
+
+    void set_undo_limit(LeHandle &handle, size_t limit) { handle.command_history.set_undo_limit(limit); }
+
+    bool has_unsaved_settings(const LeHandle &handle) { return has_unsaved_settings_unlocked(&handle); }
+
+    std::expected<void, std::string> save_settings(LeHandle &handle, const std::string &path)
+    {
+        const std::string target = path.empty() ? ::default_settings_path() : path;
+        if (target.empty())
+        {
+            spdlog::error("save_settings: no path given and HOME isn't set");
+            return std::unexpected("no path given and HOME isn't set");
+        }
+        const nlohmann::json j = settings_to_json(&handle);
+        const std::string text = j.dump(2) + "\n";
+        std::error_code ec;
+        if (const std::filesystem::path parent = std::filesystem::path(target).parent_path(); !parent.empty())
+            std::filesystem::create_directories(parent, ec);
+        std::ofstream out(target, std::ios::trunc);
+        if (!out || !(out << text) || !out.flush())
+        {
+            spdlog::error("save_settings: couldn't write '{}'", target);
+            return std::unexpected("couldn't write '" + target + "'");
+        }
+        handle.saved_settings_json = j.dump(); // the settings are saved
+        spdlog::info("save_settings: wrote '{}'", target);
+        return {};
+    }
+
+    std::expected<void, std::string> load_settings(LeHandle &handle, const std::string &path)
+    {
+        const std::string source = path.empty() ? ::default_settings_path() : path;
+        std::ifstream in(source);
+        if (!in)
+        {
+            spdlog::error("load_settings: couldn't open '{}'", source);
+            return std::unexpected("couldn't open '" + source + "'");
+        }
+        nlohmann::json j = nlohmann::json::parse(in, nullptr, /*allow_exceptions=*/false);
+        if (j.is_discarded() || !j.is_object())
+        {
+            spdlog::error("load_settings: '{}' isn't a JSON object", source);
+            return std::unexpected("'" + source + "' isn't a JSON object");
+        }
+        // Files without a version predate versioning, which started at 1.
+        int64_t version = 1;
+        if (j.contains("version"))
+        {
+            if (j["version"].is_number_integer() && j["version"].get<int64_t>() >= 1)
+                version = j["version"].get<int64_t>();
+            else
+                spdlog::warn("load_settings: {}: ignoring invalid \"version\"", source);
+        }
+        if (version > kSettingsVersion)
+            spdlog::warn("load_settings: {}: written by a newer layout_engine (format {}, this one reads up to {}) - "
+                         "loading the settings this version knows",
+                         source, version, kSettingsVersion);
+        migrate_settings_json(j, version);
+        apply_settings_json(&handle, j, source);
+        handle.unknown_settings_json.clear();
+        nlohmann::json unknown = nlohmann::json::object();
+        const nlohmann::json known = settings_to_json(&handle);
+        for (const auto &[key, value] : j.items())
+            if (!known.contains(key))
+                unknown[key] = value;
+        if (!unknown.empty())
+            handle.unknown_settings_json = unknown.dump();
+        handle.saved_settings_json = settings_snapshot(&handle); // the settings are saved
+        spdlog::info("load_settings: read '{}'", source);
+        return {};
+    }
+}
+
 extern "C"
 {
     int32_t le_max_concurrency(LeHandle *handle)
@@ -366,7 +514,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_); // a read - polled every GUI frame
-        return handle->max_concurrency_;
+        return le::edit::max_concurrency(*handle);
     }
 
     void le_set_max_concurrency(LeHandle *handle, int32_t max_concurrency)
@@ -374,7 +522,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        set_max_concurrency_unlocked(handle, max_concurrency);
+        le::edit::set_max_concurrency(*handle, max_concurrency);
     }
 
     void le_set_flightline_max_fanout(LeHandle *handle, int32_t max_fanout)
@@ -382,7 +530,7 @@ extern "C"
         if (!handle || max_fanout < 0)
             return;
         HandleWriteLock lock(handle);
-        handle->set_flightline_max_fanout(max_fanout);
+        le::edit::set_flightline_max_fanout(*handle, max_fanout);
     }
 
     void le_set_confirm_overwrite(LeHandle *handle, int32_t confirm)
@@ -390,7 +538,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->confirm_overwrite = confirm != 0;
+        le::edit::set_confirm_overwrite(*handle, confirm != 0);
     }
 
     int32_t le_confirm_overwrite(LeHandle *handle)
@@ -398,19 +546,17 @@ extern "C"
         if (!handle)
             return 1;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->confirm_overwrite ? 1 : 0;
+        return le::edit::confirm_overwrite(*handle) ? 1 : 0;
     }
 
     int32_t le_set_theme(LeHandle *handle, const char *name)
     {
         if (!handle || !name)
             return -1;
-        const std::optional<size_t> theme = le::find_theme(name);
-        if (!theme)
+        if (!le::find_theme(name))
             return -1;
         HandleWriteLock lock(handle);
-        handle->theme = *theme;
-        return 0;
+        return le::edit::set_theme(*handle, name) ? 0 : -1;
     }
 
     const char *le_theme(LeHandle *handle)
@@ -418,7 +564,7 @@ extern "C"
         if (!handle)
             return le::kThemes[0].name.data();
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::kThemes[handle->theme].name.data();
+        return le::kThemes[le::edit::theme(*handle)].name.data();
     }
 
     int32_t le_theme_count() { return static_cast<int32_t>(le::kThemes.size()); }
@@ -435,7 +581,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->flightline_max_fanout();
+        return le::edit::flightline_max_fanout(*handle);
     }
 
     int64_t le_minor_grid_spacing(LeHandle *handle)
@@ -443,7 +589,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->minor_grid_spacing();
+        return le::edit::minor_grid_spacing(*handle);
     }
 
     void le_set_minor_grid_spacing(LeHandle *handle, int64_t dbu)
@@ -451,7 +597,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->set_minor_grid_spacing(dbu);
+        le::edit::set_minor_grid_spacing(*handle, dbu);
     }
 
     int64_t le_major_grid_spacing(LeHandle *handle)
@@ -459,7 +605,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->major_grid_spacing();
+        return le::edit::major_grid_spacing(*handle);
     }
 
     void le_set_major_grid_spacing(LeHandle *handle, int64_t dbu)
@@ -467,7 +613,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->set_major_grid_spacing(dbu);
+        le::edit::set_major_grid_spacing(*handle, dbu);
     }
 
     double le_ruler_label_size(LeHandle *handle)
@@ -475,7 +621,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_); // a read - polled every GUI frame
-        return handle->ruler_label_size_px();
+        return le::edit::ruler_label_size(*handle);
     }
 
     void le_set_ruler_label_size(LeHandle *handle, double px)
@@ -483,7 +629,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->set_ruler_label_size_px(px);
+        le::edit::set_ruler_label_size(*handle, px);
     }
 
     int32_t le_set_layer_color(LeHandle *handle, const char *layer_name, int32_t r, int32_t g, int32_t b)
@@ -493,7 +639,7 @@ extern "C"
         if (!handle || !layer_name || !in_range(r) || !in_range(g) || !in_range(b))
             return 1;
         HandleWriteLock lock(handle);
-        handle->set_layer_color(layer_name, le::Color{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b), 255});
+        le::edit::set_layer_color(*handle, layer_name, le::Color{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b), 255});
         return 0;
     }
 
@@ -502,21 +648,16 @@ extern "C"
         if (!handle || !layer_name)
             return;
         HandleWriteLock lock(handle);
-        if (handle->reset_layer_color(layer_name) && handle->current_technology_id.valid())
-            rebuild_view_layers(handle, handle->current_technology_id);
+        le::edit::reset_layer_color(*handle, layer_name);
     }
 
     int32_t le_layer_color_rgb(LeHandle *handle, const char *layer_name)
     {
         if (!handle || !layer_name)
             return -1;
-        HandleWriteLock lock(handle); // ensure_view_layers_current may rebuild
-        ensure_view_layers_current(handle);
-        for (const le::ViewLayerRow &row : handle->view_layers.rows())
-            if (row.name == layer_name && !row.columns.empty())
-                if (const le::ViewLayerData *data = handle->view_layers.get(row.columns.front().id))
-                    return (data->style.outline_color.r << 16) | (data->style.outline_color.g << 8) | data->style.outline_color.b;
-        return -1;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        const std::optional<le::Color> color = le::edit::layer_color(*handle, layer_name);
+        return color ? (color->r << 16) | (color->g << 8) | color->b : -1;
     }
 
     double le_label_min_size(LeHandle *handle)
@@ -524,7 +665,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->label_min_size_px();
+        return le::edit::label_min_size(*handle);
     }
 
     void le_set_label_min_size(LeHandle *handle, double px)
@@ -532,7 +673,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->set_label_min_size_px(px);
+        le::edit::set_label_min_size(*handle, px);
     }
 
     double le_label_max_size(LeHandle *handle)
@@ -540,7 +681,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->label_max_size_px();
+        return le::edit::label_max_size(*handle);
     }
 
     void le_set_label_max_size(LeHandle *handle, double px)
@@ -548,7 +689,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->set_label_max_size_px(px);
+        le::edit::set_label_max_size(*handle, px);
     }
 
     double le_grid_spacing_um(LeHandle *handle, int32_t major)
@@ -556,7 +697,7 @@ extern "C"
         if (!handle)
             return -1.0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return grid_spacing_um_unlocked(handle, major != 0);
+        return le::edit::grid_spacing_um(*handle, major != 0);
     }
 
     void le_set_grid_spacing_um(LeHandle *handle, double minor_um, double major_um)
@@ -564,7 +705,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        set_grid_spacing_um_unlocked(handle, minor_um, major_um);
+        le::edit::set_grid_spacing_um(*handle, minor_um, major_um);
     }
 
     double le_manufacturing_grid_um(LeHandle *handle)
@@ -591,27 +732,8 @@ extern "C"
     {
         if (!handle)
             return 1;
-        const std::string target = path && path[0] ? std::string(path) : default_settings_path();
-        if (target.empty())
-        {
-            spdlog::error("save_settings: no path given and HOME isn't set");
-            return 1;
-        }
-        HandleWriteLock lock(handle); // updates saved_settings_json below
-        const nlohmann::json j = settings_to_json(handle);
-        const std::string text = j.dump(2) + "\n";
-        std::error_code ec;
-        if (const std::filesystem::path parent = std::filesystem::path(target).parent_path(); !parent.empty())
-            std::filesystem::create_directories(parent, ec);
-        std::ofstream out(target, std::ios::trunc);
-        if (!out || !(out << text) || !out.flush())
-        {
-            spdlog::error("save_settings: couldn't write '{}'", target);
-            return 1;
-        }
-        handle->saved_settings_json = j.dump(); // the settings are saved
-        spdlog::info("save_settings: wrote '{}'", target);
-        return 0;
+        HandleWriteLock lock(handle);
+        return le::edit::save_settings(*handle, path ? path : "") ? 0 : 1;
     }
     catch (...)
     {
@@ -632,7 +754,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return has_unsaved_settings_unlocked(handle) ? 1 : 0;
+        return le::edit::has_unsaved_settings(*handle) ? 1 : 0;
     }
 
     int32_t le_load_settings(LeHandle *handle, const char *path)
@@ -640,46 +762,8 @@ extern "C"
     {
         if (!handle)
             return 1;
-        const std::string source = path && path[0] ? std::string(path) : default_settings_path();
-        std::ifstream in(source);
-        if (!in)
-        {
-            spdlog::error("load_settings: couldn't open '{}'", source);
-            return 1;
-        }
-        nlohmann::json j = nlohmann::json::parse(in, nullptr, /*allow_exceptions=*/false);
-        if (j.is_discarded() || !j.is_object())
-        {
-            spdlog::error("load_settings: '{}' isn't a JSON object", source);
-            return 1;
-        }
-        // Files without a version predate versioning, which started at 1.
-        int64_t version = 1;
-        if (j.contains("version"))
-        {
-            if (j["version"].is_number_integer() && j["version"].get<int64_t>() >= 1)
-                version = j["version"].get<int64_t>();
-            else
-                spdlog::warn("load_settings: {}: ignoring invalid \"version\"", source);
-        }
-        if (version > kSettingsVersion)
-            spdlog::warn("load_settings: {}: written by a newer layout_engine (format {}, this one reads up to {}) - "
-                         "loading the settings this version knows",
-                         source, version, kSettingsVersion);
-        migrate_settings_json(j, version);
         HandleWriteLock lock(handle);
-        apply_settings_json(handle, j, source);
-        handle->unknown_settings_json.clear();
-        nlohmann::json unknown = nlohmann::json::object();
-        const nlohmann::json known = settings_to_json(handle);
-        for (const auto &[key, value] : j.items())
-            if (!known.contains(key))
-                unknown[key] = value;
-        if (!unknown.empty())
-            handle->unknown_settings_json = unknown.dump();
-        handle->saved_settings_json = settings_snapshot(handle); // the settings are saved
-        spdlog::info("load_settings: read '{}'", source);
-        return 0;
+        return le::edit::load_settings(*handle, path ? path : "") ? 0 : 1;
     }
     catch (...)
     {
