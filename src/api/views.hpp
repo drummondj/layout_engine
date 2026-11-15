@@ -211,6 +211,20 @@ namespace le
         std::vector<PropertyValue> properties(const ObjectId &id) const;
         /// @brief `id`'s owner; nullopt for a class with none or an id that doesn't exist.
         std::optional<ObjectId> parent(const ObjectId &id) const;
+        /// @brief `path` (`.name`, or chained like `.terminal.name`, as in
+        /// a -filter) read off `id`, in microns: nullopt if `id` doesn't
+        /// exist or the path leads nowhere; an error if it doesn't parse or
+        /// names no field.
+        std::expected<std::optional<PropertyValue>, std::string> property(const ObjectId &id, const std::string &path) const;
+        /// @brief The Instances a hierarchical `path` (`u1/u2/*`, `**` for
+        /// any depth) names under `of`, or the current Schematic if `of`
+        /// isn't valid, narrowed by a -filter expression.
+        std::expected<std::vector<InstanceId>, std::string> get_instances_by_path(SchematicId of, const std::string &path,
+                                                                                  const std::string &filter = {}) const;
+        /// @brief get_instances_by_path for Nets.
+        std::expected<std::vector<NetId>, std::string> get_nets_by_path(SchematicId of, const std::string &path, const std::string &filter = {}) const;
+        /// @brief get_instances_by_path for Ports.
+        std::expected<std::vector<PortId>, std::string> get_ports_by_path(SchematicId of, const std::string &path, const std::string &filter = {}) const;
         // Only when valid().
 #include "generated/api/view_current_decls.inc"
 
@@ -440,6 +454,31 @@ namespace le
         std::expected<bool, std::string> undo();
         /// @brief Redoes the newest undone step, as undo() reports.
         std::expected<bool, std::string> redo();
+        /// @brief Opens an undo step labelled `label` that outlives this
+        /// view, until end_command, and holds renders meanwhile: for a front
+        /// end bracketing one command that spans several views.
+        void begin_command(const std::string &label);
+        /// @brief Closes the step begin_command opened (kept if it recorded
+        /// anything), adds its label to the command history and releases
+        /// renders.
+        void end_command(bool succeeded);
+
+        // Netlist edits that keep the Layout linked. Each is one undo step,
+        // or part of the open one.
+
+        /// @brief Deletes `net`, clearing its Pins', Ports' and
+        /// PhysicalPorts' references to it and deleting its Routes.
+        std::expected<void, std::string> delete_net_cascade(NetId net);
+        /// @brief Renames `net` and the Routes and PhysicalPorts linked to
+        /// it; an error, changing nothing, if any would take a name in use.
+        std::expected<void, std::string> rename_net(NetId net, const std::string &name);
+        /// @brief Renames `instance` and the Placements, Routes and
+        /// PhysicalPorts linked to it, as rename_net does.
+        std::expected<void, std::string> rename_instance(InstanceId instance, const std::string &name);
+        /// @brief Resolves Instances whose design wasn't read yet (e.g. by a
+        /// later LEF read) and links Layouts to their Schematics: how many
+        /// Instances resolved. Not undoable, like the reads.
+        std::expected<size_t, std::string> link_unresolved_instances();
 
         // Reading and writing files. Each also logs what it reports, as
         // read_lef and friends do in Tcl. A read is part of the open undo

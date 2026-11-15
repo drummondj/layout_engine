@@ -329,11 +329,37 @@ namespace le
     const std::string &ReadView::db_path() const { return edit::db_path(*handle_); }
     bool ReadView::database_is_empty() const { return edit::database_is_empty(*handle_); }
     std::expected<bool, std::string> WriteView::undo() { return edit::undo(*handle_); }
+    void WriteView::begin_command(const std::string &label) { edit::begin_command(*handle_, label); }
+    void WriteView::end_command(bool succeeded) { edit::end_command(*handle_, succeeded); }
+    std::expected<void, std::string> WriteView::delete_net_cascade(NetId net) { return edit::delete_net_cascade(*handle_, net); }
+    std::expected<void, std::string> WriteView::rename_net(NetId net, const std::string &name) { return edit::rename_net(*handle_, net, name); }
+    std::expected<void, std::string> WriteView::rename_instance(InstanceId instance, const std::string &name)
+    {
+        return edit::rename_instance(*handle_, instance, name);
+    }
+    std::expected<size_t, std::string> WriteView::link_unresolved_instances() { return edit::link_unresolved_instances(*handle_); }
     std::expected<bool, std::string> WriteView::redo() { return edit::redo(*handle_); }
 
 #include "generated/api/view_search_defs.inc"
     std::vector<PropertyValue> ReadView::properties(const ObjectId &id) const { return edit::object_properties(*handle_, id); }
     std::optional<ObjectId> ReadView::parent(const ObjectId &id) const { return edit::object_parent(*handle_, id); }
+    std::expected<std::optional<PropertyValue>, std::string> ReadView::property(const ObjectId &id, const std::string &path) const
+    {
+        return edit::object_property_path(*handle_, id, path);
+    }
+    std::expected<std::vector<InstanceId>, std::string> ReadView::get_instances_by_path(SchematicId of, const std::string &path,
+                                                                                        const std::string &filter) const
+    {
+        return edit::get_instances_by_path(*handle_, of, path, filter);
+    }
+    std::expected<std::vector<NetId>, std::string> ReadView::get_nets_by_path(SchematicId of, const std::string &path, const std::string &filter) const
+    {
+        return edit::get_nets_by_path(*handle_, of, path, filter);
+    }
+    std::expected<std::vector<PortId>, std::string> ReadView::get_ports_by_path(SchematicId of, const std::string &path, const std::string &filter) const
+    {
+        return edit::get_ports_by_path(*handle_, of, path, filter);
+    }
 
     std::expected<void, std::string> WriteView::read_lef(const std::string &path, const std::string &library) { return edit::read_lef(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_def(const std::string &path, const std::string &library) { return edit::read_def(*handle_, path, library); }
