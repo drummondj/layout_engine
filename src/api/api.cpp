@@ -24,6 +24,7 @@
 #include "read_command.hpp"
 #include "le_handle.hpp"
 #include "le/extension.hpp"
+#include "views.hpp"
 // Generated apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&)
 // helpers - a real standalone header, unlike every
 // other generated/api/*.inc fragment, so it's included here with the
@@ -56,15 +57,6 @@ namespace
     using le::ext::from_c;
     using le::ext::to_c;
 
-    // Tracy's FrameMarkStart/FrameMarkEnd send the raw pointer value of
-    // `name`, not a copy of the string (see TracyProfiler.hpp's
-    // SendFrameMark) - the server pairs a Start with its matching End by
-    // that pointer, so both call sites in le_render_pixel_buffer must pass
-    // the exact same pointer, not two separately-compiled string literals
-    // (which the compiler is free, but not guaranteed, to pool into one
-    // address). A single named constant guarantees that regardless of
-    // compiler/optimization level.
-    constexpr const char *kRenderFrameName = "le_render_pixel_buffer";
 }
 
 namespace le::api_detail
@@ -998,15 +990,12 @@ extern "C"
 
     LeHandle *le_create(void)
     {
-        LeHandle *handle = new LeHandle();
-        handle->saved_mutation_version = handle->root.mutation_version();
-        handle->saved_settings_json = settings_snapshot(handle);
-        return handle;
+        return le::Session().release();
     }
 
     void le_destroy(LeHandle *handle)
     {
-        delete handle;
+        le::Session::destroy(handle);
     }
 
     int le_read_lef(LeHandle *handle, const char *path, const char *library_name)
@@ -2657,96 +2646,22 @@ extern "C"
         return out;
     }
 
-    int frame_mark_count = 0;
-
     LePixelBuffer le_render_pixel_buffer(LeHandle *handle)
     try
     {
         if (!handle)
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
-        // The GUI render thread and the Tcl thread (dump_png) both render;
-        // render_mutex_ keeps their pipeline runs apart. mutex_ is only
-        // shared, so the GUI's panel reads stay live during a render: the
-        // render mutates nothing but view_render_pipeline (and the
-        // flightline cache, which has its own mutex).
-        std::lock_guard<std::mutex> render_lock(handle->render_mutex_);
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-
-        // A viewport that hasn't been sized yet (le_set_viewport_size
-        // never called - LeHandle's own viewport_width_px_/
-        // viewport_height_px_ both default to 0) has nothing to render -
-        // short-circuit before the pipeline runs at all, rather than
-        // letting it clamp a degenerate 0x0 request up to some minimum
-        // internally (Blend2D itself can't construct a zero-sized
-        // BLImage) and leak that clamped size back out as a misleading
-        // non-empty result.
-        if (handle->viewport_width_px() <= 0 || handle->viewport_height_px() <= 0)
+        // Holding this thread's last frame keeps `data` valid until this
+        // thread renders again (api.hpp).
+        thread_local le::RenderedFrame this_thread_frame;
+        this_thread_frame = le::Renderer(handle).render();
+        if (this_thread_frame.empty())
             return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
-
-        // FrameMarkStart/End (named), not plain FrameMark - a frame here
-        // only ever happens on demand (whenever something changed and the
-        // native texture callback next pulls a frame), not once per
-        // engine vsync like a game's continuous main loop, which is what
-        // plain FrameMark assumes (see Tracy's own manual). A named
-        // start/end pair correctly represents this as a discontinuous
-        // frame set with its own explicit duration in the Tracy timeline,
-        // instead of a single zero-width instant marker that would make
-        // every render look free.
-
-        FrameMarkStart(kRenderFrameName);
-
-        // view_render_options_for maps LeHandle's pan/scale/viewport size,
-        // selection, hover, rulers and other overlays onto
-        // ViewRenderOptions (see its own comment).
-        const le::ViewRenderOptions options = view_render_options_for(handle);
-
-        // is_rendering_'s own doc comment
-        // (LeHandle) explains why this is a plain atomic, not mutex_-
-        // guarded. Bracketed around only the real recompute (would_recompute()
-        // true), not this whole function - a call that finds nothing
-        // changed (the common case, and now the *only* case whenever
-        // this is called with nothing to do, since le_gui.cpp's render
-        // thread no longer calls this speculatively on a timer - see
-        // le_wait_for_render_needed's own doc comment, api.hpp) never
-        // sets this at all, so a poller sees an accurate, precisely-timed
-        // signal instead of one smeared across cheap no-op calls too.
-        // RAII, not a manual reset-before-every-return, so a future early
-        // return (or a real exception, however unlikely given this
-        // codebase's own "no exceptions for expected-missing-data paths"
-        // convention) can't leave this stuck true.
-        const bool will_recompute = handle->view_render_pipeline.would_recompute(options);
-        if (will_recompute)
-            handle->is_rendering_.store(true, std::memory_order_relaxed);
-        struct RenderingGuard
-        {
-            LeHandle *handle;
-            bool active;
-            ~RenderingGuard()
-            {
-                if (active)
-                    handle->is_rendering_.store(false, std::memory_order_relaxed);
-            }
-        } rendering_guard{handle, will_recompute};
-
-        const le::ViewRenderPipeline::WarmOutput output = handle->view_render_pipeline.run(&handle->root, options);
-
-        FrameMarkEnd(kRenderFrameName);
-
-        // The caller reads `data` after both locks are released, while
-        // another thread's render may replace the pipeline's cached frame.
-        // Frames are immutable, so holding this thread's last one keeps
-        // `data` valid until this thread renders again (api.hpp).
-        thread_local le::ComposeStage::OutputHandle this_thread_frame;
-        this_thread_frame = output.frame;
-
-        if (!output.frame || output.frame->empty)
-            return LePixelBuffer{.data = nullptr, .width = 0, .height = 0, .row_bytes = 0};
-
         return LePixelBuffer{
-            .data = output.frame->buffer.data,
-            .width = output.frame->buffer.width,
-            .height = output.frame->buffer.height,
-            .row_bytes = static_cast<int64_t>(output.frame->buffer.row_bytes),
+            .data = this_thread_frame.data,
+            .width = this_thread_frame.width,
+            .height = this_thread_frame.height,
+            .row_bytes = static_cast<int64_t>(this_thread_frame.row_bytes),
         };
     }
     catch (...)
@@ -2761,28 +2676,28 @@ extern "C"
         // is_rendering_'s own doc comment (LeHandle) for why not.
         if (!handle)
             return 0;
-        return handle->is_rendering_.load(std::memory_order_relaxed) ? 1 : 0;
+        return le::Renderer(handle).is_rendering() ? 1 : 0;
     }
 
     int32_t le_is_command_running(LeHandle *handle)
     {
         if (!handle)
             return 0;
-        return handle->renders_held() ? 1 : 0;
+        return le::Renderer(handle).renders_held() ? 1 : 0;
     }
 
     void le_wait_for_render_needed(LeHandle *handle)
     {
         if (!handle)
             return;
-        handle->wait_for_render_needed();
+        le::Renderer(handle).wait_until_needed();
     }
 
     void le_cancel_render_wait(LeHandle *handle)
     {
         if (!handle)
             return;
-        handle->cancel_render_wait();
+        le::Renderer(handle).cancel_wait();
     }
 
     void le_request_show_gui(LeHandle *handle)

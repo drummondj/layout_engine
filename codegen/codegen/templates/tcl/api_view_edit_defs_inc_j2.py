@@ -1,6 +1,6 @@
 TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
-// (codegen --target tcl). #include'd inside namespace le::ext in
-// api/extension.cpp: WriteView's create/update/delete, each forwarding to
+// (codegen --target tcl). #include'd inside namespace le in api/views.cpp:
+// WriteView's create/update/delete, each forwarding to
 // le::edit under the lock the view holds.
 {% for klass in classes %}
 {% set snake = klass.to_snake_case() %}

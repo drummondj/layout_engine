@@ -54,8 +54,8 @@ class TestEditOps(unittest.TestCase):
         self.assertGreaterEqual(ops.count("txn->record_create(created);"), len(self.readable))
 
     def test_write_view_has_each_op(self):
-        decls = self.read("extension_edit_decls.inc")
-        defs = self.read("extension_edit_defs.inc")
+        decls = self.read("view_edit_decls.inc")
+        defs = self.read("view_edit_defs.inc")
         for klass in self.readable:
             snake = klass.to_snake_case()
             for op in ("create", "update", "delete"):

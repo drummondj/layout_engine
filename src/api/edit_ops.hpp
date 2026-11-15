@@ -3,7 +3,7 @@
 // mutation version and record undo, in native types (database ids, dbu,
 // std::expected errors). The le_* functions convert their C arguments and
 // call these under the handle's lock; extensions reach them through
-// le::ext::WriteView. Every function here expects the caller to hold the
+// le::WriteView (views.hpp). Every function here expects the caller to hold the
 // handle's exclusive lock.
 
 #include "api.hpp"
