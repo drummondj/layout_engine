@@ -287,6 +287,35 @@ namespace le::edit
     /// kept for the next save.
     std::expected<void, std::string> load_settings(LeHandle &handle, const std::string &path);
 
+    // --- Undo and the command history ---
+
+    /// @brief Opens an undo step labelled `label` and holds renders until
+    /// end_command; a no-op for the undo step if one is already open.
+    void begin_command(LeHandle &handle, const std::string &label);
+    /// @brief Closes the step begin_command opened, pushing it if it
+    /// recorded anything, adds its label to the command history, and
+    /// releases renders.
+    void end_command(LeHandle &handle, bool succeeded);
+    /// @brief Undoes the newest step: whether there was one, or (logged)
+    /// how many of its steps couldn't be applied.
+    std::expected<bool, std::string> undo(LeHandle &handle);
+    std::expected<bool, std::string> redo(LeHandle &handle);
+    bool can_undo(const LeHandle &handle);
+    bool can_redo(const LeHandle &handle);
+    /// @brief How many commands the history holds, oldest first.
+    size_t command_history_size(const LeHandle &handle);
+    /// @brief Command `index` (< command_history_size), oldest first.
+    const std::string &command_history_at(const LeHandle &handle, size_t index);
+
+    // --- The database file ---
+
+    /// @brief Whether the database changed since it was last read or written as a .led file.
+    bool has_unsaved_database(const LeHandle &handle);
+    /// @brief The .led file the database was last read from or written to; empty if none.
+    const std::string &db_path(const LeHandle &handle);
+    /// @brief Whether the database holds no objects (read_db needs an empty one).
+    bool database_is_empty(const LeHandle &handle);
+
     // --- Files ---
     // Each logs what it reports, as the C API always has (the readers and
     // writers log as they go), and returns the error text too: the reader's

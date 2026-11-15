@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cstdint>
+#include <expected>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -44,8 +45,11 @@ namespace le::api_detail
     /// @brief database_units_microns, or 1.0 without a usable Technology.
     double display_dbu_per_um(const le::Root &root);
 
-    /// @brief le_undo/le_redo's result: 1 if replayed, 0 if there was
-    /// nothing to replay, -1 if some steps couldn't be applied (logged).
+    /// @brief An undo's or redo's result: whether it replayed anything, or
+    /// (logged) how many of its steps couldn't be applied.
+    std::expected<bool, std::string> replay_outcome(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb);
+
+    /// @brief replay_outcome as 1 (replayed), 0 (nothing to replay) or -1 (steps failed).
     int32_t report_replay(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb);
 
     inline LeObjectRef invalid_object_ref()

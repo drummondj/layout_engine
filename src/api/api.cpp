@@ -594,15 +594,22 @@ namespace le::api_detail
     }
 
     // le_undo/le_redo's result: logs the steps that couldn't be applied.
-    int32_t report_replay(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb)
+    std::expected<bool, std::string> replay_outcome(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb)
     {
         if (!result.replayed)
-            return 0;
+            return false;
         refresh_armed_move_geometry_unlocked(handle);
         if (result.failed_steps == 0)
-            return 1;
-        spdlog::error("{} '{}': {} of its {} steps could not be applied", verb, result.label, result.failed_steps, result.steps);
-        return -1;
+            return true;
+        const std::string error = fmt::format("{} '{}': {} of its {} steps could not be applied", verb, result.label, result.failed_steps, result.steps);
+        spdlog::error("{}", error);
+        return std::unexpected(error);
+    }
+
+    int32_t report_replay(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb)
+    {
+        const std::expected<bool, std::string> outcome = replay_outcome(handle, result, verb);
+        return outcome ? (*outcome ? 1 : 0) : -1;
     }
 }
 
@@ -966,6 +973,109 @@ namespace le::edit
         h->db_path = path;
         return {};
     }
+}
+
+namespace le
+{
+    std::expected<std::string, std::string> db_info(const std::string &path)
+    {
+        if (path.empty())
+            return std::unexpected("a file path is required");
+        const persistence::FileInfo info = persistence::inspect_native(path);
+        if (!info.ok())
+            return std::unexpected(info.error);
+        std::string text = fmt::format("file: {}\nsize: {} bytes\ncontainer version: {}\nschema version: {} (fingerprint {})\nthis build: {} (fingerprint {}) - {}\n",
+                                       path, info.file_bytes, info.container_version, info.schema_version, info.fingerprint, schema_info::kVersion,
+                                       schema_info::kFingerprint, info.schema_matches ? "same schema" : "different schema, fields matched by name on load");
+        for (const auto &ext : info.extensions)
+            text += fmt::format("extension {} {} (schema {}): {}\n", ext.name, ext.package_version, ext.schema_version,
+                                ext.built_schema_version.empty() ? "not in this build - the file can't be opened here"
+                                                                 : "this build has schema " + ext.built_schema_version);
+        text += info.migrations.empty() ? "migrations to run: none\n" : fmt::format("migrations to run: {}\n", info.migrations.size());
+        for (const auto &m : info.migrations)
+            text += fmt::format("  {} {}: {}{}\n", m.extension.empty() ? "core" : m.extension, m.to_version, m.description,
+                                m.unsupported ? " (can't be applied yet - the file can't be opened here)" : "");
+        uint64_t total = 0;
+        for (const auto &[name, rows] : info.classes)
+        {
+            text += fmt::format("  {:<32} {}\n", name, rows);
+            total += rows;
+        }
+        text += fmt::format("objects: {}\nsession: {}", total, info.has_session ? "yes" : "no");
+        return text;
+    }
+
+    std::expected<std::string, std::string> migrate_db(const std::string &in_path, const std::string &out_path)
+    {
+        if (in_path.empty() || out_path.empty())
+            return std::unexpected("an input and an output file path are required");
+        const persistence::MigrateReport report = persistence::migrate_native(in_path, out_path);
+        if (!report.ok())
+            return std::unexpected(report.error);
+        std::string text = fmt::format("migrated {} (schema {}) to {} (schema {}): {} objects, {} bytes", in_path, report.from_schema_version, out_path,
+                                       schema_info::kVersion, report.objects, report.file_bytes);
+        for (const std::string &warning : report.warnings)
+            text += "\n" + warning;
+        spdlog::info("migrate_db: {}", text);
+        return text;
+    }
+
+    void SessionRequests::request_show_gui() const { handle_->gui_show_requested_.store(true, std::memory_order_relaxed); }
+
+    bool SessionRequests::take_show_gui_request() const { return handle_->gui_show_requested_.exchange(false, std::memory_order_relaxed); }
+
+    void SessionRequests::request_close_gui() const { handle_->gui_close_requested_.store(true, std::memory_order_relaxed); }
+
+    bool SessionRequests::take_close_gui_request() const { return handle_->gui_close_requested_.exchange(false, std::memory_order_relaxed); }
+
+    void SessionRequests::enqueue_tcl_command(std::string command) const
+    {
+        std::lock_guard<std::mutex> lock(handle_->pending_tcl_commands_mutex_);
+        handle_->pending_tcl_commands_.push_back(std::move(command));
+    }
+
+    std::optional<std::string> SessionRequests::take_next_tcl_command() const
+    {
+        std::lock_guard<std::mutex> lock(handle_->pending_tcl_commands_mutex_);
+        if (handle_->pending_tcl_commands_.empty())
+            return std::nullopt;
+        std::string command = std::move(handle_->pending_tcl_commands_.front());
+        handle_->pending_tcl_commands_.pop_front();
+        return command;
+    }
+}
+
+namespace le::edit
+{
+    void begin_command(LeHandle &handle, const std::string &label)
+    {
+        handle.command_history.begin(label);
+        handle.hold_renders();
+    }
+
+    void end_command(LeHandle &handle, bool succeeded)
+    {
+        handle.command_history.end(succeeded);
+        handle.release_renders();
+    }
+
+    std::expected<bool, std::string> undo(LeHandle &handle) { return api_detail::replay_outcome(&handle, handle.command_history.undo(), "undo"); }
+
+    std::expected<bool, std::string> redo(LeHandle &handle) { return api_detail::replay_outcome(&handle, handle.command_history.redo(), "redo"); }
+
+    bool can_undo(const LeHandle &handle) { return handle.command_history.can_undo(); }
+
+    bool can_redo(const LeHandle &handle) { return handle.command_history.can_redo(); }
+
+    size_t command_history_size(const LeHandle &handle) { return handle.command_history.recall_count(); }
+
+    const std::string &command_history_at(const LeHandle &handle, size_t index) { return handle.command_history.recall_at(index); }
+
+    bool has_unsaved_database(const LeHandle &handle) { return api_detail::has_unsaved_database_unlocked(&handle); }
+
+    const std::string &db_path(const LeHandle &handle) { return handle.db_path; }
+
+    bool database_is_empty(const LeHandle &handle) { return persistence::database_is_empty(handle.root); }
 }
 
 extern "C"
@@ -1434,7 +1544,7 @@ extern "C"
         if (!handle)
             return "";
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return hold_string(__func__, handle->db_path);
+        return hold_string(__func__, le::edit::db_path(*handle));
     }
 
     int32_t le_database_is_empty(LeHandle *handle)
@@ -1442,63 +1552,22 @@ extern "C"
         if (!handle)
             return 1;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::persistence::database_is_empty(handle->root) ? 1 : 0;
+        return le::edit::database_is_empty(*handle) ? 1 : 0;
     }
 
     const char *le_db_info(const char *path)
     {
         thread_local std::string text;
-        if (!path || !path[0])
-        {
-            text = "error: a file path is required";
-            return text.c_str();
-        }
-        const le::persistence::FileInfo info = le::persistence::inspect_native(path);
-        if (!info.ok())
-        {
-            text = "error: " + info.error;
-            return text.c_str();
-        }
-        text = fmt::format("file: {}\nsize: {} bytes\ncontainer version: {}\nschema version: {} (fingerprint {})\nthis build: {} (fingerprint {}) - {}\n", path,
-                           info.file_bytes, info.container_version, info.schema_version, info.fingerprint, le::schema_info::kVersion, le::schema_info::kFingerprint,
-                           info.schema_matches ? "same schema" : "different schema, fields matched by name on load");
-        for (const auto &ext : info.extensions)
-            text += fmt::format("extension {} {} (schema {}): {}\n", ext.name, ext.package_version, ext.schema_version,
-                                ext.built_schema_version.empty() ? "not in this build - the file can't be opened here"
-                                                                 : "this build has schema " + ext.built_schema_version);
-        text += info.migrations.empty() ? "migrations to run: none\n" : fmt::format("migrations to run: {}\n", info.migrations.size());
-        for (const auto &m : info.migrations)
-            text += fmt::format("  {} {}: {}{}\n", m.extension.empty() ? "core" : m.extension, m.to_version, m.description,
-                                m.unsupported ? " (can't be applied yet - the file can't be opened here)" : "");
-        uint64_t total = 0;
-        for (const auto &[name, rows] : info.classes)
-        {
-            text += fmt::format("  {:<32} {}\n", name, rows);
-            total += rows;
-        }
-        text += fmt::format("objects: {}\nsession: {}", total, info.has_session ? "yes" : "no");
+        const std::expected<std::string, std::string> info = le::db_info(path ? path : "");
+        text = info ? *info : "error: " + info.error();
         return text.c_str();
     }
 
     const char *le_migrate_db(const char *in_path, const char *out_path)
     {
         thread_local std::string text;
-        if (!in_path || !in_path[0] || !out_path || !out_path[0])
-        {
-            text = "error: an input and an output file path are required";
-            return text.c_str();
-        }
-        const le::persistence::MigrateReport report = le::persistence::migrate_native(in_path, out_path);
-        if (!report.ok())
-        {
-            text = "error: " + report.error;
-            return text.c_str();
-        }
-        text = fmt::format("migrated {} (schema {}) to {} (schema {}): {} objects, {} bytes", in_path, report.from_schema_version, out_path,
-                           le::schema_info::kVersion, report.objects, report.file_bytes);
-        for (const std::string &warning : report.warnings)
-            text += "\n" + warning;
-        spdlog::info("migrate_db: {}", text);
+        const std::expected<std::string, std::string> report = le::migrate_db(in_path ? in_path : "", out_path ? out_path : "");
+        text = report ? *report : "error: " + report.error();
         return text.c_str();
     }
 
@@ -1657,8 +1726,7 @@ extern "C"
         if (!handle || !label)
             return;
         HandleWriteLock lock(handle);
-        handle->command_history.begin(label);
-        handle->hold_renders();
+        le::edit::begin_command(*handle, label);
     }
 
     void le_end_command(LeHandle *handle, int32_t succeeded)
@@ -1666,8 +1734,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->command_history.end(succeeded != 0);
-        handle->release_renders();
+        le::edit::end_command(*handle, succeeded != 0);
     }
 
     int32_t le_undo(LeHandle *handle)
@@ -1675,7 +1742,8 @@ extern "C"
         if (!handle)
             return 0;
         HandleWriteLock lock(handle);
-        return report_replay(handle, handle->command_history.undo(), "undo");
+        const std::expected<bool, std::string> undone = le::edit::undo(*handle);
+        return undone ? (*undone ? 1 : 0) : -1;
     }
 
     int32_t le_redo(LeHandle *handle)
@@ -1683,7 +1751,8 @@ extern "C"
         if (!handle)
             return 0;
         HandleWriteLock lock(handle);
-        return report_replay(handle, handle->command_history.redo(), "redo");
+        const std::expected<bool, std::string> redone = le::edit::redo(*handle);
+        return redone ? (*redone ? 1 : 0) : -1;
     }
 
     int32_t le_can_undo(LeHandle *handle)
@@ -1691,7 +1760,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->command_history.can_undo() ? 1 : 0;
+        return le::edit::can_undo(*handle) ? 1 : 0;
     }
 
     int32_t le_can_redo(LeHandle *handle)
@@ -1699,7 +1768,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->command_history.can_redo() ? 1 : 0;
+        return le::edit::can_redo(*handle) ? 1 : 0;
     }
 
     int32_t le_undo_limit(LeHandle *handle)
@@ -1723,7 +1792,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->command_history.recall_count());
+        return static_cast<int32_t>(le::edit::command_history_size(*handle));
     }
 
     const char *le_command_history_at(LeHandle *handle, int32_t index)
@@ -1731,9 +1800,9 @@ extern "C"
         if (!handle || index < 0)
             return nullptr;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        if (static_cast<size_t>(index) >= handle->command_history.recall_count())
+        if (static_cast<size_t>(index) >= le::edit::command_history_size(*handle))
             return nullptr;
-        return hold_string(__func__, handle->command_history.recall_at(static_cast<size_t>(index)));
+        return hold_string(__func__, le::edit::command_history_at(*handle, static_cast<size_t>(index)));
     }
 
     LeObjectRef le_object_invalid_ref(void)
@@ -2702,53 +2771,37 @@ extern "C"
 
     void le_request_show_gui(LeHandle *handle)
     {
-        // No lock - see gui_show_requested_'s own doc comment (LeHandle).
-        if (!handle)
-            return;
-        handle->gui_show_requested_.store(true, std::memory_order_relaxed);
+        if (handle)
+            le::SessionRequests(handle).request_show_gui();
     }
 
     int32_t le_take_show_gui_request(LeHandle *handle)
     {
-        // exchange(false), not load() - see gui_show_requested_'s own doc
-        // comment for why this consumes the request rather than just
-        // peeking at it.
-        if (!handle)
-            return 0;
-        return handle->gui_show_requested_.exchange(false, std::memory_order_relaxed) ? 1 : 0;
+        return handle && le::SessionRequests(handle).take_show_gui_request() ? 1 : 0;
     }
 
     void le_request_close_gui(LeHandle *handle)
     {
-        if (!handle)
-            return;
-        handle->gui_close_requested_.store(true, std::memory_order_relaxed);
+        if (handle)
+            le::SessionRequests(handle).request_close_gui();
     }
 
     int32_t le_take_close_gui_request(LeHandle *handle)
     {
-        if (!handle)
-            return 0;
-        return handle->gui_close_requested_.exchange(false, std::memory_order_relaxed) ? 1 : 0;
+        return handle && le::SessionRequests(handle).take_close_gui_request() ? 1 : 0;
     }
 
     void le_enqueue_tcl_command(LeHandle *handle, const char *command)
     {
-        if (!handle || !command)
-            return;
-        std::lock_guard<std::mutex> lock(handle->pending_tcl_commands_mutex_);
-        handle->pending_tcl_commands_.emplace_back(command);
+        if (handle && command)
+            le::SessionRequests(handle).enqueue_tcl_command(command);
     }
 
     const char *le_take_next_pending_tcl_command(LeHandle *handle)
     {
         if (!handle)
             return nullptr;
-        std::lock_guard<std::mutex> lock(handle->pending_tcl_commands_mutex_);
-        if (handle->pending_tcl_commands_.empty())
-            return nullptr;
-        const char *command = hold_string(__func__, handle->pending_tcl_commands_.front());
-        handle->pending_tcl_commands_.pop_front();
-        return command;
+        const std::optional<std::string> command = le::SessionRequests(handle).take_next_tcl_command();
+        return command ? hold_string(__func__, *command) : nullptr;
     }
 }

@@ -185,6 +185,23 @@ namespace le
         size_t undo_limit() const;
         /// @brief Whether any setting changed since the settings were last saved or loaded.
         bool has_unsaved_settings() const;
+
+        // Undo, the command history and the database file, only when valid().
+
+        bool can_undo() const;
+        bool can_redo() const;
+        /// @brief How many commands the history holds, oldest first.
+        size_t command_history_size() const;
+        /// @brief Command `index` (< command_history_size), oldest first.
+        const std::string &command_history_at(size_t index) const;
+        /// @brief Whether the database changed since it was last read or
+        /// written as a .led file.
+        bool has_unsaved_database() const;
+        /// @brief The .led file the database was last read from or written
+        /// to; empty if none.
+        const std::string &db_path() const;
+        /// @brief Whether the database holds no objects (read_db needs an empty one).
+        bool database_is_empty() const;
         // Only when valid().
 #include "generated/api/view_current_decls.inc"
 
@@ -409,6 +426,12 @@ namespace le
         /// know are kept for the next save.
         std::expected<void, std::string> load_settings(const std::string &path = {});
 
+        /// @brief Undoes the newest undo step: whether there was one to
+        /// undo, or (also logged) how many of its steps couldn't be applied.
+        std::expected<bool, std::string> undo();
+        /// @brief Redoes the newest undone step, as undo() reports.
+        std::expected<bool, std::string> redo();
+
         // Reading and writing files. Each also logs what it reports, as
         // read_lef and friends do in Tcl. A read is part of the open undo
         // step, if any, and saturates the change log (mutation listeners
@@ -509,6 +532,38 @@ namespace le
     /// @brief $HOME/.layout_engine/settings.json; empty if HOME isn't set.
     std::string default_settings_path();
 
+    /// @brief Describes a native database (.led) file without loading it:
+    /// its versions, extensions, the migrations it needs and its object
+    /// counts; an error if it can't be read.
+    std::expected<std::string, std::string> db_info(const std::string &path);
+    /// @brief Rewrites the .led file `in_path` with this build's schema to
+    /// `out_path`, describing what it did (with any warnings).
+    std::expected<std::string, std::string> migrate_db(const std::string &in_path, const std::string &out_path);
+
+    /// @brief Requests passed between a session's threads without its
+    /// lock: Tcl's show_gui/close_gui to the GUI thread, and the GUI's Tcl
+    /// commands to the console thread (so they enter the command history).
+    class SessionRequests
+    {
+    public:
+        explicit SessionRequests(LeHandle *handle) : handle_(handle) {}
+
+        /// @brief Asks the GUI thread to open the design view window.
+        void request_show_gui() const;
+        /// @brief Whether a show request is pending, clearing it.
+        bool take_show_gui_request() const;
+        /// @brief Asks the GUI thread to close the window.
+        void request_close_gui() const;
+        bool take_close_gui_request() const;
+        /// @brief Queues a Tcl command for the console thread to run.
+        void enqueue_tcl_command(std::string command) const;
+        /// @brief The oldest queued Tcl command, removed from the queue.
+        std::optional<std::string> take_next_tcl_command() const;
+
+    private:
+        LeHandle *handle_;
+    };
+
     /// @brief One rendered frame of the design view: premultiplied RGBA8888,
     /// row-major, top to bottom. `data` stays valid for as long as this
     /// frame (or a copy) lives, whatever is rendered meanwhile; row_bytes
@@ -581,6 +636,7 @@ namespace le
         WriteView write(const std::string &label) { return WriteView(handle_, label); }
         Transaction transaction(const std::string &label) { return Transaction(handle_, label); }
         Renderer renderer() const { return Renderer(handle_); }
+        SessionRequests requests() const { return SessionRequests(handle_); }
 
         /// @brief Gives up ownership of the handle; destroy it with destroy().
         LeHandle *release();

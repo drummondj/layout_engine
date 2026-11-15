@@ -906,6 +906,11 @@ The first version.
   concurrency, flightline fanout, confirm-overwrite, undo limit,
   `save_settings`/`load_settings`/`has_unsaved_settings` and
   `le::default_settings_path()`.
+- Undo and the database file on the views (added in 0.3, without a
+  version bump): `undo`/`redo`/`can_undo`/`can_redo`, the command history
+  (`command_history_size`/`_at`), `has_unsaved_database`, `db_path`,
+  `database_is_empty`; `le::db_info`, `le::migrate_db` and
+  `le::SessionRequests` (`Session::requests()`).
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.
