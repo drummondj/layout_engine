@@ -7,7 +7,7 @@
 #include <future>
 #include <string>
 
-// Searching, properties, parents and children through ReadView.
+// Searching, properties and parents through ReadView.
 
 namespace
 {
@@ -21,20 +21,12 @@ namespace
             ASSERT_TRUE(view.read_lef(fixture_path("testcell.lef"), "testcell"));
             library = view.root().get_library_ids().front();
             cell = view.root().get_design_ids().front();
-            abstract = view.root().get_design_abstract(cell);
         }
 
         le::Session session;
         le::LibraryId library;
         le::DesignId cell;
-        le::AbstractId abstract;
     };
-
-    template <typename Id>
-    bool contains(const std::vector<Id> &ids, Id id)
-    {
-        return std::ranges::find(ids, id) != ids.end();
-    }
 }
 
 TEST_F(ReadSideFixture, TheDefaultScopeIsTheCurrentObjects)
@@ -88,19 +80,6 @@ TEST_F(ReadSideFixture, PropertiesAndParents)
     EXPECT_EQ(view.parent(library), std::nullopt);
     EXPECT_EQ(le::object_kind_name(cell), "design");
     EXPECT_EQ(le::object_kind_name(le::ObjectId(le::TerminalPortId{})), "terminal_port");
-}
-
-TEST_F(ReadSideFixture, ChildrenFollowThePropertyViewer)
-{
-    const le::ReadView view = session.read();
-    EXPECT_TRUE(contains(view.children(library), le::ObjectId(cell)));
-    EXPECT_EQ(view.children(cell), std::vector<le::ObjectId>{le::ObjectId(abstract)});
-
-    const std::vector<le::ObjectId> under_abstract = view.children(abstract);
-    ASSERT_FALSE(under_abstract.empty());
-    EXPECT_TRUE(std::ranges::any_of(under_abstract, [](const le::ObjectId &id)
-                                    { return std::holds_alternative<le::TerminalId>(id); }));
-    EXPECT_TRUE(view.children(view.current_technology()).empty()); // not a Property Viewer parent
 }
 
 TEST_F(ReadSideFixture, SearchesRunTogetherUnderSharedLocks)

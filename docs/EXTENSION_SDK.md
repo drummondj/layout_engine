@@ -914,7 +914,7 @@ The first version.
 - Reading by class on `ReadView` (added in 0.3, without a version bump):
   `get_<type>(<Type>Query)` for every class, your own included (`of_`
   parents, a name glob and a `-filter`, under the shared lock; a bad
-  filter is an error), `properties`, `parent` and `children` of an
+  filter is an error), `properties` and `parent` of an
   `le::ObjectId` (any class's id), and `le::object_kind_name`.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
