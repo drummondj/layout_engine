@@ -1331,6 +1331,7 @@ add_executable(backend_tests
     src/api/tests/interaction_test.cpp
     src/api/tests/view_options_test.cpp
     src/api/tests/history_test.cpp
+    src/api/tests/netlist_ops_test.cpp
     src/api/tests/read_side_test.cpp
     src/api/tests/native_db_api_test.cpp
     src/api/tests/read_rollback_test.cpp

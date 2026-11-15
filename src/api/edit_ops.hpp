@@ -325,6 +325,38 @@ namespace le::edit
     std::vector<PropertyValue> object_properties(const LeHandle &handle, const ObjectId &id);
     /// @brief `id`'s owner; nullopt for a class with none or an id that doesn't exist.
     std::optional<ObjectId> object_parent(const LeHandle &handle, const ObjectId &id);
+    /// @brief `path` (`.name`, or chained like `.terminal.name`) read off
+    /// `id`, in microns: nullopt if `id` doesn't exist or the path leads
+    /// nowhere; an error if it doesn't parse or names no field.
+    std::expected<std::optional<PropertyValue>, std::string> object_property_path(const LeHandle &handle, const ObjectId &id, const std::string &path);
+    /// @brief The Instances a hierarchical `path` (`u1/u2/*`, `**` for any
+    /// depth) names under `of`, or the current Schematic if `of` doesn't
+    /// exist, narrowed by a -filter expression (in microns).
+    std::expected<std::vector<InstanceId>, std::string> get_instances_by_path(const LeHandle &handle, SchematicId of, const std::string &path,
+                                                                              const std::string &filter);
+    /// @brief get_instances_by_path for Nets.
+    std::expected<std::vector<NetId>, std::string> get_nets_by_path(const LeHandle &handle, SchematicId of, const std::string &path,
+                                                                    const std::string &filter);
+    /// @brief get_instances_by_path for Ports.
+    std::expected<std::vector<PortId>, std::string> get_ports_by_path(const LeHandle &handle, SchematicId of, const std::string &path,
+                                                                      const std::string &filter);
+
+    // --- Netlist edits that keep the Layout linked ---
+
+    /// @brief Resolves Instances whose design wasn't read yet (e.g. by a
+    /// later LEF read), then links the Layouts to their Schematics: how
+    /// many Instances resolved. Not undoable, like the reads.
+    std::expected<size_t, std::string> link_unresolved_instances(LeHandle &handle);
+    /// @brief Deletes `net`, clearing its Pins' and Ports' references and
+    /// its PhysicalPorts', and deleting its Routes. One undo step, or part
+    /// of the open one.
+    std::expected<void, std::string> delete_net_cascade(LeHandle &handle, NetId net);
+    /// @brief Renames `net` and the Routes and PhysicalPorts linked to it;
+    /// an error, changing nothing, if any would take a name in use.
+    std::expected<void, std::string> rename_net(LeHandle &handle, NetId net, const std::string &name);
+    /// @brief Renames `instance` and the Placements, Routes and
+    /// PhysicalPorts linked to it, as rename_net does.
+    std::expected<void, std::string> rename_instance(LeHandle &handle, InstanceId instance, const std::string &name);
 
     // --- Files ---
     // Each logs what it reports, as the C API always has (the readers and
