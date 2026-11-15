@@ -1,223 +1,214 @@
 TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
-// (codegen --target tcl). #include'd once in le_tcl_shim.cpp, right
-// after the file's own anonymous namespace closes (so session()/pack/
-// unpack/return_string/format_property_value/
-// resolve_numeric_friendly_id/format_numeric_friendly_id are all already
-// in scope - unqualified name lookup finds them regardless of being
-// outside that namespace, same translation unit).
-//
-// Mirrors the hand-written resolve_obstruction_id/format_obstruction_id
-// (numeric friendly ids) and resolve_library_id/format_library_id (name-
-// based friendly ids) plus terminal_property_count/_at/_path-style bare
-// shim functions (le_tcl_shim.cpp) exactly, generated instead of
-// duplicated per class.
+// (codegen --target tcl). #include'd once in le_tcl_shim.cpp after its
+// anonymous namespace, whose helpers (read_view/write_view, Lookup,
+// strip_prefix, the numeric friendly-id pair, fail/fail_text/status,
+// properties_of and the search results) it uses. Each command opens one
+// view and reports a failure's reason through last_error_cmd.
 
-// --- Friendly-id resolve/format (emitted before anything that calls
-// them, e.g. an is_child enumeration function formatting a child's id
-// with a different class's own format_X_id). ---
+// --- Friendly-id resolve/format, emitted before anything formatting
+// another class's ids (e.g. a child list). A name-based id looks the name
+// up; a numeric one only parses, and an id naming nothing is invalid. ---
 {% for klass in classes %}
+{%- set snake = klass.to_snake_case() %}
 {%- set id_field = klass.tcl_indexed_id_field() %}
 {%- set custom_id_field = klass.tcl_friendly_id_field() if id_field is none else none %}
 {%- if custom_id_field %}
-// {{klass.name}}'s friendly id uses `{{custom_id_field.name}}`, but that field isn't
-// globally indexed (see its own comment in src/database/schema.py) -
-// there's no Root-level by-name lookup to generate a resolve/format pair
-// from, so k{{klass.name}}Prefix/resolve_{{klass.to_snake_case()}}_id/format_{{klass.to_snake_case()}}_id stay
-// hand-written (le_tcl_shim.cpp) instead.
+// {{klass.name}}'s friendly id uses `{{custom_id_field.name}}`, which is only unique
+// within its parent, so its resolve/format pair is hand-written
+// (le_tcl_shim.cpp), scoped by the current objects.
 {% else -%}
-constexpr std::string_view k{{klass.name}}Prefix = "{{klass.to_snake_case()}}:";
+constexpr std::string_view k{{klass.name}}Prefix = "{{snake}}:";
 {% if id_field -%}
-std::string format_{{klass.to_snake_case()}}_id(const char *{{id_field.name}}) { return std::string(k{{klass.name}}Prefix) + ({{id_field.name}} ? {{id_field.name}} : ""); }
-
-// Overload taking the Id directly (not just its {{id_field.name}}) - needed to
-// format a friendly id when only an Id is in hand, e.g. formatting each
-// element of a parent's child-enumeration list below.
-std::string format_{{klass.to_snake_case()}}_id(Le{{klass.name}}Id id) { return format_{{klass.to_snake_case()}}_id(le_{{klass.to_snake_case()}}_{{id_field.name}}_by_id(session(), id)); }
-
-// Fixed-prefix compare, empty/malformed input degrades to the same
-// invalid sentinel as "no such object" - see resolve_library_id's own
-// comment (le_tcl_shim.cpp) for why.
-Le{{klass.name}}Id resolve_{{klass.to_snake_case()}}_id(const char *s)
+std::string format_{{snake}}_id(const Lookup &lk, le::{{klass.name}}Id id)
 {
-    const Le{{klass.name}}Id invalid{.index = UINT32_MAX, .generation = 0};
-    if (!s)
-        return invalid;
-    std::string_view sv(s);
-    if (sv.substr(0, k{{klass.name}}Prefix.size()) != k{{klass.name}}Prefix)
-        return invalid;
-    return le_{{klass.to_snake_case()}}_by_{{id_field.name}}(session(), std::string(sv.substr(k{{klass.name}}Prefix.size())).c_str());
+    const le::{{klass.name}}Data *data = lk.root.get_{{snake}}(id);
+    return std::string(k{{klass.name}}Prefix) + (data ? data->{{id_field.name}} : "");
+}
+
+le::{{klass.name}}Id resolve_{{snake}}_id(const Lookup &lk, const char *s)
+{
+    const std::optional<std::string> value = strip_prefix(s, k{{klass.name}}Prefix);
+    return value ? lk.root.get_{{snake}}_by_{{id_field.name}}(*value) : le::{{klass.name}}Id{};
 }
 {% else -%}
-Le{{klass.name}}Id resolve_{{klass.to_snake_case()}}_id(const char *s) { return resolve_numeric_friendly_id<Le{{klass.name}}Id>(s, k{{klass.name}}Prefix); }
-std::string format_{{klass.to_snake_case()}}_id(Le{{klass.name}}Id id) { return format_numeric_friendly_id(id, k{{klass.name}}Prefix); }
+le::{{klass.name}}Id resolve_{{snake}}_id(const Lookup &, const char *s) { return resolve_numeric_friendly_id<le::{{klass.name}}Id>(s, k{{klass.name}}Prefix); }
+std::string format_{{snake}}_id(const Lookup &, le::{{klass.name}}Id id) { return format_numeric_friendly_id(id, k{{klass.name}}Prefix); }
 {% endif %}
 {% endif %}
 {% endfor %}
 
 // --- Property tables ---
 {% for klass in classes %}
-// 1 if `id` is a well-formed friendly-id token naming an object that
-// resolves (a name-indexed class looks the name up; a numeric one only
-// checks the token's form - le_create_/le_update_<type> still reject a
-// stale id). Lets a create_/update_<type> proc reject a reference flag
-// that doesn't resolve instead of silently leaving the reference unset.
-int {{klass.to_snake_case()}}_token_resolves(const char *id)
+{%- set snake = klass.to_snake_case() %}
+// 1 if `id` is a well-formed token naming an object that resolves (a
+// numeric one only has its form checked; create_/update_<type> still
+// reject a stale id). Lets a create_/update_<type> proc reject a
+// reference flag that doesn't resolve instead of leaving it unset.
+int {{snake}}_token_resolves(const char *id)
 {
-    return resolve_{{klass.to_snake_case()}}_id(id).index != UINT32_MAX ? 1 : 0;
+    const le::ReadView view = read_view();
+    return resolve_{{snake}}_id(lookup(view), id).valid() ? 1 : 0;
 }
 
-int {{klass.to_snake_case()}}_property_count(const char *id)
+int {{snake}}_property_count(const char *id)
 {
-    return le_{{klass.to_snake_case()}}_property_count(session(), resolve_{{klass.to_snake_case()}}_id(id));
+    const le::ReadView view = read_view();
+    return static_cast<int>(properties_of(view, le::ObjectId(resolve_{{snake}}_id(lookup(view), id))).size());
 }
 
-const char *{{klass.to_snake_case()}}_property_name(const char *id, int index)
+const char *{{snake}}_property_name(const char *id, int index)
 {
-    return le_{{klass.to_snake_case()}}_property_at(session(), resolve_{{klass.to_snake_case()}}_id(id), index).name;
+    const le::ReadView view = read_view();
+    return property_name_at(properties_of(view, le::ObjectId(resolve_{{snake}}_id(lookup(view), id))), index);
 }
 
-const char *{{klass.to_snake_case()}}_property_value(const char *id, int index)
+const char *{{snake}}_property_value(const char *id, int index)
 {
-    return return_string(format_property_value(le_{{klass.to_snake_case()}}_property_at(session(), resolve_{{klass.to_snake_case()}}_id(id), index)));
+    const le::ReadView view = read_view();
+    return property_value_at(properties_of(view, le::ObjectId(resolve_{{snake}}_id(lookup(view), id))), index);
 }
 
-const char *{{klass.to_snake_case()}}_property_path(const char *id, const char *path)
+const char *{{snake}}_property_path(const char *id, const char *path)
 {
-    return return_string(format_property_value(le_{{klass.to_snake_case()}}_property_path(session(), resolve_{{klass.to_snake_case()}}_id(id), path)));
+    const le::ReadView view = read_view();
+    return property_at_path(view, le::ObjectId(resolve_{{snake}}_id(lookup(view), id)), path);
 }
 {% endfor %}
 
-// --- is_child list field enumeration - space-separated friendly-id
-// lists (same shape as the hand-written terminal_port_shapes/
-// obstruction_shapes). ---
+// --- is_child list fields: space-separated friendly-id lists. ---
 {% for klass in classes %}
 {%- for child_field in klass.tcl_child_list_fields() %}
 const char *{{klass.to_snake_case()}}_{{child_field.name}}(const char *id)
 {
-    Le{{klass.name}}Id parent_id = resolve_{{klass.to_snake_case()}}_id(id);
-    int32_t count = le_{{klass.to_snake_case()}}_{{child_field.name}}_count(session(), parent_id);
-    if (count <= 0)
-        return return_string("");
-    std::ostringstream out;
-    for (int32_t i = 0; i < count; ++i)
-    {
-        if (i > 0)
-        {
-            out << ' ';
-        }
-        out << format_{{child_field._type_klass.to_snake_case()}}_id(le_{{klass.to_snake_case()}}_{{child_field.name}}_at(session(), parent_id, i));
-    }
-    return return_string(out.str());
+    const le::ReadView view = read_view();
+    const Lookup lk = lookup(view);
+    return return_string(join_ids(lk.root.get_{{klass.to_snake_case()}}_{{child_field.name}}(resolve_{{klass.to_snake_case()}}_id(lk, id)),
+                                  [&](le::{{child_field._type_klass.name}}Id child) { return format_{{child_field._type_klass.to_snake_case()}}_id(lk, child); }));
 }
 {% endfor -%}
 {% endfor %}
 
-// --- Current-instance access - current_<type>_cmd()/set_current_<type>_cmd()
-// back the single Tcl-level current_<type> [<id>] wrapper proc
-// (le_tcl_procs_generated_tcl_j2.py) - both suffixed _cmd for symmetry
-// (there is no bare current_<type> at this layer or SWIG's, unlike
-// before the two Tcl commands were folded into one - see that proc's
-// own comment). ---
+// --- current_<type>_cmd()/set_current_<type>_cmd(), behind the one
+// current_<type> ?id? proc. ---
 {% for klass in current_access_classes %}
-const char *current_{{klass.to_snake_case()}}_cmd()
+{%- set snake = klass.to_snake_case() %}
+const char *current_{{snake}}_cmd()
 {
-    Le{{klass.name}}Id id = le_current_{{klass.to_snake_case()}}(session());
-    if (id.index == UINT32_MAX)
-        return return_string("");
-    return return_string(format_{{klass.to_snake_case()}}_id(id));
+    const le::ReadView view = read_view();
+    const le::{{klass.name}}Id id = view.current_{{snake}}();
+    return return_string(id.valid() ? format_{{snake}}_id(lookup(view), id) : std::string());
 }
 
-int set_current_{{klass.to_snake_case()}}_cmd(const char *id)
+int set_current_{{snake}}_cmd(const char *id)
 {
-    return le_set_current_{{klass.to_snake_case()}}(session(), resolve_{{klass.to_snake_case()}}_id(id));
+    le::WriteView view = write_view();
+    return status(view.set_current_{{snake}}(resolve_{{snake}}_id(lookup(view), id)));
 }
 {% endfor %}
 
-// --- get_<type> search ---
+// --- get_<type>: the count found (-1 for a bad -filter, its reason in
+// last_error_cmd), each read back by get_<type>_at. ---
 {% for klass in classes %}
 {%- set scope = search_scopes[klass.name] %}
 {%- set id_field = klass.tcl_friendly_id_field() %}
-int get_{{klass.tcl_plural_snake_case()}}_cmd({% for op in scope.of_params %}const char *of_{{op.parent_field.name}}, {% endfor %}{% if id_field %}const char *name_expression, {% endif %}const char *filter_expression)
+{%- set snake = klass.to_snake_case() %}
+{%- set plural = klass.tcl_plural_snake_case() %}
+int get_{{plural}}_cmd({% for op in scope.of_params %}const char *of_{{op.parent_field.name}}, {% endfor %}{% if id_field %}const char *name_expression, {% endif %}const char *filter_expression)
 {
-    return le_get_{{klass.tcl_plural_snake_case()}}(session(){% for op in scope.of_params %}, resolve_{{op.parent_klass.to_snake_case()}}_id(of_{{op.parent_field.name}}){% endfor %}{% if id_field %}, name_expression{% endif %}, filter_expression);
+    const le::ReadView view = read_view();
+    const Lookup lk = lookup(view);
+    le::{{klass.name}}Query query;
+    {%- for op in scope.of_params %}
+    query.of_{{op.parent_field.name}} = resolve_{{op.parent_klass.to_snake_case()}}_id(lk, of_{{op.parent_field.name}});
+    {%- endfor %}
+    {%- if id_field %}
+    query.name = name_expression ? name_expression : "";
+    {%- endif %}
+    query.filter = filter_expression ? filter_expression : "";
+    const std::expected<std::vector<le::{{klass.name}}Id>, std::string> found = view.get_{{plural}}(query);
+    if (!found)
+        return fail("get_{{plural}}: invalid -filter expression: " + found.error(), -1);
+    return keep_search_results(*found, [&](le::{{klass.name}}Id id) { return format_{{snake}}_id(lk, id); });
 }
 
-const char *get_{{klass.tcl_plural_snake_case()}}_at(int index)
+const char *get_{{plural}}_at(int index)
 {
-    Le{{klass.name}}Id id = le_search_result_{{klass.to_snake_case()}}_at(session(), index);
-    if (id.index == UINT32_MAX)
-        return return_string("");
-    return return_string(format_{{klass.to_snake_case()}}_id(id));
+    return search_result_at(index);
 }
 {% endfor %}
 
-// --- create_<type> - mirrors create_terminal_port_cmd/create_obstruction_cmd's
-// own shape exactly (resolve each parent token, forward, format the new
-// id back into a friendly-id string on success, "" on failure - le_create_<type>
-// itself logs the actual error message via spdlog::error) - always
-// uses the Id-taking format_<snake>_id() overload (present for every
-// class, hand-written or generated - see that overload's own comment)
-// rather than any class-specific field-taking overload some classes also
-// happen to have. ---
+// --- create_<type>: each parent token resolved, the arguments converted
+// (create_<type>_native), the new object's token back, or "" with the
+// reason in last_error_cmd. ---
 {% for klass in classes if klass.get_owner_fields() %}
 // A {{klass.name}} owner from its option's name (the Tcl flag, e.g. "route")
-// and that owner's token; kind NONE if either is unknown.
-static Le{{klass.owner_type_name()}} resolve_{{klass.to_snake_case()}}_owner(const char *kind, const char *id)
+// and that owner's token; unset if either is unknown.
+le::{{klass.owner_type_name()}} resolve_{{klass.to_snake_case()}}_owner(const Lookup &lk, const char *kind, const char *id)
 {
     const std::string name = kind ? kind : "";
 {%- for f in klass.get_owner_fields() %}
     if (name == "{{f.name}}")
-    {
-        const Le{{f.type}}Id owner = resolve_{{f._parent_klass.to_snake_case()}}_id(id);
-        return le_{{klass.to_snake_case()}}_owner_{{f.name}}(owner);
-    }
+        return le::{{klass.owner_type_name()}}::{{f.name}}(resolve_{{f._parent_klass.to_snake_case()}}_id(lk, id));
 {%- endfor %}
-    return Le{{klass.owner_type_name()}}{ LE_{{klass.to_snake_case()|upper}}_OWNER_NONE, UINT32_MAX, 0 };
+    return le::{{klass.owner_type_name()}}{};
 }
 {% endfor %}
 {% for klass in classes %}
-const char *create_{{klass.to_snake_case()}}_cmd({{klass.create_shim_params()}})
+{%- set snake = klass.to_snake_case() %}
+std::expected<le::{{klass.name}}Id, std::string> create_{{snake}}_native(le::WriteView &view{% if klass.create_native_params() %}, {{klass.create_native_params()}}{% endif %})
 {
-    Le{{klass.name}}Id id = le_create_{{klass.to_snake_case()}}(session(){% if klass.create_shim_forward_args() %}, {{klass.create_shim_forward_args()}}{% endif %});
-    if (id.index == UINT32_MAX)
-        return return_string("");
-    return return_string(format_{{klass.to_snake_case()}}_id(id));
+{{emit.c_api.create_api_body(klass, native=True)}}
+}
+
+const char *create_{{snake}}_cmd({{klass.create_shim_params()}})
+{
+    le::WriteView view = write_view();
+    [[maybe_unused]] const Lookup lk = lookup(view);
+    const std::expected<le::{{klass.name}}Id, std::string> created = create_{{snake}}_native(view{% if klass.create_shim_forward_args() %}, {{klass.create_shim_forward_args()}}{% endif %});
+    if (!created)
+        return fail_text("create_{{snake}}: " + created.error());
+    return return_string(format_{{snake}}_id(lookup(view), *created));
 }
 {% endfor %}
 
-// --- update_<type> - resolves `id` to a real Le<Klass>Id *before*
-// calling le_update_<type> and reuses that same resolved id to format
-// the return value, rather than re-resolving the caller's original
-// friendly-id string afterward - correct even for a class whose
-// friendly id can change as a result of the update itself (e.g.
-// Terminal's own name-based one after a rename), unlike create_<type>_cmd
-// above (which formats the brand-new id le_create_<type> itself
-// returns, nothing to re-resolve). ---
+// --- update_<type>: formats the id resolved before the update, so a
+// rename (Terminal's name-based token) still returns the object's token. ---
 {% for klass in classes %}
-const char *update_{{klass.to_snake_case()}}_cmd({{klass.update_shim_params()}})
+{%- set snake = klass.to_snake_case() %}
+std::expected<void, std::string> update_{{snake}}_native(le::WriteView &view, {{klass.update_native_params()}})
 {
-    const Le{{klass.name}}Id typed_id = resolve_{{klass.to_snake_case()}}_id(id);
-    int rc = le_update_{{klass.to_snake_case()}}(session(), typed_id{% if klass.update_shim_forward_args() %}, {{klass.update_shim_forward_args()}}{% endif %});
-    if (rc != 0)
-        return return_string("");
-    return return_string(format_{{klass.to_snake_case()}}_id(typed_id));
+{{emit.c_api.update_api_body(klass, native=True)}}
+}
+
+const char *update_{{snake}}_cmd({{klass.update_shim_params()}})
+{
+    le::WriteView view = write_view();
+    const Lookup lk = lookup(view);
+    const le::{{klass.name}}Id typed_id = resolve_{{snake}}_id(lk, id);
+    const std::expected<void, std::string> updated = update_{{snake}}_native(view, typed_id{% if klass.update_shim_forward_args() %}, {{klass.update_shim_forward_args()}}{% endif %});
+    if (!updated)
+        return fail_text("update_{{snake}}: " + updated.error());
+    return return_string(format_{{snake}}_id(lookup(view), typed_id));
 }
 {% endfor %}
 
-// --- delete_<type> - `ids` is a space-separated list of friendly-id
-// tokens (no token contains whitespace), deleted together by
-// le_delete_<type>_batch: all or nothing, one undo step. ---
+// --- delete_<type>: `ids` is a space-separated list of tokens (none
+// contains whitespace), deleted together: all or nothing, one undo step. ---
 {% for klass in classes %}
-int delete_{{klass.to_snake_case()}}_cmd(const char *ids)
+{%- set snake = klass.to_snake_case() %}
+int delete_{{snake}}_cmd(const char *ids)
 {
-    std::vector<Le{{klass.name}}Id> resolved;
+    le::WriteView view = write_view();
+    const Lookup lk = lookup(view);
+    std::vector<le::{{klass.name}}Id> resolved;
     std::istringstream stream(ids ? ids : "");
     std::string token;
     while (stream >> token)
-        resolved.push_back(resolve_{{klass.to_snake_case()}}_id(token.c_str()));
+        resolved.push_back(resolve_{{snake}}_id(lk, token.c_str()));
     if (resolved.empty())
-        return 1;
-    return le_delete_{{klass.to_snake_case()}}_batch(session(), resolved.data(), static_cast<int32_t>(resolved.size()));
+        return fail("delete_{{snake}}: no ids given");
+    const std::expected<void, std::string> deleted = view.delete_{{snake}}_batch(resolved);
+    return deleted ? 0 : fail("delete_{{snake}}: " + deleted.error());
 }
 {% endfor %}
 """

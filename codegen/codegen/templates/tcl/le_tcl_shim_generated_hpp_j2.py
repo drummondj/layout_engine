@@ -1,11 +1,10 @@
 TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). #include'd once from le_tcl_shim.hpp.
 //
-// Bare, handle-free TCL-facing declarations for the generated property-
-// reading/search surface - same shape as the hand-written
-// terminal_property_count/_at/_path/get_terminals_cmd/get_terminals_at
-// etc. (le_tcl_shim.hpp's own "Property tables and search results"
-// comment) for every TCL-readable class.
+// The generated Tcl-facing commands for every readable class: property
+// tables, child lists, current_<type>, get_<type> and create_/update_/
+// delete_<type> (le_tcl_shim.hpp's "IDs", "get_<type>" and "Property
+// tables" comments).
 
 {% for klass in classes %}
 int {{klass.to_snake_case()}}_token_resolves(const char *id);
@@ -14,9 +13,7 @@ const char *{{klass.to_snake_case()}}_property_name(const char *id, int index);
 const char *{{klass.to_snake_case()}}_property_value(const char *id, int index);
 const char *{{klass.to_snake_case()}}_property_path(const char *id, const char *path);
 {% endfor %}
-// --- is_child list field enumeration - space-separated friendly-id
-// lists, same shape as the hand-written terminal_port_shapes/
-// obstruction_shapes. ---
+// --- is_child list fields: space-separated friendly-id lists. ---
 {% for klass in classes %}
 {%- for child_field in klass.tcl_child_list_fields() %}
 const char *{{klass.to_snake_case()}}_{{child_field.name}}(const char *id);

@@ -128,6 +128,15 @@ if {![catch {update_terminal $out0 -name IN0}]} {
 }
 puts "ok: update_terminal -name to a colliding name fails"
 check "update_terminal -name failure left OUT0 untouched" OUT0 [dict get [get_properties $out0] name]
+catch {update_terminal $out0 -name IN0} update_error
+check "update_terminal's error gives its reason" 1 [string match "update_terminal: *IN0*" $update_error]
+catch {update_terminal $out0 -direction SIDEWAYS} update_error
+check "an unknown enum value is named" "update_terminal: unrecognized direction 'SIDEWAYS'" $update_error
+catch {delete_terminal terminal:NO_SUCH_TERMINAL} delete_error
+check "delete_terminal's error gives its reason" 1 [string match "delete_terminal: *" $delete_error]
+check "and isn't the generic one" 0 [string match "*failed to delete*" $delete_error]
+catch {get_properties $in0 .bogus_property} path_error
+check "an unknown property path gives its reason" "get_properties: invalid property path \".bogus_property\" for \"$in0\": unknown field 'bogus_property' on Terminal" $path_error
 
 set props [get_properties $in0]
 check "get_properties name" IN0 [dict get $props name]
@@ -222,7 +231,7 @@ check "get_terminals name-expression no match" {} [get_terminals DOES_NOT_EXIST]
 # glob pattern, matched literally if it contains no wildcard); a bad
 # -filter is a Tcl error, its details logged.
 check "get_terminals -filter parse error is a Tcl error" 1 [catch {get_terminals -filter {not a filter expression}} filter_error]
-check "get_terminals -filter parse error message" "get_terminals: invalid -filter expression - see the error above" $filter_error
+check "get_terminals -filter parse error message" "get_terminals: invalid -filter expression: expected a field path starting with '.' at 'not'" $filter_error
 check "get_terminals -filter with an unknown field is a Tcl error" 1 [catch {get_terminals -filter {.bogus_field == 1}}]
 
 # --- TerminalPort + Shape (rect/polygon/path via the coordinate typemap) ---
@@ -707,20 +716,11 @@ check "one undo brings the whole list back" 1 [undo]
 check "the list is back, in its order" $terminals_before [get_terminals]
 le_repl_eval "delete_terminal {$batch_targets}"
 
-# --- Error messages name the real user-facing command, not the raw le_
-# C API function (read_lef, not le_read_lef). A generated create_<type>
-# raises a
-# Tcl error on failure, but the specific reason is logged via
-# spdlog::error, not pushed anywhere Tcl can read it back - so the "names
-# create_design, not le_create_design" half of this regression is a
-# property of the generated code itself (schema.py's create_api_body
-# always formats its spdlog::error() message with the Tcl-facing
-# create_<type> snake_case name, never the raw le_create_<type> C API
-# name - see that template). The functional half (an unresolvable
-# -library still fails cleanly) stays covered here. ---
+# --- A generated create_<type>'s error names the Tcl command and gives
+# the reason. ---
 
 if {[catch {create_design -library library:does_not_exist -name SHOULD_NOT_EXIST} err]} {
-    check "create_design with an unresolvable -library fails" "create_design: failed - see the error above" $err
+    check "create_design with an unresolvable -library gives its reason" "create_design: unknown library - no such Library exists" $err
 } else {
     puts stderr "FAIL: create_design with an unresolvable -library did not raise a Tcl error"
     exit 1

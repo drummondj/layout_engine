@@ -225,7 +225,7 @@ set diearea [get_shapes -of $layout -filter {.purpose == BOUNDARY}]
 check "the layout has one diearea" 1 [llength $diearea]
 check_error "a second diearea for one layout" \
     {create_shape -layout $layout -purpose BOUNDARY -rects {{{0 0} {50 50}}}} \
-    "create_shape: failed*"
+    "create_shape: the layout already has a diearea*"
 check "the first diearea is still the layout's" $diearea [get_shapes -of $layout -filter {.purpose == BOUNDARY}]
 
 # --- a DEF route's wiring is a Wire, which the shape commands take ---

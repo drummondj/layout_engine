@@ -844,7 +844,7 @@ if(SWIG_FOUND AND TCL_FOUND)
     # links it too, but only PUBLIC-propagates it as far as api, not this
     # far; le_tcl_shim.cpp needs it directly for dump_png_cmd's own
     # BLImage::write_to_file PNG export.
-    target_link_libraries(le_tcl PRIVATE api le_extensions_tcl blend2d::blend2d ${TCL_LIBRARY})
+    target_link_libraries(le_tcl PRIVATE api le_extensions_tcl blend2d::blend2d fmt::fmt ${TCL_LIBRARY})
     # session_handle_test.cpp's TEST()s must each run in a fresh process
     # (`ctest -R SessionHandle`, not the raw binary): chaining several
     # handle-inject/destroy sequences in one process corrupts le_tcl_shim's
