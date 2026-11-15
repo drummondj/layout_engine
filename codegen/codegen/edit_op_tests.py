@@ -249,6 +249,47 @@ def _update_test(klass: Klass, name: str, value_cpp: str) -> List[str]:
     ]
 
 
+def _read_test(klass: Klass, scope) -> List[str]:
+    """Search, properties and parent of the object make_<type>() creates:
+    a search through every `-of` parent finds it (by name too, if it has
+    one), and its parent is the one it was made under."""
+    snake = _snake(klass)
+    plural = klass.tcl_plural_snake_case()
+    lines = [
+        f"TEST(GeneratedReadSide, {klass.name}_SearchPropertiesParent)",
+        "{",
+        "    LeHandle handle;",
+        f"    const le::{klass.name}Id id = make_{snake}(handle);",
+        f"    ASSERT_NE(handle.root.get_{snake}(id), nullptr);",
+        f"    const le::{klass.name}Data data = *handle.root.get_{snake}(id);",
+        f"    le::{klass.name}Query query;",
+    ]
+    for op in scope.of_params:
+        lines.append(f"    query.of_{op.parent_field.name} = data.{op.parent_field.accessor};")
+    id_field = klass.tcl_friendly_id_field()
+    if id_field:
+        lines.append(f"    query.name = data.{id_field.name};")
+    lines += [
+        f"    const auto found = le::edit::get_{plural}(handle, query);",
+        "    ASSERT_TRUE(found.has_value()) << found.error();",
+    ]
+    if scope.of_params or type(scope.default_case).__name__ == "RootScope":
+        lines.append("    EXPECT_NE(std::find(found->begin(), found->end(), id), found->end());")
+    lines += [
+        "    EXPECT_FALSE(le::edit::object_properties(handle, le::ObjectId(id)).empty());",
+        f"    EXPECT_TRUE(le::edit::object_properties(handle, le::ObjectId(le::{klass.name}Id{{}})).empty());",
+    ]
+    parents = klass.non_owner_parent_fields()
+    owners = klass.get_owner_fields()
+    made_under = parents[0] if parents else (owners[0] if owners else None)
+    if made_under is not None and made_under._parent_klass.is_tcl_readable():
+        lines.append(f"    EXPECT_EQ(le::edit::object_parent(handle, le::ObjectId(id)), std::optional<le::ObjectId>(data.{made_under.accessor}));")
+    elif not klass.get_parent_fields():
+        lines.append("    EXPECT_EQ(le::edit::object_parent(handle, le::ObjectId(id)), std::nullopt);")
+    lines += ["}", ""]
+    return lines
+
+
 def _needs(klass: Klass) -> List[Klass]:
     """The classes make_<type>() for `klass` and its update tests create."""
     needed = [f._parent_klass for f in klass.get_parent_fields()]
@@ -268,10 +309,11 @@ def _closure(classes: List[Klass]) -> List[Klass]:
     return list(seen.values())
 
 
-def test_files(classes: List[Klass]) -> dict:
+def test_files(classes: List[Klass], search_scopes: dict = None) -> dict:
     """File name -> source: core classes' tests in edit_ops_generated_test.cpp,
     each extension's in edit_ops_generated_<extension>_test.cpp, which that
-    extension's <name>_generated_tests builds."""
+    extension's <name>_generated_tests builds. With `search_scopes`
+    (Klass.name -> SearchScope), each class also gets a read-side test."""
     groups: dict = {}
     for klass in classes:
         groups.setdefault(klass.extension, []).append(klass)
@@ -280,11 +322,11 @@ def test_files(classes: List[Klass]) -> dict:
     for extension, tested in groups.items():
         name = "edit_ops_generated_test.cpp" if extension is None else f"edit_ops_generated_{extension}_test.cpp"
         made = sorted(_closure(tested), key=lambda k: order[k.name])
-        files[name] = generate_test_source(tested, made)
+        files[name] = generate_test_source(tested, made, search_scopes)
     return files
 
 
-def generate_test_source(classes: List[Klass], made: List[Klass] = None) -> str:
+def generate_test_source(classes: List[Klass], made: List[Klass] = None, search_scopes: dict = None) -> str:
     """One test file: `classes`' tests, with a make_<type>() for each of `made`
     (default: `classes`), which must include everything they create."""
     made = classes if made is None else made
@@ -295,7 +337,9 @@ def generate_test_source(classes: List[Klass], made: List[Klass] = None) -> str:
         '#include "api/le_handle.hpp"',
         "#include <gtest/gtest.h>",
         "",
+        "#include <algorithm>",
         "#include <expected>",
+        "#include <optional>",
         "#include <string>",
         "",
         "namespace",
@@ -325,6 +369,8 @@ def generate_test_source(classes: List[Klass], made: List[Klass] = None) -> str:
     for klass in classes:
         snake = _snake(klass)
         lines += _lifecycle_test(klass)
+        if search_scopes is not None:
+            lines += _read_test(klass, search_scopes[klass.name])
         parents = klass.get_parent_fields()
         if len(parents) == 1:
             pf = parents[0]

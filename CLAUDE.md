@@ -392,7 +392,11 @@ by the build, generating `<build>/generated/api/` and
 `<build>/generated/tcl/`. Every
 readable `Klass` gets a property table, friendly-id resolution, `is_child`
 enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
-`delete_<type>`.
+`delete_<type>`. `get_<type>` is C++ first (`le::edit::get_<plural>` and
+`ReadView::get_<plural>` over a `<Type>Query`, `search_defs.inc`, under
+the shared lock); `le_get_<type>` is a shim that caches its result.
+`le::ObjectId` (`edit_types.hpp`) is a variant of every readable class's
+id, in `LeObjectKind` order.
 
 - `Klass.tcl_category` puts a class's generated commands in that section
   of the command reference (`docs/TCL_COMMANDS.md`: Technology, Abstract,

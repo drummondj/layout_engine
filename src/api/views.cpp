@@ -331,6 +331,10 @@ namespace le
     std::expected<bool, std::string> WriteView::undo() { return edit::undo(*handle_); }
     std::expected<bool, std::string> WriteView::redo() { return edit::redo(*handle_); }
 
+#include "generated/api/view_search_defs.inc"
+    std::vector<PropertyValue> ReadView::properties(const ObjectId &id) const { return edit::object_properties(*handle_, id); }
+    std::optional<ObjectId> ReadView::parent(const ObjectId &id) const { return edit::object_parent(*handle_, id); }
+
     std::expected<void, std::string> WriteView::read_lef(const std::string &path, const std::string &library) { return edit::read_lef(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_def(const std::string &path, const std::string &library) { return edit::read_def(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_verilog(std::span<const std::string> files, bool netlist, const std::string &library)
