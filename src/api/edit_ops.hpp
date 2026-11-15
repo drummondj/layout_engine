@@ -13,7 +13,9 @@
 #include "../core/session_types.hpp"
 #include "../geometry/shape_op_types.hpp"
 #include "interaction_types.hpp"
+#include "generated/pipelines/view_layer_purpose.hpp"
 
+#include <array>
 #include <expected>
 #include <optional>
 #include <span>
@@ -203,6 +205,87 @@ namespace le::edit
     /// by mode a click- or drag-select, a ruler point, or a Resize or Move
     /// click. Does nothing if no drag was started.
     void mouse_up(LeHandle &handle, int32_t x, int32_t y);
+
+    // --- The Layers panel, view options and settings ---
+    // Settings are what settings.json saves (save_settings/load_settings).
+
+    int hierarchy_depth(const LeHandle &handle);
+    /// @brief How many Placement levels the design view descends (0 draws
+    /// each placement as its outline only).
+    void set_hierarchy_depth(LeHandle &handle, int depth);
+    /// @brief The Layers panel's rows, in drawing order, as of the database
+    /// now (built for this call if an edit has outdated the handle's).
+    std::vector<LayerRow> layer_rows(const LeHandle &handle);
+    /// @brief Every purpose some row has a column for, in drawing order.
+    std::vector<ViewLayerPurpose> purposes(const LeHandle &handle);
+    /// @brief A row's outline color, with any the user picked; nullopt for an unknown row.
+    std::optional<Color> layer_color(const LeHandle &handle, const std::string &layer);
+    bool layer_visible(const LeHandle &handle, const std::string &layer);
+    void set_layer_visible(LeHandle &handle, const std::string &layer, bool visible);
+    bool layer_selectable(const LeHandle &handle, const std::string &layer);
+    void set_layer_selectable(LeHandle &handle, const std::string &layer, bool selectable);
+    bool purpose_visible(const LeHandle &handle, ViewLayerPurpose purpose);
+    void set_purpose_visible(LeHandle &handle, ViewLayerPurpose purpose, bool visible);
+    bool purpose_selectable(const LeHandle &handle, ViewLayerPurpose purpose);
+    void set_purpose_selectable(LeHandle &handle, ViewLayerPurpose purpose, bool selectable);
+    /// @brief The values `filter` can hide, as named in the Layers panel;
+    /// valid while the lock is held.
+    std::span<const std::string> object_filter_values(const LeHandle &handle, ObjectFilter filter);
+    bool object_filter_visible(const LeHandle &handle, ObjectFilter filter, const std::string &value);
+    void set_object_filter_visible(LeHandle &handle, ObjectFilter filter, const std::string &value, bool visible);
+    bool object_filter_selectable(const LeHandle &handle, ObjectFilter filter, const std::string &value);
+    void set_object_filter_selectable(LeHandle &handle, ObjectFilter filter, const std::string &value, bool selectable);
+    /// @brief Sizes the design view, each side clamped to 0..8192 pixels.
+    void set_viewport_size(LeHandle &handle, int width_px, int height_px);
+    /// @brief Where dbu point `p` is shown to the user: relative to the
+    /// open view's origin and mirrored as the view is, in dbu.
+    std::array<double, 2> display_point(const LeHandle &handle, Point p);
+
+    int max_concurrency(const LeHandle &handle);
+    /// @brief Caps the threads rendering uses (at least 2).
+    void set_max_concurrency(LeHandle &handle, int max_concurrency);
+    int flightline_max_fanout(const LeHandle &handle);
+    /// @brief Nets with more pins than this get no flightlines; negative is ignored.
+    void set_flightline_max_fanout(LeHandle &handle, int max_fanout);
+    bool confirm_overwrite(const LeHandle &handle);
+    void set_confirm_overwrite(LeHandle &handle, bool confirm);
+    /// @brief The GUI theme, an index into kThemes (core/themes.hpp).
+    size_t theme(const LeHandle &handle);
+    /// @brief Picks a theme by name; false (changing nothing) if there's none by that name.
+    bool set_theme(LeHandle &handle, std::string_view name);
+    int64_t minor_grid_spacing(const LeHandle &handle);
+    int64_t major_grid_spacing(const LeHandle &handle);
+    void set_minor_grid_spacing(LeHandle &handle, int64_t dbu);
+    void set_major_grid_spacing(LeHandle &handle, int64_t dbu);
+    /// @brief A grid spacing in microns, including one set before any
+    /// Technology could convert it; <= 0 if unset.
+    double grid_spacing_um(const LeHandle &handle, bool major);
+    /// @brief Sets the grid in microns (a value <= 0 leaves that one
+    /// alone); before a Technology is read it waits to be converted.
+    void set_grid_spacing_um(LeHandle &handle, double minor_um, double major_um);
+    /// @brief The Technology's MANUFACTURINGGRID in dbu, if it has one.
+    std::optional<int64_t> manufacturing_grid(const LeHandle &handle);
+    double ruler_label_size(const LeHandle &handle);
+    void set_ruler_label_size(LeHandle &handle, double px);
+    double label_min_size(const LeHandle &handle);
+    void set_label_min_size(LeHandle &handle, double px);
+    double label_max_size(const LeHandle &handle);
+    void set_label_max_size(LeHandle &handle, double px);
+    /// @brief Draws row `layer` in `color` (opaque).
+    void set_layer_color(LeHandle &handle, const std::string &layer, Color color);
+    /// @brief Back to the palette's color.
+    void reset_layer_color(LeHandle &handle, const std::string &layer);
+    size_t undo_limit(const LeHandle &handle);
+    /// @brief Keeps at most `limit` undo steps, forgetting the oldest.
+    void set_undo_limit(LeHandle &handle, size_t limit);
+    /// @brief Whether any setting changed since the settings were last saved or loaded.
+    bool has_unsaved_settings(const LeHandle &handle);
+    /// @brief Writes settings.json to `path`, or default_settings_path() if empty.
+    std::expected<void, std::string> save_settings(LeHandle &handle, const std::string &path);
+    /// @brief Applies a settings.json (any format version) from `path`, or
+    /// default_settings_path() if empty; keys this version doesn't know are
+    /// kept for the next save.
+    std::expected<void, std::string> load_settings(LeHandle &handle, const std::string &path);
 
     // --- Files ---
     // Each logs what it reports, as the C API always has (the readers and

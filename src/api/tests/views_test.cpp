@@ -165,7 +165,7 @@ TEST(Renderer, AnUnsizedViewportRendersAnEmptyFrame)
 TEST(Renderer, RendersAtTheViewportSize)
 {
     le::Session session;
-    le_set_viewport_size(session.handle(), 64, 32);
+    session.write().set_viewport_size(64, 32);
     const le::RenderedFrame frame = session.renderer().render();
     ASSERT_FALSE(frame.empty());
     EXPECT_EQ(frame.width, 64);
@@ -177,12 +177,12 @@ TEST(Renderer, RendersAtTheViewportSize)
 TEST(Renderer, AFrameOutlivesLaterRenders)
 {
     le::Session session;
-    le_set_viewport_size(session.handle(), 40, 20);
+    session.write().set_viewport_size(40, 20);
     const le::RenderedFrame first = session.renderer().render();
     ASSERT_FALSE(first.empty());
     const std::vector<uint8_t> pixels(first.data, first.data + first.row_bytes * 20);
 
-    le_set_viewport_size(session.handle(), 80, 60);
+    session.write().set_viewport_size(80, 60);
     const le::RenderedFrame second = session.renderer().render();
     ASSERT_FALSE(second.empty());
     EXPECT_EQ(second.width, 80);

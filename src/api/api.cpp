@@ -1707,7 +1707,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(std::min<size_t>(handle->command_history.undo_limit(), INT32_MAX));
+        return static_cast<int32_t>(std::min<size_t>(le::edit::undo_limit(*handle), INT32_MAX));
     }
 
     void le_set_undo_limit(LeHandle *handle, int32_t limit)
@@ -1715,7 +1715,7 @@ extern "C"
         if (!handle || limit < 0)
             return;
         HandleWriteLock lock(handle);
-        handle->command_history.set_undo_limit(static_cast<size_t>(limit));
+        le::edit::set_undo_limit(*handle, static_cast<size_t>(limit));
     }
 
     int32_t le_command_history_count(LeHandle *handle)

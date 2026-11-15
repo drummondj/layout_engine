@@ -262,6 +262,65 @@ namespace le
     void WriteView::cancel_drag() { edit::cancel_drag(*handle_); }
     void WriteView::mouse_up(int x_px, int y_px) { edit::mouse_up(*handle_, x_px, y_px); }
 
+    int ReadView::hierarchy_depth() const { return edit::hierarchy_depth(*handle_); }
+    std::vector<LayerRow> ReadView::layer_rows() const { return edit::layer_rows(*handle_); }
+    std::vector<ViewLayerPurpose> ReadView::purposes() const { return edit::purposes(*handle_); }
+    std::optional<Color> ReadView::layer_color(const std::string &layer) const { return edit::layer_color(*handle_, layer); }
+    bool ReadView::layer_visible(const std::string &layer) const { return edit::layer_visible(*handle_, layer); }
+    bool ReadView::layer_selectable(const std::string &layer) const { return edit::layer_selectable(*handle_, layer); }
+    bool ReadView::purpose_visible(ViewLayerPurpose purpose) const { return edit::purpose_visible(*handle_, purpose); }
+    bool ReadView::purpose_selectable(ViewLayerPurpose purpose) const { return edit::purpose_selectable(*handle_, purpose); }
+    std::span<const std::string> ReadView::object_filter_values(ObjectFilter filter) const { return edit::object_filter_values(*handle_, filter); }
+    bool ReadView::object_filter_visible(ObjectFilter filter, const std::string &value) const { return edit::object_filter_visible(*handle_, filter, value); }
+    bool ReadView::object_filter_selectable(ObjectFilter filter, const std::string &value) const
+    {
+        return edit::object_filter_selectable(*handle_, filter, value);
+    }
+    std::array<double, 2> ReadView::display_point(Point p) const { return edit::display_point(*handle_, p); }
+    int ReadView::max_concurrency() const { return edit::max_concurrency(*handle_); }
+    int ReadView::flightline_max_fanout() const { return edit::flightline_max_fanout(*handle_); }
+    bool ReadView::confirm_overwrite() const { return edit::confirm_overwrite(*handle_); }
+    size_t ReadView::theme() const { return edit::theme(*handle_); }
+    int64_t ReadView::minor_grid_spacing() const { return edit::minor_grid_spacing(*handle_); }
+    int64_t ReadView::major_grid_spacing() const { return edit::major_grid_spacing(*handle_); }
+    double ReadView::grid_spacing_um(bool major) const { return edit::grid_spacing_um(*handle_, major); }
+    std::optional<int64_t> ReadView::manufacturing_grid() const { return edit::manufacturing_grid(*handle_); }
+    double ReadView::ruler_label_size() const { return edit::ruler_label_size(*handle_); }
+    double ReadView::label_min_size() const { return edit::label_min_size(*handle_); }
+    double ReadView::label_max_size() const { return edit::label_max_size(*handle_); }
+    size_t ReadView::undo_limit() const { return edit::undo_limit(*handle_); }
+    bool ReadView::has_unsaved_settings() const { return edit::has_unsaved_settings(*handle_); }
+
+    void WriteView::set_hierarchy_depth(int depth) { edit::set_hierarchy_depth(*handle_, depth); }
+    void WriteView::set_layer_visible(const std::string &layer, bool visible) { edit::set_layer_visible(*handle_, layer, visible); }
+    void WriteView::set_layer_selectable(const std::string &layer, bool selectable) { edit::set_layer_selectable(*handle_, layer, selectable); }
+    void WriteView::set_purpose_visible(ViewLayerPurpose purpose, bool visible) { edit::set_purpose_visible(*handle_, purpose, visible); }
+    void WriteView::set_purpose_selectable(ViewLayerPurpose purpose, bool selectable) { edit::set_purpose_selectable(*handle_, purpose, selectable); }
+    void WriteView::set_object_filter_visible(ObjectFilter filter, const std::string &value, bool visible)
+    {
+        edit::set_object_filter_visible(*handle_, filter, value, visible);
+    }
+    void WriteView::set_object_filter_selectable(ObjectFilter filter, const std::string &value, bool selectable)
+    {
+        edit::set_object_filter_selectable(*handle_, filter, value, selectable);
+    }
+    void WriteView::set_viewport_size(int width_px, int height_px) { edit::set_viewport_size(*handle_, width_px, height_px); }
+    void WriteView::set_max_concurrency(int max_concurrency) { edit::set_max_concurrency(*handle_, max_concurrency); }
+    void WriteView::set_flightline_max_fanout(int max_fanout) { edit::set_flightline_max_fanout(*handle_, max_fanout); }
+    void WriteView::set_confirm_overwrite(bool confirm) { edit::set_confirm_overwrite(*handle_, confirm); }
+    bool WriteView::set_theme(std::string_view name) { return edit::set_theme(*handle_, name); }
+    void WriteView::set_minor_grid_spacing(int64_t dbu) { edit::set_minor_grid_spacing(*handle_, dbu); }
+    void WriteView::set_major_grid_spacing(int64_t dbu) { edit::set_major_grid_spacing(*handle_, dbu); }
+    void WriteView::set_grid_spacing_um(double minor_um, double major_um) { edit::set_grid_spacing_um(*handle_, minor_um, major_um); }
+    void WriteView::set_ruler_label_size(double px) { edit::set_ruler_label_size(*handle_, px); }
+    void WriteView::set_label_min_size(double px) { edit::set_label_min_size(*handle_, px); }
+    void WriteView::set_label_max_size(double px) { edit::set_label_max_size(*handle_, px); }
+    void WriteView::set_layer_color(const std::string &layer, Color color) { edit::set_layer_color(*handle_, layer, color); }
+    void WriteView::reset_layer_color(const std::string &layer) { edit::reset_layer_color(*handle_, layer); }
+    void WriteView::set_undo_limit(size_t limit) { edit::set_undo_limit(*handle_, limit); }
+    std::expected<void, std::string> WriteView::save_settings(const std::string &path) { return edit::save_settings(*handle_, path); }
+    std::expected<void, std::string> WriteView::load_settings(const std::string &path) { return edit::load_settings(*handle_, path); }
+
     std::expected<void, std::string> WriteView::read_lef(const std::string &path, const std::string &library) { return edit::read_lef(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_def(const std::string &path, const std::string &library) { return edit::read_def(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_verilog(std::span<const std::string> files, bool netlist, const std::string &library)
