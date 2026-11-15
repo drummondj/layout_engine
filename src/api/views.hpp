@@ -211,9 +211,6 @@ namespace le
         std::vector<PropertyValue> properties(const ObjectId &id) const;
         /// @brief `id`'s owner; nullopt for a class with none or an id that doesn't exist.
         std::optional<ObjectId> parent(const ObjectId &id) const;
-        /// @brief What the Property Viewer lists under `id` (never a
-        /// Layout's placements or routes, which can number millions).
-        std::vector<ObjectId> children(const ObjectId &id) const;
         // Only when valid().
 #include "generated/api/view_current_decls.inc"
 
