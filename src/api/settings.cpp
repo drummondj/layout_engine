@@ -746,7 +746,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return has_unsaved_database_unlocked(handle) ? 1 : 0;
+        return le::edit::has_unsaved_database(*handle) ? 1 : 0;
     }
 
     int32_t le_has_unsaved_settings(LeHandle *handle)

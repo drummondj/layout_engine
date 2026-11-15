@@ -321,6 +321,16 @@ namespace le
     std::expected<void, std::string> WriteView::save_settings(const std::string &path) { return edit::save_settings(*handle_, path); }
     std::expected<void, std::string> WriteView::load_settings(const std::string &path) { return edit::load_settings(*handle_, path); }
 
+    bool ReadView::can_undo() const { return edit::can_undo(*handle_); }
+    bool ReadView::can_redo() const { return edit::can_redo(*handle_); }
+    size_t ReadView::command_history_size() const { return edit::command_history_size(*handle_); }
+    const std::string &ReadView::command_history_at(size_t index) const { return edit::command_history_at(*handle_, index); }
+    bool ReadView::has_unsaved_database() const { return edit::has_unsaved_database(*handle_); }
+    const std::string &ReadView::db_path() const { return edit::db_path(*handle_); }
+    bool ReadView::database_is_empty() const { return edit::database_is_empty(*handle_); }
+    std::expected<bool, std::string> WriteView::undo() { return edit::undo(*handle_); }
+    std::expected<bool, std::string> WriteView::redo() { return edit::redo(*handle_); }
+
     std::expected<void, std::string> WriteView::read_lef(const std::string &path, const std::string &library) { return edit::read_lef(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_def(const std::string &path, const std::string &library) { return edit::read_def(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_verilog(std::span<const std::string> files, bool netlist, const std::string &library)
