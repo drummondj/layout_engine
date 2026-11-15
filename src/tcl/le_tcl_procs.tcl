@@ -1329,7 +1329,7 @@ proc select {args} {
         if {$status == 2} {
             error "select: unrecognized token \"$token\" (expected a shape:/wire:/row:/placement:/region: token)"
         } elseif {$status != 0} {
-            error "select: failed to select \"$token\" - see the terminal log for the specific reason"
+            error "select: failed to select \"$token\": [last_error_cmd]"
         }
     }
     return ""
@@ -1765,7 +1765,7 @@ proc write_verilog_stubs {args} {
     }
     set filename [_expand_path [lindex $positional 0]]
     if {[write_verilog_stubs_cmd $filename $opts(-library)] != 0} {
-        error "write_verilog_stubs: failed to write \"$filename\" - see the terminal log for the specific reason"
+        error "write_verilog_stubs: failed to write \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -1831,7 +1831,7 @@ proc write_lef {args} {
     # folds into the same "tokens" argument as a one-element list.
     set abstract_tokens [expr {$opts(-abstract) ne "" ? $opts(-abstract) : [join $opts(-abstracts)]}]
     if {[write_lef_cmd $filename $abstract_tokens $opts(-library) $mode] != 0} {
-        error "write_lef: failed to write LEF to \"$filename\" - see the terminal log for the specific reason"
+        error "write_lef: failed to write LEF to \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -1856,7 +1856,7 @@ proc write_def {args} {
     }
     set filename [_expand_path [lindex $positional 0]]
     if {[write_def_cmd $filename $opts(-layout)] != 0} {
-        error "write_def: failed to write DEF to \"$filename\" - see the terminal log for the specific reason"
+        error "write_def: failed to write DEF to \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -1895,7 +1895,7 @@ proc write_db {args} {
     _return_usage_if_help write_db $args
     lassign [::db_command_args write_db $args] filename with_session
     if {[write_db_cmd $filename $with_session] != 0} {
-        error "write_db: failed to write \"$filename\" - see the terminal log for the specific reason"
+        error "write_db: failed to write \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -2410,7 +2410,7 @@ proc _finish_shape_op {name count} {
         }
     }
     if {$count < 0} {
-        error "$name: failed - see the terminal log for the specific reason"
+        error "$name: [last_error_cmd]"
     }
     return [shape_op_results_cmd $count]
 }
@@ -2447,7 +2447,7 @@ proc shape_change_layer {args} {
         error "shape_change_layer: unknown -layer token"
     }
     if {$count < 0} {
-        error "shape_change_layer: failed - see the terminal log for the specific reason"
+        error "shape_change_layer: [last_error_cmd]"
     }
     return [dict get $opts shapes]
 }
@@ -2544,7 +2544,7 @@ proc shape_bbox {args} {
     _require_shapes shape_bbox $opts
     set box [shape_bbox_cmd [join [dict get $opts shapes]]]
     if {$box eq ""} {
-        error "shape_bbox: failed - see the terminal log for the specific reason"
+        error "shape_bbox: [last_error_cmd]"
     }
     return $box
 }
@@ -3024,7 +3024,7 @@ proc save_settings {args} {
     }
     set path [_expand_path [lindex $args 0]]
     if {[save_settings_command $path] != 0} {
-        error "save_settings: couldn't write [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+        error "save_settings: [last_error_cmd]"
     }
     return ""
 }
@@ -3045,7 +3045,7 @@ proc load_settings {args} {
     }
     set path [_expand_path [lindex $args 0]]
     if {[load_settings_command $path] != 0} {
-        error "load_settings: couldn't read [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+        error "load_settings: [last_error_cmd]"
     }
     return ""
 }

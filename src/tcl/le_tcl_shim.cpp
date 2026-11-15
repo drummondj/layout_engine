@@ -2,12 +2,18 @@
 #include "le/extension_tcl.hpp"
 
 #include "api.hpp"
+#include "views.hpp"
+#include "../core/themes.hpp"
 
 #include <blend2d/blend2d.h>
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cmath>
+#include <expected>
+#include <span>
+#include <variant>
 #include <cstdint>
 #include <cstdio>
 #include <optional>
@@ -33,7 +39,8 @@ namespace
         {
             return injected_handle();
         }
-        static LeHandle *handle = le_create();
+        // Lives as long as the process (le_tcl loaded into a plain tclsh).
+        static LeHandle *handle = le::Session().release();
         return handle;
     }
 
@@ -507,14 +514,62 @@ LeHandle *le::ext::tcl_session()
 // by rebuilding.
 #include "generated/tcl/le_tcl_shim_generated.inc"
 
+namespace
+{
+    le::ReadView read_view() { return le::ReadView(session()); }
+    le::WriteView write_view() { return le::WriteView(session()); }
+
+    // The reason the last failing command gave, for last_error_cmd.
+    std::string &last_error()
+    {
+        static thread_local std::string error;
+        return error;
+    }
+
+    // 0, or 1 with the reason kept for last_error_cmd.
+    int status(const std::expected<void, std::string> &result)
+    {
+        if (result)
+            return 0;
+        last_error() = result.error();
+        return 1;
+    }
+
+    int fail(std::string reason)
+    {
+        last_error() = std::move(reason);
+        return 1;
+    }
+
+    // Microns to dbu at the Technology's scale, or 1:1 without one, as the
+    // C API's micron arguments always were.
+    template <typename View>
+    double dbu_per_um(const View &view)
+    {
+        const std::expected<le::Units, std::string> units = view.units();
+        return units ? units->dbu_per_um() : 1.0;
+    }
+
+    int64_t to_dbu(double um, double scale) { return static_cast<int64_t>(std::llround(um * scale)); }
+
+    // Shared by both "open a view" commands: the same padding the GUI's
+    // open actions fit with, so a script lands on a framed view.
+    constexpr int kOpenDesignFitPaddingPx = 10;
+}
+
+const char *last_error_cmd()
+{
+    return last_error().c_str();
+}
+
 int read_lef(const char *path, const char *library_name)
 {
-    return le_read_lef(session(), path, library_name);
+    return status(write_view().read_lef(path ? path : "", library_name ? library_name : ""));
 }
 
 int read_def(const char *path, const char *library_name)
 {
-    return le_read_def(session(), path, library_name);
+    return status(write_view().read_def(path ? path : "", library_name ? library_name : ""));
 }
 
 // paths is a space-separated list of one or more filenames - same
@@ -530,26 +585,18 @@ int read_def(const char *path, const char *library_name)
 // netlist's own leaf-cell instantiations.
 int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name)
 {
-    std::vector<std::string> path_strings;
+    std::vector<std::string> files;
     std::istringstream stream(paths ? paths : "");
     std::string token;
     while (stream >> token)
-        path_strings.push_back(token);
-
-    std::vector<const char *> path_ptrs;
-    path_ptrs.reserve(path_strings.size());
-    for (const std::string &s : path_strings)
-        path_ptrs.push_back(s.c_str());
-
-    return le_read_verilog(session(), path_ptrs.empty() ? nullptr : path_ptrs.data(), static_cast<int32_t>(path_ptrs.size()), is_netlist, library_name);
+        files.push_back(token);
+    return status(write_view().read_verilog(files, is_netlist != 0, library_name ? library_name : ""));
 }
 
 int write_verilog_stubs_cmd(const char *path, const char *library_token)
 {
-    const LeLibraryId library_id = (library_token && library_token[0])
-                                        ? resolve_library_id(library_token)
-                                        : LeLibraryId{.index = UINT32_MAX, .generation = 0};
-    return le_write_verilog_stubs(session(), path, library_id);
+    const le::LibraryId library = (library_token && library_token[0]) ? le::ext::from_c(resolve_library_id(library_token)) : le::LibraryId{};
+    return status(write_view().write_verilog_stubs(path ? path : "", library));
 }
 
 int link_unresolved_instances_cmd()
@@ -602,12 +649,17 @@ const char *rename_instance_cmd(const char *id, const char *new_name)
 
 int design_count()
 {
-    return le_design_count(session());
+    return static_cast<int>(read_view().root().get_design_size());
 }
 
 const char *design_name(int index)
 {
-    return le_design_name(session(), index);
+    const le::ReadView view = read_view();
+    const auto ids = view.root().get_design_ids();
+    if (index < 0 || static_cast<size_t>(index) >= ids.size())
+        return nullptr;
+    const le::DesignData *design = view.root().get_design(ids[static_cast<size_t>(index)]);
+    return design ? return_string(design->name) : nullptr;
 }
 
 int property_path_failed()
@@ -617,22 +669,29 @@ int property_path_failed()
 
 void set_viewport_size_cmd(int width_px, int height_px)
 {
-    le_set_viewport_size(session(), width_px, height_px);
+    write_view().set_viewport_size(width_px, height_px);
 }
 
 int viewport_width()
 {
-    return le_viewport_width_px(session());
+    return read_view().view().width_px;
 }
 
 int viewport_height()
 {
-    return le_viewport_height_px(session());
+    return read_view().view().height_px;
 }
 
 long long design_abstract_id(int design_index)
 {
-    return pack(le_library_design_at(session(), 0, design_index).abstract_id);
+    const le::ReadView view = read_view();
+    const auto libraries = view.root().get_library_ids();
+    if (libraries.empty() || design_index < 0)
+        return pack(LeAbstractId{.index = UINT32_MAX, .generation = 0});
+    const auto &designs = view.root().get_library_designs(libraries.front());
+    if (static_cast<size_t>(design_index) >= designs.size())
+        return pack(LeAbstractId{.index = UINT32_MAX, .generation = 0});
+    return pack(le::ext::to_c(view.root().get_design_abstract(designs[static_cast<size_t>(design_index)])));
 }
 
 long long design_by_name(const char *name)
@@ -642,69 +701,58 @@ long long design_by_name(const char *name)
 
 const char *technology_id()
 {
-    LeTechnologyId id = le_technology_id(session());
-    if (id.index == UINT32_MAX)
+    const auto technologies = read_view().root().get_technology_ids();
+    if (technologies.empty())
         return return_string("");
-    return return_string(format_technology_id(id));
-}
-
-namespace
-{
-    // Matches input.cpp's kKeyFitPaddingPx and GuiProvider's open
-    // actions - the same padding every "just opened a view" fit uses,
-    // duplicated here since le_tcl_shim.cpp is a separate TU.
-    constexpr int32_t kOpenDesignFitPaddingPx = 10;
+    return return_string(format_technology_id(le::ext::to_c(technologies.front())));
 }
 
 int set_current_design_abstract_cmd(long long design_id)
 {
-    const int result = le_set_current_design_abstract_by_id(session(), unpack<LeDesignId>(design_id));
-    // Frames the newly-opened Abstract's own content the same way the
-    // GUI's own Library Browser open action does - a script-driven
-    // open_design should land on a sensible view, not whatever scale/pan
-    // happened to be left over from a previous one. Safe even with no
-    // viewport set yet (e.g. a headless le_shell run) -
-    // LeHandle::fit_to_content degrades to scale=1/pan={0,0} in that case.
+    le::WriteView view = write_view();
+    const int result = status(view.open_abstract(le::ext::from_c(unpack<LeDesignId>(design_id))));
+    // A script-driven open lands framed, as the GUI's does.
     if (result == 0)
-        le_fit_scene(session(), kOpenDesignFitPaddingPx);
+        view.fit_view(kOpenDesignFitPaddingPx);
     return result;
 }
 
 int set_current_design_layout_cmd(long long design_id)
 {
-    const int result = le_set_current_design_layout_by_id(session(), unpack<LeDesignId>(design_id));
-    // Same reasoning as set_current_design_abstract_cmd above - a Layout
-    // view didn't get this at all before (the actual bug report this
-    // fixes: opening a layout view left the scene at its previous/default
-    // scale and pan instead of framing the Layout's own diearea, unlike
-    // an Abstract view opened through the GUI).
+    le::WriteView view = write_view();
+    const int result = status(view.open_layout(le::ext::from_c(unpack<LeDesignId>(design_id))));
     if (result == 0)
-        le_fit_scene(session(), kOpenDesignFitPaddingPx);
+        view.fit_view(kOpenDesignFitPaddingPx);
     return result;
 }
 
 void zoom_cmd(double factor)
 {
-    le_zoom(session(), factor, viewport_width() / 2, viewport_height() / 2);
+    le::WriteView view = write_view();
+    const le::ViewState state = view.view();
+    view.zoom(factor, state.width_px / 2, state.height_px / 2);
 }
 
 void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px)
 {
-    le_fit_rect(session(), ll_x_um, ll_y_um, ur_x_um, ur_y_um, padding_px);
+    le::WriteView view = write_view();
+    const double scale = dbu_per_um(view);
+    view.fit_rect(le::Rect{.ll = {to_dbu(ll_x_um, scale), to_dbu(ll_y_um, scale)}, .ur = {to_dbu(ur_x_um, scale), to_dbu(ur_y_um, scale)}}, padding_px);
 }
 
 void set_layer_visible_cmd(const char *layer_name, bool visible)
 {
-    le_set_layer_name_visible(session(), layer_name, visible);
+    if (layer_name)
+        write_view().set_layer_visible(layer_name, visible);
 }
 
 int dump_png_cmd(const char *path)
 {
-    const LePixelBuffer buffer = le_render_pixel_buffer(session());
-    if (!buffer.data || buffer.width <= 0 || buffer.height <= 0)
+    const le::RenderedFrame frame = le::Renderer(session()).render();
+    if (frame.empty() || frame.width <= 0 || frame.height <= 0)
         return 1;
 
-    BLImage image(buffer.width, buffer.height, BL_FORMAT_PRGB32);
+    BLImage image(frame.width, frame.height, BL_FORMAT_PRGB32);
     if (image.is_empty())
         return 1;
 
@@ -712,18 +760,14 @@ int dump_png_cmd(const char *path)
     if (image.get_data(&image_data) != BL_SUCCESS)
         return 1;
 
-    // LePixelBuffer is literal RGBA byte order (api.hpp's own contract -
-    // ComposeStage's own BGRA-to-RGBA swap, compose_stage.hpp, exists
-    // specifically to produce this for consumers like this one), while
-    // BL_FORMAT_PRGB32 is premultiplied BGRA in memory on this little-
-    // endian target (same finding that swap's own comment documents) -
-    // this is the mirror-image conversion, swapping back on the way in.
+    // The frame is RGBA in byte order; BL_FORMAT_PRGB32 is premultiplied
+    // BGRA in memory on this little-endian target, so R and B swap back.
     auto *dst_base = static_cast<uint8_t *>(image_data.pixel_data);
-    for (int y = 0; y < buffer.height; ++y)
+    for (int y = 0; y < frame.height; ++y)
     {
-        const uint8_t *src_row = buffer.data + static_cast<std::ptrdiff_t>(y) * buffer.row_bytes;
+        const uint8_t *src_row = frame.data + static_cast<std::ptrdiff_t>(y) * static_cast<std::ptrdiff_t>(frame.row_bytes);
         uint8_t *dst_row = dst_base + static_cast<std::ptrdiff_t>(y) * image_data.stride;
-        for (int x = 0; x < buffer.width; ++x)
+        for (int x = 0; x < frame.width; ++x)
         {
             const uint8_t *src_px = src_row + static_cast<std::ptrdiff_t>(x) * 4;
             uint8_t *dst_px = dst_row + static_cast<std::ptrdiff_t>(x) * 4;
@@ -739,7 +783,7 @@ int dump_png_cmd(const char *path)
 
 bool get_layer_visible_cmd(const char *layer_name)
 {
-    return le_is_layer_name_visible(session(), layer_name);
+    return !layer_name || read_view().layer_visible(layer_name);
 }
 
 // abstract_token/layout_token empty means "use le_write_lef/le_write_def's
@@ -757,34 +801,40 @@ bool get_layer_visible_cmd(const char *layer_name)
 // own -abstracts flag's Tcl list value via [join ...] on the way in.
 int write_lef_cmd(const char *path, const char *abstract_tokens, const char *library_token, int32_t layer_write_mode)
 {
-    std::vector<LeAbstractId> abstract_ids;
-    if (abstract_tokens)
-    {
-        std::istringstream stream(abstract_tokens);
-        std::string token;
-        while (stream >> token)
-            abstract_ids.push_back(resolve_abstract_id(token.c_str()));
-    }
-    const LeLibraryId library_id = (library_token && library_token[0])
-                                        ? resolve_library_id(library_token)
-                                        : LeLibraryId{.index = UINT32_MAX, .generation = 0};
-    return le_write_lef(session(), path, abstract_ids.empty() ? nullptr : abstract_ids.data(), static_cast<int32_t>(abstract_ids.size()), library_id, layer_write_mode);
+    std::vector<le::AbstractId> abstracts;
+    std::istringstream stream(abstract_tokens ? abstract_tokens : "");
+    std::string token;
+    while (stream >> token)
+        abstracts.push_back(le::ext::from_c(resolve_abstract_id(token.c_str())));
+    const le::LibraryId library = (library_token && library_token[0]) ? le::ext::from_c(resolve_library_id(library_token)) : le::LibraryId{};
+    le::LefLayerWriteMode layers = le::LefLayerWriteMode::NONE;
+    if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT)
+        layers = le::LefLayerWriteMode::INCLUDE_WITH_ABSTRACT;
+    else if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY)
+        layers = le::LefLayerWriteMode::TECHNOLOGY_ONLY;
+    return status(write_view().write_lef(path ? path : "", abstracts, library, layers));
 }
 
 int write_def_cmd(const char *path, const char *layout_token)
 {
-    const LeLayoutId layout_id = (layout_token && layout_token[0])
-                                      ? resolve_layout_id(layout_token)
-                                      : LeLayoutId{.index = UINT32_MAX, .generation = 0};
-    return le_write_def(session(), path, layout_id);
+    const le::LayoutId layout = (layout_token && layout_token[0]) ? le::ext::from_c(resolve_layout_id(layout_token)) : le::LayoutId{};
+    return status(write_view().write_def(path ? path : "", layout));
 }
 
-int write_db_cmd(const char *path, int with_session) { return le_write_db(session(), path, with_session); }
+int write_db_cmd(const char *path, int with_session) { return status(write_view().write_db(path ? path : "", with_session != 0)); }
 
-int read_db_cmd(const char *path, int with_session) { return le_read_db(session(), path, with_session); }
+int read_db_cmd(const char *path, int with_session) { return status(write_view().read_db(path ? path : "", with_session != 0)); }
 
-const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
-const char *migrate_db_cmd(const char *in_path, const char *out_path) { return return_string(le_migrate_db(in_path, out_path)); }
+const char *db_info_cmd(const char *path)
+{
+    const std::expected<std::string, std::string> info = le::db_info(path ? path : "");
+    return return_string(info ? *info : "error: " + info.error());
+}
+const char *migrate_db_cmd(const char *in_path, const char *out_path)
+{
+    const std::expected<std::string, std::string> report = le::migrate_db(in_path ? in_path : "", out_path ? out_path : "");
+    return return_string(report ? *report : "error: " + report.error());
+}
 
 // get_selection/select. Only Shape/Wire/Row/Placement/Region friendly ids are
 // meaningful here (the kinds LeHandle::SelectedObject covers - see le_select_object_ref's
@@ -794,247 +844,253 @@ const char *migrate_db_cmd(const char *in_path, const char *out_path) { return r
 // here is simpler than reaching for them.
 int selection_count_cmd()
 {
-    return le_selection_count(session());
+    return static_cast<int>(read_view().selection().size());
 }
 
 const char *get_selection_at_cmd(int index)
 {
-    const LeObjectRef ref = le_selected_object_ref(session(), index);
-    switch (ref.kind)
-    {
-    case LE_OBJECT_KIND_SHAPE:
-        return return_string(format_shape_id(LeShapeId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_WIRE:
-        return return_string(format_wire_id(LeWireId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_ROW:
-        return return_string(format_row_id(LeRowId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_PLACEMENT:
-        return return_string(format_placement_id(LePlacementId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_REGION:
-        return return_string(format_region_id(LeRegionId{.index = ref.index, .generation = ref.generation}));
-    default:
+    const le::ReadView view = read_view();
+    const std::span<const le::SelectedObject> selection = view.selection();
+    if (index < 0 || static_cast<size_t>(index) >= selection.size())
         return return_string(std::string{});
-    }
+    // A piece names its Shape or Wire.
+    return return_string(std::visit([](const auto &entry) -> std::string
+                                    {
+                                        using T = std::decay_t<decltype(entry)>;
+                                        if constexpr (std::is_same_v<T, le::ShapePiece>)
+                                            return entry.wire_id.valid() ? format_wire_id(le::ext::to_c(entry.wire_id)) : format_shape_id(le::ext::to_c(entry.shape_id));
+                                        else if constexpr (std::is_same_v<T, le::RowId>)
+                                            return format_row_id(le::ext::to_c(entry));
+                                        else if constexpr (std::is_same_v<T, le::PlacementId>)
+                                            return format_placement_id(le::ext::to_c(entry));
+                                        else
+                                            return format_region_id(le::ext::to_c(entry)); },
+                                    selection[static_cast<size_t>(index)]));
 }
 
 int select_cmd(const char *token)
 {
     if (!token)
-        return 1;
+        return fail("no token");
     const std::string_view sv(token);
-    LeObjectRef ref{};
-    if (sv.substr(0, 6) == "shape:")
-    {
-        const LeShapeId id = resolve_shape_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 5) == "wire:")
-    {
-        const LeWireId id = resolve_wire_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_WIRE, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 4) == "row:")
-    {
-        const LeRowId id = resolve_row_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_ROW, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 10) == "placement:")
-    {
-        const LePlacementId id = resolve_placement_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 7) == "region:")
-    {
-        const LeRegionId id = resolve_region_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_REGION, .index = id.index, .generation = id.generation};
-    }
+    le::SelectableObject object;
+    if (sv.starts_with("shape:"))
+        object = le::ext::from_c(resolve_shape_id(token));
+    else if (sv.starts_with("wire:"))
+        object = le::ext::from_c(resolve_wire_id(token));
+    else if (sv.starts_with("row:"))
+        object = le::ext::from_c(resolve_row_id(token));
+    else if (sv.starts_with("placement:"))
+        object = le::ext::from_c(resolve_placement_id(token));
+    else if (sv.starts_with("region:"))
+        object = le::ext::from_c(resolve_region_id(token));
     else
-    {
-        // Unlike le_select_object_ref's own ERROR messages below (logged
-        // via spdlog::error, api.cpp has real access to spdlog there) -
-        // this shim has no compelling reason to log here too, so an
-        // unrecognized prefix is surfaced by the caller instead: select
-        // (le_tcl_procs.tcl) checks this return value and raises its own
-        // clear Tcl error with the token text it already has.
-        return 2; // distinct from 1 (a real, resolved-but-invalid/unsupported ref)
-    }
-    return le_select_object_ref(session(), ref);
+        return 2; // an unrecognized prefix: select names the token itself
+    return status(write_view().select(object));
 }
 
 void set_layer_selectable_cmd(const char *layer_name, bool selectable)
 {
-    le_set_layer_name_selectable(session(), layer_name, selectable);
+    if (layer_name)
+        write_view().set_layer_selectable(layer_name, selectable);
 }
 
 bool get_layer_selectable_cmd(const char *layer_name)
 {
-    return le_is_layer_name_selectable(session(), layer_name);
+    return !layer_name || read_view().layer_selectable(layer_name);
 }
 
 void set_purpose_visible_cmd(int32_t purpose, bool visible)
 {
-    le_set_purpose_visible(session(), purpose, visible);
+    write_view().set_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose), visible);
 }
 
 bool get_purpose_visible_cmd(int32_t purpose)
 {
-    return le_is_purpose_visible(session(), purpose);
+    return read_view().purpose_visible(static_cast<le::ViewLayerPurpose>(purpose));
 }
 
 void set_purpose_selectable_cmd(int32_t purpose, bool selectable)
 {
-    le_set_purpose_selectable(session(), purpose, selectable);
+    write_view().set_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose), selectable);
 }
 
 bool get_purpose_selectable_cmd(int32_t purpose)
 {
-    return le_is_purpose_selectable(session(), purpose);
+    return read_view().purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose));
 }
 
 int purpose_kind_count_cmd()
 {
-    return le_purpose_kind_count();
+    return static_cast<int>(le::kViewLayerPurposeCount);
 }
 
 const char *purpose_name_cmd(int32_t purpose)
 {
-    const char *name = le_purpose_name(purpose);
-    return name ? name : "";
+    if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
+        return "";
+    return le::kViewLayerPurposes[static_cast<size_t>(purpose)].label.data(); // a literal: null-terminated
 }
 
 bool purpose_visible_by_default_cmd(int32_t purpose)
 {
-    return le_purpose_visible_by_default(purpose) != 0;
+    return purpose >= 0 && static_cast<size_t>(purpose) < le::kViewLayerPurposeCount && le::kViewLayerPurposes[static_cast<size_t>(purpose)].visible_by_default;
 }
 
 void set_object_filter_visible_cmd(int32_t filter, const char *value, bool visible)
 {
-    le_set_object_filter_value_visible(session(), filter, value, visible);
+    if (value)
+        write_view().set_object_filter_visible(static_cast<le::ObjectFilter>(filter), value, visible);
 }
 
 bool get_object_filter_visible_cmd(int32_t filter, const char *value)
 {
-    return le_is_object_filter_value_visible(session(), filter, value);
+    return !value || read_view().object_filter_visible(static_cast<le::ObjectFilter>(filter), value);
 }
 
 void set_object_filter_selectable_cmd(int32_t filter, const char *value, bool selectable)
 {
-    le_set_object_filter_value_selectable(session(), filter, value, selectable);
+    if (value)
+        write_view().set_object_filter_selectable(static_cast<le::ObjectFilter>(filter), value, selectable);
 }
 
 bool get_object_filter_selectable_cmd(int32_t filter, const char *value)
 {
-    return le_is_object_filter_value_selectable(session(), filter, value);
+    return !value || read_view().object_filter_selectable(static_cast<le::ObjectFilter>(filter), value);
 }
 
 void set_mode_cmd(int32_t mode)
 {
-    le_set_mode(session(), mode);
+    if (mode >= LE_MODE_SELECT && mode <= LE_MODE_RULER)
+        write_view().set_mode(static_cast<le::InteractionMode>(mode));
 }
 
 int32_t get_mode_cmd()
 {
-    return le_get_mode(session());
+    return static_cast<int32_t>(read_view().mode());
 }
 
 void clear_rulers_cmd()
 {
-    le_clear_rulers(session());
+    write_view().clear_rulers();
 }
 
 void deselect_all_cmd()
 {
-    le_deselect_all(session());
+    write_view().clear_selection();
 }
 
 void arm_move_cmd()
 {
-    le_arm_move(session());
+    write_view().arm_move();
 }
 
 int selected_locked_placement_count_cmd()
 {
-    return le_selected_locked_placement_count(session());
+    return static_cast<int>(read_view().selected_locked_placement_count());
 }
 
 bool is_move_anchored_cmd()
 {
-    return le_is_move_anchored(session()) != 0;
+    return read_view().move_anchored();
 }
 
 int delete_selected_pieces_cmd()
 {
-    return le_delete_selected_pieces(session());
+    return static_cast<int>(write_view().delete_selected_pieces());
 }
 
 void set_placement_snap_mode_cmd(int mode)
 {
-    le_set_placement_snap_mode(session(), mode);
+    if (mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID)
+        write_view().set_placement_snap_mode(static_cast<le::PlacementSnapMode>(mode));
 }
 
 int get_placement_snap_mode_cmd()
 {
-    return le_get_placement_snap_mode(session());
+    return static_cast<int>(read_view().placement_snap_mode());
 }
 
 int set_view_flip_cmd(int flip)
 {
-    return le_set_view_flip(session(), flip);
+    if (flip < LE_VIEW_FLIP_NONE || flip > LE_VIEW_FLIP_VERTICAL)
+        return 1;
+    write_view().set_view_flip(static_cast<le::ViewFlip>(flip));
+    return 0;
 }
 
 int get_view_flip_cmd()
 {
-    return le_view_flip(session());
+    return static_cast<int>(read_view().view().flip);
 }
 
 bool is_placement_snap_mode_available_cmd(int mode)
 {
-    return le_is_placement_snap_mode_available(session(), mode) != 0;
+    return mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID &&
+           read_view().placement_snap_mode_available(static_cast<le::PlacementSnapMode>(mode));
 }
 
 int apply_placement_orientation_op_cmd(int op)
 {
-    return le_apply_placement_orientation_op(session(), op);
+    if (op < LE_ORIENTATION_OP_ROTATE_CCW || op > LE_ORIENTATION_OP_FLIP_VERTICAL)
+        return -1;
+    const std::expected<void, le::OrientationOpError> applied = write_view().apply_placement_orientation_op(static_cast<le::OrientationOp>(op));
+    if (applied)
+        return 0;
+    switch (applied.error())
+    {
+    case le::OrientationOpError::NOTHING_SELECTED:
+        return 1;
+    case le::OrientationOpError::NOT_AVAILABLE:
+        return 2;
+    case le::OrientationOpError::LOCKED:
+        return 3;
+    }
+    return -1;
 }
 
 void arm_resize_cmd()
 {
-    le_arm_resize(session());
+    write_view().arm_resize();
 }
 
 void set_shape_snap_mode_cmd(int kind, int mode)
 {
-    le_set_shape_snap_mode(session(), kind, mode);
+    if (kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE && mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS)
+        write_view().set_shape_snap_mode(static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
 }
 
 int get_shape_snap_mode_cmd(int kind)
 {
-    return le_get_shape_snap_mode(session(), kind);
+    if (kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE)
+        return LE_SHAPE_SNAP_USER_GRID;
+    return static_cast<int>(read_view().shape_snap_mode(static_cast<le::PieceKind>(kind)));
 }
 
 bool is_shape_snap_mode_available_cmd(int kind, int mode)
 {
-    return le_is_shape_snap_mode_available(session(), kind, mode) != 0;
+    return kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE && mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS &&
+           read_view().shape_snap_mode_available(static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
 }
 
 void request_show_gui_cmd()
 {
-    le_request_show_gui(session());
+    le::SessionRequests(session()).request_show_gui();
 }
 
 void request_close_gui_cmd()
 {
-    le_request_close_gui(session());
+    le::SessionRequests(session()).request_close_gui();
 }
 
 int has_unsaved_database_changes_cmd()
 {
-    return le_has_unsaved_database_changes(session());
+    return read_view().has_unsaved_database() ? 1 : 0;
 }
 
 int has_unsaved_settings_cmd()
 {
-    return le_has_unsaved_settings(session());
+    return read_view().has_unsaved_settings() ? 1 : 0;
 }
 
 void set_session_handle(long long handle_address)
@@ -1074,7 +1130,9 @@ const char *shape_rect_at(const char *id, int index)
 
 int remove_shape_rect(const char *id, int index)
 {
-    return le_remove_shape_rect(session(), resolve_shape_id(id), index);
+    if (index < 0)
+        return fail("a rect index can't be negative");
+    return status(write_view().remove_shape_piece(le::ext::from_c(resolve_shape_id(id)), le::PieceKind::RECT, static_cast<size_t>(index)));
 }
 
 int shape_polygon_count(const char *id)
@@ -1097,7 +1155,9 @@ const char *shape_polygon_point_at(const char *id, int polygon_index, int point_
 
 int remove_shape_polygon(const char *id, int polygon_index)
 {
-    return le_remove_shape_polygon(session(), resolve_shape_id(id), polygon_index);
+    if (polygon_index < 0)
+        return fail("a polygon index can't be negative");
+    return status(write_view().remove_shape_piece(le::ext::from_c(resolve_shape_id(id)), le::PieceKind::POLYGON, static_cast<size_t>(polygon_index)));
 }
 
 int shape_path_count(const char *id)
@@ -1125,9 +1185,11 @@ const char *shape_path_point_at(const char *id, int path_index, int point_index)
 
 int remove_shape_path(const char *id, int path_index)
 {
-    if (std::string_view(id ? id : "").starts_with("wire:"))
-        return le_remove_wire_path(session(), resolve_wire_id(id), path_index);
-    return le_remove_shape_path(session(), resolve_shape_id(id), path_index);
+    if (path_index < 0)
+        return fail("a path index can't be negative");
+    const le::GeometryId shape = std::string_view(id ? id : "").starts_with("wire:") ? le::GeometryId(le::ext::from_c(resolve_wire_id(id)))
+                                                                                     : le::GeometryId(le::ext::from_c(resolve_shape_id(id)));
+    return status(write_view().remove_shape_piece(shape, le::PieceKind::PATH, static_cast<size_t>(path_index)));
 }
 
 // --- shape_* operations ---
@@ -1135,50 +1197,38 @@ int remove_shape_path(const char *id, int path_index)
 // Shape token lists cross as one space-separated string (le_tcl_procs.tcl
 // builds it with [join ...]) - the same plain word split write_lef_cmd's
 // own abstract_tokens uses. An unknown shape token resolves to the invalid
-// id, which le_shape_* then reports as an unknown shape; an unknown
-// -layer/-parent token can't be told apart from an omitted one that way,
-// so it's caught here instead and returned as its own status
-// (kShapeOpBadLayer/kShapeOpBadParent) for the Tcl proc to report.
+// id, which the shape op then reports as unknown; an unknown -layer/
+// -parent token can't be told apart from an omitted one that way, so it's
+// caught here instead and returned as its own status (kShapeOpBadLayer/
+// kShapeOpBadParent) for the Tcl proc to report. Any other failure is -1,
+// its reason kept for last_error_cmd.
 
 namespace
 {
+    constexpr int kShapeOpFailed = -1;
     constexpr int kShapeOpBadLayer = -2;
     constexpr int kShapeOpBadParent = -3;
 
     // shape: and wire: tokens.
-    std::vector<LeObjectRef> resolve_shape_tokens(const char *tokens)
+    std::vector<le::GeometryId> resolve_shape_tokens(const char *tokens)
     {
-        std::vector<LeObjectRef> refs;
+        std::vector<le::GeometryId> shapes;
         std::istringstream stream(tokens ? tokens : "");
         std::string token;
         while (stream >> token)
         {
             if (token.starts_with("wire:"))
-            {
-                const LeWireId id = resolve_wire_id(token.c_str());
-                refs.push_back(LeObjectRef{.kind = LE_OBJECT_KIND_WIRE, .index = id.index, .generation = id.generation});
-            }
+                shapes.emplace_back(le::ext::from_c(resolve_wire_id(token.c_str())));
             else
-            {
-                const LeShapeId id = resolve_shape_id(token.c_str());
-                refs.push_back(LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation});
-            }
+                shapes.emplace_back(le::ext::from_c(resolve_shape_id(token.c_str())));
         }
-        return refs;
+        return shapes;
     }
 
     bool token_given(const char *token)
     {
         return token && token[0];
     }
-
-    // A -layer value: a real layer token, or `debug` (any case) for the
-    // layer-less DEBUG purpose.
-    struct LayerTarget
-    {
-        LeLayerId layer{.index = UINT32_MAX, .generation = 0};
-        const char *purpose = nullptr;
-    };
 
     bool is_debug_layer(const char *token)
     {
@@ -1188,153 +1238,178 @@ namespace
         return lower == "debug";
     }
 
-    // nullopt = a layer token was given but doesn't resolve.
-    std::optional<LayerTarget> resolve_optional_layer(const char *token)
+    // A -layer value: a real layer token, or `debug` (any case) for the
+    // layer-less DEBUG purpose; nothing for no token. nullopt = a layer
+    // token was given but doesn't resolve.
+    std::optional<std::optional<le::shape_ops::LayerOrPurpose>> resolve_optional_layer(const char *token)
     {
         if (!token_given(token))
-            return LayerTarget{};
+            return std::optional<le::shape_ops::LayerOrPurpose>{};
         if (is_debug_layer(token))
-            return LayerTarget{.purpose = "DEBUG"};
-        const LeLayerId id = resolve_layer_id(token);
-        if (id.index == UINT32_MAX)
+            return std::optional(le::shape_ops::LayerOrPurpose{.purpose = le::ShapePurpose::DEBUG});
+        const le::LayerId id = le::ext::from_c(resolve_layer_id(token));
+        if (!id.valid())
             return std::nullopt;
-        return LayerTarget{.layer = id};
+        return std::optional(le::shape_ops::LayerOrPurpose{.layer = id});
     }
 
-    template <typename IdT>
-    LeObjectRef object_ref(int32_t kind, IdT id)
-    {
-        return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation};
-    }
-
-    // nullopt = a parent token was given but isn't a supported, existing kind.
-    std::optional<LeObjectRef> resolve_optional_parent(const char *token)
+    // nothing for no token; nullopt = a parent token was given but isn't
+    // a supported, existing kind.
+    std::optional<std::optional<le::shape_ops::ShapeParent>> resolve_optional_parent(const char *token)
     {
         if (!token_given(token))
-            return le_object_invalid_ref();
+            return std::optional<le::shape_ops::ShapeParent>{};
         const std::string_view sv(token);
-        LeObjectRef ref = le_object_invalid_ref();
+        const auto valid = [](auto id) -> std::optional<std::optional<le::shape_ops::ShapeParent>>
+        {
+            if (!id.valid())
+                return std::nullopt;
+            return std::optional<le::shape_ops::ShapeParent>(id);
+        };
         if (sv.starts_with("abstract:"))
-            ref = object_ref(LE_OBJECT_KIND_ABSTRACT, resolve_abstract_id(token));
-        else if (sv.starts_with("layout:"))
-            ref = object_ref(LE_OBJECT_KIND_LAYOUT, resolve_layout_id(token));
-        else if (sv.starts_with("obstruction:"))
-            ref = object_ref(LE_OBJECT_KIND_OBSTRUCTION, resolve_obstruction_id(token));
-        else if (sv.starts_with("terminal_port:"))
-            ref = object_ref(LE_OBJECT_KIND_TERMINAL_PORT, resolve_terminal_port_id(token));
-        else if (sv.starts_with("route:"))
-            ref = object_ref(LE_OBJECT_KIND_ROUTE, resolve_route_id(token));
-        else if (sv.starts_with("blockage:"))
-            ref = object_ref(LE_OBJECT_KIND_BLOCKAGE, resolve_blockage_id(token));
-        else if (sv.starts_with("physical_port_segment:"))
-            ref = object_ref(LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT, resolve_physical_port_segment_id(token));
-        if (ref.index == UINT32_MAX)
-            return std::nullopt;
-        return ref;
+            return valid(le::ext::from_c(resolve_abstract_id(token)));
+        if (sv.starts_with("layout:"))
+            return valid(le::ext::from_c(resolve_layout_id(token)));
+        if (sv.starts_with("obstruction:"))
+            return valid(le::ext::from_c(resolve_obstruction_id(token)));
+        if (sv.starts_with("terminal_port:"))
+            return valid(le::ext::from_c(resolve_terminal_port_id(token)));
+        if (sv.starts_with("route:"))
+            return valid(le::ext::from_c(resolve_route_id(token)));
+        if (sv.starts_with("blockage:"))
+            return valid(le::ext::from_c(resolve_blockage_id(token)));
+        if (sv.starts_with("physical_port_segment:"))
+            return valid(le::ext::from_c(resolve_physical_port_segment_id(token)));
+        return std::nullopt;
+    }
+
+    // The last shape op's new Shapes, for shape_op_results_cmd.
+    std::vector<le::ShapeId> &shape_op_results()
+    {
+        static thread_local std::vector<le::ShapeId> results;
+        return results;
     }
 
     // Shared by every creating shape_*_cmd: resolves -layer/-parent, then
-    // hands the resolved shape ids to `call` (the matching le_shape_*).
+    // runs `call(view, layer, parent)` - the matching WriteView shape op.
+    // How many Shapes it made, or a negative status.
     template <typename Call>
     int run_shape_op_cmd(const char *layer_token, const char *parent_token, Call &&call)
     {
-        const std::optional<LayerTarget> target = resolve_optional_layer(layer_token);
-        if (!target)
+        const auto layer = resolve_optional_layer(layer_token);
+        if (!layer)
             return kShapeOpBadLayer;
-        const std::optional<LeObjectRef> parent = resolve_optional_parent(parent_token);
+        const auto parent = resolve_optional_parent(parent_token);
         if (!parent)
             return kShapeOpBadParent;
-        return call(target->layer, target->purpose, *parent);
-    }
-
-    const LeObjectRef *data_or_null(const std::vector<LeObjectRef> &refs)
-    {
-        return refs.empty() ? nullptr : refs.data();
+        le::WriteView view = write_view();
+        const le::ShapeOpResult result = call(view, *layer, *parent);
+        if (!result)
+        {
+            fail(result.error());
+            return kShapeOpFailed;
+        }
+        shape_op_results() = *result;
+        return static_cast<int>(result->size());
     }
 }
 
 int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_copy(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const auto &layer, const auto &parent)
+                            { return layer ? view.shape_copy(shapes, *layer, parent) : le::ShapeOpResult(std::unexpected(std::string("-layer is required"))); });
 }
 
 int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> a = resolve_shape_tokens(shape_tokens_a);
-    const std::vector<LeObjectRef> b = resolve_shape_tokens(shape_tokens_b);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_boolean(session(), data_or_null(a), static_cast<int32_t>(a.size()), data_or_null(b),
-                                                      static_cast<int32_t>(b.size()), op, layer, purpose, parent); });
+    const le::BooleanOp boolean_op = op == LE_SHAPE_BOOLEAN_AND ? le::BooleanOp::And : op == LE_SHAPE_BOOLEAN_NOT ? le::BooleanOp::Not : le::BooleanOp::Or;
+    const std::vector<le::GeometryId> a = resolve_shape_tokens(shape_tokens_a);
+    const std::vector<le::GeometryId> b = resolve_shape_tokens(shape_tokens_b);
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const auto &layer, const auto &parent)
+                            { return view.shape_boolean(a, b, boolean_op, layer, parent); });
 }
 
 int shape_to_polygon_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_to_polygon(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const auto &layer, const auto &parent)
+                            { return view.shape_to_polygons(shapes, layer, parent); });
 }
 
 int shape_to_rects_cmd(const char *shape_tokens, int vertical, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_to_rects(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), vertical, layer, purpose, parent); });
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(shape_tokens);
+    const le::FractureDirection direction = vertical ? le::FractureDirection::Vertical : le::FractureDirection::Horizontal;
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const auto &layer, const auto &parent)
+                            { return view.shape_to_rects(shapes, direction, layer, parent); });
 }
 
 int shape_size_cmd(const char *shape_tokens, double dx_um, double dy_um, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_size(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), dx_um, dy_um, layer, purpose, parent); });
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const auto &layer, const auto &parent)
+                            {
+                                const double scale = dbu_per_um(view);
+                                return view.shape_size(shapes, to_dbu(dx_um, scale), to_dbu(dy_um, scale), layer, parent); });
 }
 
 int shape_path_cmd(const char *shape_tokens, double width_um, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_path(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), width_um, layer, purpose, parent); });
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(shape_tokens);
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const auto &layer, const auto &parent)
+                            { return view.shape_outline_paths(shapes, to_dbu(width_um, dbu_per_um(view)), layer, parent); });
 }
 
 int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token)
 {
-    const std::optional<LayerTarget> target = resolve_optional_layer(layer_token);
-    if (!target || (target->layer.index == UINT32_MAX && !target->purpose))
+    const auto layer = resolve_optional_layer(layer_token);
+    if (!layer || !*layer)
         return kShapeOpBadLayer;
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return le_shape_change_layer(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), target->layer, target->purpose);
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(shape_tokens);
+    if (const std::expected<void, std::string> changed = write_view().shape_change_layer(shapes, **layer); !changed)
+    {
+        fail(changed.error());
+        return kShapeOpFailed;
+    }
+    return static_cast<int>(shapes.size());
 }
 
 const char *shape_op_results_cmd(int count)
 {
+    const std::vector<le::ShapeId> &results = shape_op_results();
     std::ostringstream out;
-    for (int i = 0; i < count; ++i)
+    for (int i = 0; i < count && static_cast<size_t>(i) < results.size(); ++i)
     {
         if (i > 0)
             out << ' ';
-        out << format_shape_id(le_shape_op_result_at(session(), i));
+        out << format_shape_id(le::ext::to_c(results[static_cast<size_t>(i)]));
     }
     return return_string(out.str());
 }
 
 const char *shape_bbox_cmd(const char *shape_tokens)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    const LeShapeBbox box = le_shape_bbox(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()));
-    if (!box.valid)
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(shape_tokens);
+    const le::ReadView view = read_view();
+    const std::expected<le::Rect, std::string> box = view.shape_bbox(shapes);
+    if (!box)
+    {
+        fail(box.error());
         return return_string("");
+    }
+    const double scale = dbu_per_um(view);
     // The {{llx lly} {urx ury}} Rect form every -bbox/-rects flag and
     // zoom_area take. std::to_chars gives the shortest exact round-trip
     // form (ostream's default 6 significant digits would truncate a large
     // micron coordinate).
-    auto number = [](double value)
+    auto number = [&](int64_t dbu)
     {
         char buf[32];
-        const auto [end, ec] = std::to_chars(buf, buf + sizeof(buf), value);
+        const auto [end, ec] = std::to_chars(buf, buf + sizeof(buf), static_cast<double>(dbu) / scale);
         return std::string(buf, end);
     };
-    return return_string("{" + number(box.ll_x_um) + " " + number(box.ll_y_um) + "} {" + number(box.ur_x_um) + " " + number(box.ur_y_um) + "}");
+    return return_string("{" + number(box->ll.x) + " " + number(box->ll.y) + "} {" + number(box->ur.x) + " " + number(box->ur.y) + "}");
 }
 
 // --- Editing / undo-redo ---
@@ -1352,100 +1427,108 @@ int end_command(int succeeded)
 
 int undo_command()
 {
-    return le_undo(session());
+    const std::expected<bool, std::string> undone = write_view().undo();
+    return undone ? (*undone ? 1 : 0) : -1;
 }
 
 int redo_command()
 {
-    return le_redo(session());
+    const std::expected<bool, std::string> redone = write_view().redo();
+    return redone ? (*redone ? 1 : 0) : -1;
 }
 
 int command_history_count()
 {
-    return le_command_history_count(session());
+    return static_cast<int>(read_view().command_history_size());
 }
 
 const char *command_history_at(int index)
 {
-    const char *value = le_command_history_at(session(), index);
-    return value ? value : "";
+    const le::ReadView view = read_view();
+    if (index < 0 || static_cast<size_t>(index) >= view.command_history_size())
+        return "";
+    return return_string(view.command_history_at(static_cast<size_t>(index)));
 }
 
 int get_hierarchy_depth_command()
 {
-    return le_hierarchy_depth(session());
+    return read_view().hierarchy_depth();
 }
 
 void set_hierarchy_depth_command(int depth)
 {
-    le_set_hierarchy_depth(session(), depth);
+    write_view().set_hierarchy_depth(depth);
 }
 
 int get_flightline_max_fanout_command()
 {
-    return le_flightline_max_fanout(session());
+    return read_view().flightline_max_fanout();
 }
 
 void set_flightline_max_fanout_command(int max_fanout)
 {
-    le_set_flightline_max_fanout(session(), max_fanout);
+    write_view().set_flightline_max_fanout(max_fanout);
 }
 
 int get_undo_limit_command()
 {
-    return le_undo_limit(session());
+    return static_cast<int>(std::min<size_t>(read_view().undo_limit(), INT32_MAX));
 }
 
 void set_undo_limit_command(int limit)
 {
-    le_set_undo_limit(session(), limit);
+    if (limit >= 0)
+        write_view().set_undo_limit(static_cast<size_t>(limit));
 }
 
 double get_grid_spacing_um_command(int major)
 {
-    return le_grid_spacing_um(session(), major);
+    return read_view().grid_spacing_um(major != 0);
 }
 
 void set_grid_spacing_um_command(double minor_um, double major_um)
 {
-    le_set_grid_spacing_um(session(), minor_um, major_um);
+    write_view().set_grid_spacing_um(minor_um, major_um);
 }
 
-int get_confirm_overwrite_command() { return le_confirm_overwrite(session()); }
-void set_confirm_overwrite_command(int confirm) { le_set_confirm_overwrite(session(), confirm); }
-const char *get_theme_command() { return le_theme(session()); }
-int set_theme_command(const char *name) { return le_set_theme(session(), name); }
-int theme_count_command() { return le_theme_count(); }
-const char *theme_name_command(int index) { return le_theme_name(index); }
+int get_confirm_overwrite_command() { return read_view().confirm_overwrite() ? 1 : 0; }
+void set_confirm_overwrite_command(int confirm) { write_view().set_confirm_overwrite(confirm != 0); }
+const char *get_theme_command() { return le::kThemes[read_view().theme()].name.data(); }
+int set_theme_command(const char *name) { return name && write_view().set_theme(name) ? 0 : -1; }
+int theme_count_command() { return static_cast<int>(le::kThemes.size()); }
+const char *theme_name_command(int index)
+{
+    return index >= 0 && static_cast<size_t>(index) < le::kThemes.size() ? le::kThemes[static_cast<size_t>(index)].name.data() : "";
+}
 
 double get_ruler_label_size_command()
 {
-    return le_ruler_label_size(session());
+    return read_view().ruler_label_size();
 }
 
 void set_ruler_label_size_command(double px)
 {
-    le_set_ruler_label_size(session(), px);
+    write_view().set_ruler_label_size(px);
 }
 
 double get_label_min_size_command()
 {
-    return le_label_min_size(session());
+    return read_view().label_min_size();
 }
 
 void set_label_min_size_command(double px)
 {
-    le_set_label_min_size(session(), px);
+    write_view().set_label_min_size(px);
 }
 
 double get_label_max_size_command()
 {
-    return le_label_max_size(session());
+    return read_view().label_max_size();
 }
 
 void set_label_max_size_command(double px)
 {
-    le_set_label_max_size(session(), px);
+    write_view().set_label_max_size(px);
 }
 
 // Layer colors as "#rrggbb" (the "#" is
@@ -1459,39 +1542,42 @@ int set_layer_color_command(const char *layer, const char *color)
                                          { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }))
         return 1;
     const unsigned long value = std::stoul(std::string(text), nullptr, 16);
-    return le_set_layer_color(session(), layer, static_cast<int32_t>((value >> 16) & 0xff), static_cast<int32_t>((value >> 8) & 0xff),
-                              static_cast<int32_t>(value & 0xff));
+    if (!layer)
+        return 1;
+    write_view().set_layer_color(layer, le::Color{static_cast<uint8_t>((value >> 16) & 0xff), static_cast<uint8_t>((value >> 8) & 0xff), static_cast<uint8_t>(value & 0xff)});
+    return 0;
 }
 
 void reset_layer_color_command(const char *layer)
 {
-    le_reset_layer_color(session(), layer);
+    if (layer)
+        write_view().reset_layer_color(layer);
 }
 
 // "#rrggbb", or "" for a layer with no row.
 const char *get_layer_color_command(const char *layer)
 {
-    const int32_t rgb = le_layer_color_rgb(session(), layer);
-    if (rgb < 0)
+    const std::optional<le::Color> color = layer ? read_view().layer_color(layer) : std::nullopt;
+    if (!color)
         return return_string("");
     char text[8];
-    std::snprintf(text, sizeof(text), "#%06x", static_cast<unsigned>(rgb));
+    std::snprintf(text, sizeof(text), "#%02x%02x%02x", color->r, color->g, color->b);
     return return_string(text);
 }
 
 int save_settings_command(const char *path)
 {
-    return le_save_settings(session(), path);
+    return status(write_view().save_settings(path ? path : ""));
 }
 
 int load_settings_command(const char *path)
 {
-    return le_load_settings(session(), path);
+    return status(write_view().load_settings(path ? path : ""));
 }
 
 const char *default_settings_path_command()
 {
-    return le_default_settings_path();
+    return return_string(le::default_settings_path());
 }
 
 const char *generated_procs_default_path_command()
@@ -1505,10 +1591,10 @@ const char *generated_procs_default_path_command()
 
 int get_max_concurrency_command()
 {
-    return le_max_concurrency(session());
+    return read_view().max_concurrency();
 }
 
 void set_max_concurrency_command(int max_concurrency)
 {
-    le_set_max_concurrency(session(), max_concurrency);
+    write_view().set_max_concurrency(max_concurrency);
 }

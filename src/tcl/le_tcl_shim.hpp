@@ -252,14 +252,15 @@ int selection_count_cmd();
 /// this dispatches, but this stays exhaustive-safe rather than assuming).
 const char *get_selection_at_cmd(int index);
 
-/// @brief Backing for `select` - resolves
-/// `token`'s own shape:/row:/placement:/region: prefix to a LeObjectRef
-/// and calls le_select_object_ref. Returns 0 on success, 1 for a
-/// recognized-prefix-but-unresolvable/unsupported token (le_select_object_ref's
-/// own failure, with a real ERROR message logged via spdlog::error), or 2
-/// for an unrecognized prefix (no message logged - select, le_tcl_procs.tcl,
-/// raises its own Tcl error using the token text it already has instead).
+/// @brief Backing for `select` - resolves `token`'s shape:/wire:/row:/
+/// placement:/region: prefix and selects it. Returns 0 on success, 1 if it
+/// can't be selected (the reason in last_error_cmd), or 2 for an
+/// unrecognized prefix (select names the token in its own error).
 int select_cmd(const char *token);
+
+/// @brief Why the last shim command that failed (a nonzero or negative
+/// status) failed: the operation's own message.
+const char *last_error_cmd();
 
 /// @brief Backing for the `set_layer_visible <layer_name> <visible>` Tcl
 /// command - mirrors le_set_layer_name_visible directly (affects every
