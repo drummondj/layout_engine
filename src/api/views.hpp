@@ -11,6 +11,7 @@
 #include "../database/wire_helpers.hpp"
 #include "../geometry/shape_op_types.hpp"
 #include "generated/api/edit_types.hpp"
+#include "interaction_types.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -22,6 +23,7 @@
 #include <shared_mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 /// @brief One editor instance's state; opaque outside the api module
@@ -106,6 +108,40 @@ namespace le
         std::span<const Ruler> rulers() const;
         /// @brief Only when valid(): what the design view shows and where.
         ViewState view() const;
+
+        // Interaction state, only when valid(). Pixels have a top-left
+        // origin, as the rendered frame does.
+
+        InteractionMode mode() const;
+        /// @brief How to use the current mode, for the status bar.
+        std::string_view tooltip() const;
+        bool move_armed() const;
+        /// @brief Whether an armed Move has its start point (its first click).
+        bool move_anchored() const;
+        PlacementSnapMode placement_snap_mode() const;
+        /// @brief Whether the open Layout has what `mode` snaps to.
+        bool placement_snap_mode_available(PlacementSnapMode mode) const;
+        /// @brief How many selected placements are FIXED or COVER.
+        size_t selected_locked_placement_count() const;
+        /// @brief Whether placements are selected and every one is FIXED.
+        bool selected_placements_all_fixed() const;
+        /// @brief A bit (1 << OrientationOp) per op every selected placement allows right now.
+        uint32_t placement_orientation_ops_enabled() const;
+        bool resize_armed() const;
+        /// @brief Which way the edge under the mouse would move; nullopt if nothing grabbable is there.
+        std::optional<ResizeAxis> resize_hover_axis() const;
+        ShapeSnapMode shape_snap_mode(PieceKind kind) const;
+        /// @brief Whether `mode` applies to `kind` and has something to snap to.
+        bool shape_snap_mode_available(PieceKind kind, ShapeSnapMode mode) const;
+        /// @brief A bit (1 << PieceKind) per kind of selected piece Resize can change.
+        uint32_t selected_piece_kinds() const;
+        /// @brief A bit (1 << PieceKind) per routing snap slot of a selected
+        /// piece a Move snaps on its own (paths, vias and via arrays share PATH's).
+        uint32_t selected_move_snap_piece_kinds() const;
+        /// @brief The mouse position snapped to the grid, in dbu; nullopt
+        /// if the mouse isn't over the design view.
+        std::optional<Point> snapped_mouse_position() const;
+        bool key_held(Key key) const;
         // Only when valid().
 #include "generated/api/view_current_decls.inc"
 
@@ -240,6 +276,53 @@ namespace le
         /// @brief Finishes the ruler being drawn, if any.
         void finish_ruler();
         void clear_rulers();
+
+        // Interaction: what the design view's mouse and keys do. Pixels
+        // have a top-left origin, as the rendered frame does. Edits these
+        // make (Move, Resize, Delete, rotate/flip) are undo steps of their
+        // own, or join the open one.
+
+        InteractionMode mode() const;
+        /// @brief Switches mode; leaving Ruler finishes the ruler being
+        /// drawn, leaving Edit disarms Move and Resize, and choosing Ruler
+        /// again starts a new ruler.
+        void set_mode(InteractionMode mode);
+        /// @brief Arms Move for the selection: Edit mode only, and not for
+        /// a mix of placements and shapes or a FIXED/COVER placement.
+        void arm_move();
+        void cancel_move();
+        void set_placement_snap_mode(PlacementSnapMode mode);
+        /// @brief Deletes the selected shape pieces; a Shape or Wire left
+        /// with no geometry is deleted too. How many pieces it deleted.
+        size_t delete_selected_pieces();
+        /// @brief Rotates or flips every selected placement in place.
+        std::expected<void, OrientationOpError> apply_placement_orientation_op(OrientationOp op);
+        /// @brief Arms Resize: Edit mode, with selected pieces that have edges.
+        void arm_resize();
+        /// @brief Sets how `kind` pieces snap; false (changing nothing) if
+        /// `mode` doesn't apply to that kind.
+        bool set_shape_snap_mode(PieceKind kind, ShapeSnapMode mode);
+        /// @brief Moves the mouse to pixel (x, y): the Move ghost, Resize
+        /// hover and the ruler being drawn follow it.
+        void set_mouse_position(int x_px, int y_px);
+        /// @brief The mouse left the design view.
+        void clear_mouse_position();
+        /// @brief A key press: Ctrl and Shift are held until key_up; the
+        /// others act now (interaction_types.hpp's Key).
+        void key_down(Key key);
+        void key_up(Key key);
+        /// @brief Releases every key, e.g. when the window loses focus.
+        void clear_keys();
+        /// @brief Starts a click or drag at pixel (x, y).
+        void mouse_down(int x_px, int y_px);
+        /// @brief Starts a rectangle-zoom drag at pixel (x, y).
+        void zoom_drag_down(int x_px, int y_px);
+        void cancel_drag();
+        /// @brief Ends the click or drag at pixel (x, y): a rectangle zoom,
+        /// or by mode a click- or drag-select (Shift adds to the
+        /// selection), a ruler point, or a Resize or Move click. Does
+        /// nothing if no drag was started.
+        void mouse_up(int x_px, int y_px);
 
         // Reading and writing files. Each also logs what it reports, as
         // read_lef and friends do in Tcl. A read is part of the open undo

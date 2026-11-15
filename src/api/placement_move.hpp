@@ -1,4 +1,5 @@
 #pragma once
+#include "interaction_types.hpp"
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
 #include "fin_grid.hpp"
@@ -22,29 +23,6 @@ namespace le
     {
         return status == PlacementStatus::FIXED || status == PlacementStatus::COVER;
     }
-
-    /// @brief Placement Move snapping -
-    /// what a moving Placement's own location (the lower-left of its
-    /// placed bbox, DEF's own convention) snaps to. Values are the C API's
-    /// own LE_PLACEMENT_SNAP_* numbering.
-    enum class PlacementSnapMode : int32_t
-    {
-        NONE = 0,
-        SITE = 1,
-        FIN_GRID = 2,
-        MANUFACTURING_GRID = 3,
-    };
-
-    /// @brief One orientation edit applied to a moving Placement, in world
-    /// space: a 90-degree counterclockwise rotation (N -> W, DEF's own
-    /// sense), a horizontal flip (mirror in X, N -> FN) or a vertical flip
-    /// (mirror in Y, N -> FS).
-    enum class OrientationOp : int32_t
-    {
-        ROTATE_CCW = 0,
-        FLIP_HORIZONTAL = 1,
-        FLIP_VERTICAL = 2,
-    };
 
     inline Orientation orientation_from_linear(const Geometry::LinearTransform2D &m)
     {

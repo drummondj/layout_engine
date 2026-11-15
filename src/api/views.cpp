@@ -222,6 +222,46 @@ namespace le
     void WriteView::finish_ruler() { edit::finish_ruler(*handle_); }
     void WriteView::clear_rulers() { edit::clear_rulers(*handle_); }
 
+    InteractionMode ReadView::mode() const { return edit::mode(*handle_); }
+    std::string_view ReadView::tooltip() const { return edit::tooltip(*handle_); }
+    bool ReadView::move_armed() const { return edit::move_armed(*handle_); }
+    bool ReadView::move_anchored() const { return edit::move_anchored(*handle_); }
+    PlacementSnapMode ReadView::placement_snap_mode() const { return edit::placement_snap_mode(*handle_); }
+    bool ReadView::placement_snap_mode_available(PlacementSnapMode mode) const { return edit::placement_snap_mode_available(*handle_, mode); }
+    size_t ReadView::selected_locked_placement_count() const { return edit::selected_locked_placement_count(*handle_); }
+    bool ReadView::selected_placements_all_fixed() const { return edit::selected_placements_all_fixed(*handle_); }
+    uint32_t ReadView::placement_orientation_ops_enabled() const { return edit::placement_orientation_ops_enabled(*handle_); }
+    bool ReadView::resize_armed() const { return edit::resize_armed(*handle_); }
+    std::optional<ResizeAxis> ReadView::resize_hover_axis() const { return edit::resize_hover_axis(*handle_); }
+    ShapeSnapMode ReadView::shape_snap_mode(PieceKind kind) const { return edit::shape_snap_mode(*handle_, kind); }
+    bool ReadView::shape_snap_mode_available(PieceKind kind, ShapeSnapMode mode) const { return edit::shape_snap_mode_available(*handle_, kind, mode); }
+    uint32_t ReadView::selected_piece_kinds() const { return edit::selected_piece_kinds(*handle_); }
+    uint32_t ReadView::selected_move_snap_piece_kinds() const { return edit::selected_move_snap_piece_kinds(*handle_); }
+    std::optional<Point> ReadView::snapped_mouse_position() const { return edit::snapped_mouse_position(*handle_); }
+    bool ReadView::key_held(Key key) const { return edit::key_held(*handle_, key); }
+
+    InteractionMode WriteView::mode() const { return edit::mode(*handle_); }
+    void WriteView::set_mode(InteractionMode mode) { edit::set_mode(*handle_, mode); }
+    void WriteView::arm_move() { edit::arm_move(*handle_); }
+    void WriteView::cancel_move() { edit::cancel_move(*handle_); }
+    void WriteView::set_placement_snap_mode(PlacementSnapMode mode) { edit::set_placement_snap_mode(*handle_, mode); }
+    size_t WriteView::delete_selected_pieces() { return edit::delete_selected_pieces(*handle_); }
+    std::expected<void, OrientationOpError> WriteView::apply_placement_orientation_op(OrientationOp op)
+    {
+        return edit::apply_placement_orientation_op(*handle_, op);
+    }
+    void WriteView::arm_resize() { edit::arm_resize(*handle_); }
+    bool WriteView::set_shape_snap_mode(PieceKind kind, ShapeSnapMode mode) { return edit::set_shape_snap_mode(*handle_, kind, mode); }
+    void WriteView::set_mouse_position(int x_px, int y_px) { edit::set_mouse_position(*handle_, x_px, y_px); }
+    void WriteView::clear_mouse_position() { edit::clear_mouse_position(*handle_); }
+    void WriteView::key_down(Key key) { edit::key_down(*handle_, key); }
+    void WriteView::key_up(Key key) { edit::key_up(*handle_, key); }
+    void WriteView::clear_keys() { edit::clear_keys(*handle_); }
+    void WriteView::mouse_down(int x_px, int y_px) { edit::mouse_down(*handle_, x_px, y_px); }
+    void WriteView::zoom_drag_down(int x_px, int y_px) { edit::zoom_drag_down(*handle_, x_px, y_px); }
+    void WriteView::cancel_drag() { edit::cancel_drag(*handle_); }
+    void WriteView::mouse_up(int x_px, int y_px) { edit::mouse_up(*handle_, x_px, y_px); }
+
     std::expected<void, std::string> WriteView::read_lef(const std::string &path, const std::string &library) { return edit::read_lef(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_def(const std::string &path, const std::string &library) { return edit::read_def(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_verilog(std::span<const std::string> files, bool netlist, const std::string &library)

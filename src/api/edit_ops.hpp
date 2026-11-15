@@ -12,11 +12,13 @@
 #include "../database/wire_helpers.hpp"
 #include "../core/session_types.hpp"
 #include "../geometry/shape_op_types.hpp"
+#include "interaction_types.hpp"
 
 #include <expected>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace le::edit
@@ -118,6 +120,89 @@ namespace le::edit
     /// @brief Finishes the ruler being drawn, if any.
     void finish_ruler(LeHandle &handle);
     void clear_rulers(LeHandle &handle);
+
+    // --- Interaction: modes, Move, Resize, Delete, the mouse and keys ---
+    // Pixel coordinates have a top-left origin, as the rendered frame does.
+
+    InteractionMode mode(const LeHandle &handle);
+    /// @brief Switches mode; leaving Ruler finishes the ruler being drawn,
+    /// leaving Edit disarms Move and Resize, and choosing Ruler again
+    /// starts a new ruler.
+    void set_mode(LeHandle &handle, InteractionMode mode);
+    /// @brief How to use the current mode, for the status bar; static storage.
+    std::string_view tooltip(const LeHandle &handle);
+
+    /// @brief Arms Move for the selection: Edit mode only, and not for a
+    /// mix of placements and shapes or a FIXED/COVER placement.
+    void arm_move(LeHandle &handle);
+    void cancel_move(LeHandle &handle);
+    bool move_armed(const LeHandle &handle);
+    /// @brief Whether an armed Move has its start point (its first click).
+    bool move_anchored(const LeHandle &handle);
+    void set_placement_snap_mode(LeHandle &handle, PlacementSnapMode mode);
+    PlacementSnapMode placement_snap_mode(const LeHandle &handle);
+    /// @brief Whether the open Layout has what `mode` snaps to.
+    bool placement_snap_mode_available(const LeHandle &handle, PlacementSnapMode mode);
+
+    /// @brief Deletes the selected shape pieces as one undo step; a Shape or
+    /// Wire left with no geometry is deleted too. How many pieces it deleted.
+    size_t delete_selected_pieces(LeHandle &handle);
+
+    /// @brief How many selected placements are FIXED or COVER.
+    size_t selected_locked_placement_count(const LeHandle &handle);
+    /// @brief Whether placements are selected and every one is FIXED.
+    bool selected_placements_all_fixed(const LeHandle &handle);
+    /// @brief A bit (1 << OrientationOp) per op every selected placement
+    /// allows right now.
+    uint32_t placement_orientation_ops_enabled(const LeHandle &handle);
+    /// @brief Rotates or flips every selected placement in place, as one undo step.
+    std::expected<void, OrientationOpError> apply_placement_orientation_op(LeHandle &handle, OrientationOp op);
+    /// @brief A user-facing reason for `error`.
+    std::string_view describe(OrientationOpError error);
+
+    /// @brief Arms Resize: Edit mode with selected pieces that have edges.
+    void arm_resize(LeHandle &handle);
+    bool resize_armed(const LeHandle &handle);
+    /// @brief Which way the edge under the mouse would move; nullopt if
+    /// nothing grabbable is there.
+    std::optional<ResizeAxis> resize_hover_axis(const LeHandle &handle);
+    /// @brief Sets how `kind` pieces snap; false (changing nothing) if
+    /// `mode` doesn't apply to that kind.
+    bool set_shape_snap_mode(LeHandle &handle, PieceKind kind, ShapeSnapMode mode);
+    ShapeSnapMode shape_snap_mode(const LeHandle &handle, PieceKind kind);
+    /// @brief Whether `mode` applies to `kind` and has something to snap to
+    /// (TRACKS: a selected piece of that kind on a layer with tracks).
+    bool shape_snap_mode_available(const LeHandle &handle, PieceKind kind, ShapeSnapMode mode);
+    /// @brief A bit (1 << PieceKind) per kind of selected piece Resize can change.
+    uint32_t selected_piece_kinds(const LeHandle &handle);
+    /// @brief A bit (1 << snap slot's PieceKind) per kind of selected piece
+    /// that a Move snaps on its own (paths, vias and via arrays).
+    uint32_t selected_move_snap_piece_kinds(const LeHandle &handle);
+
+    /// @brief Moves the mouse to pixel (x, y), updating the Move ghost,
+    /// Resize hover and the ruler being drawn.
+    void set_mouse_position(LeHandle &handle, int32_t x, int32_t y);
+    /// @brief The mouse left the design view.
+    void clear_mouse_position(LeHandle &handle);
+    /// @brief The mouse position snapped to the grid, in dbu; nullopt if
+    /// the mouse isn't over the design view.
+    std::optional<Point> snapped_mouse_position(const LeHandle &handle);
+
+    void key_down(LeHandle &handle, Key key);
+    void key_up(LeHandle &handle, Key key);
+    bool key_held(const LeHandle &handle, Key key);
+    /// @brief Releases every key, e.g. when the window loses focus.
+    void clear_keys(LeHandle &handle);
+
+    /// @brief Starts a click or drag at pixel (x, y).
+    void mouse_down(LeHandle &handle, int32_t x, int32_t y);
+    /// @brief Starts a rectangle-zoom drag at pixel (x, y).
+    void zoom_drag_down(LeHandle &handle, int32_t x, int32_t y);
+    void cancel_drag(LeHandle &handle);
+    /// @brief Ends the click or drag at pixel (x, y): a rectangle zoom, or
+    /// by mode a click- or drag-select, a ruler point, or a Resize or Move
+    /// click. Does nothing if no drag was started.
+    void mouse_up(LeHandle &handle, int32_t x, int32_t y);
 
     // --- Files ---
     // Each logs what it reports, as the C API always has (the readers and
