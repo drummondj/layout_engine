@@ -890,6 +890,14 @@ The first version.
   `le::Session` (owns a session) and `le::Renderer`; `le::ext::` names them
   too (changed in 0.3, without a version bump: the `le::ext::` names still
   work). `Transaction` now groups `WriteView` edits as well as C API ones.
+- The design view's interaction on the views (added in 0.3, without a
+  version bump): `mode`/`set_mode`, `key_down`/`key_up`/`key_held`,
+  `mouse_down`/`mouse_up`/`zoom_drag_down`/`cancel_drag`,
+  `set_mouse_position`, Move (`arm_move`, `cancel_move`, snap modes),
+  Resize (`arm_resize`, `resize_hover_axis`, shape snap modes),
+  `delete_selected_pieces` and `apply_placement_orientation_op`, with
+  `interaction_types.hpp`'s `InteractionMode`, `Key`, `PlacementSnapMode`,
+  `ShapeSnapMode`, `OrientationOp`, `OrientationOpError` and `ResizeAxis`.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

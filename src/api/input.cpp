@@ -1,4 +1,5 @@
 #include "api_internal.hpp"
+#include "interaction_types.hpp"
 #include "edit_ops.hpp"
 #include "../geometry/geometry.hpp"
 #include "generated/api/snapshot_appliers.hpp"
@@ -18,6 +19,32 @@ using namespace le::api_detail;
 
 namespace
 {
+    // An edit's own undo step - unless one is already open (a typed Tcl
+    // command, a Transaction), which it then records into and leaves open.
+    class OwnStep
+    {
+    public:
+        OwnStep(LeHandle &handle, const char *label) : handle_(handle), owns_(!handle.command_history.is_recording())
+        {
+            if (owns_)
+                handle_.command_history.begin(label);
+        }
+        ~OwnStep()
+        {
+            if (owns_)
+                handle_.command_history.end(succeeded_);
+        }
+        OwnStep(const OwnStep &) = delete;
+        OwnStep &operator=(const OwnStep &) = delete;
+
+        void fail() { succeeded_ = false; }
+
+    private:
+        LeHandle &handle_;
+        bool owns_;
+        bool succeeded_ = true;
+    };
+
     // apply_shape_snapshot, plus Shape.vias/via_iterates and the DEF masks
     // (rect_/polygon_/path_masks, index-parallel to their pieces) - the
     // generated update_shape (and so the generated snapshot applier)
@@ -360,11 +387,10 @@ namespace
         if (edits.empty())
             return;
 
-        handle->command_history.begin("resize");
+        OwnStep step(*handle, "resize");
         for (const ResizeEdit &edit : edits)
             store_owner_geometry(handle, edit.owner, edit.before, edit.after);
         handle->root.bump_mutation_version();
-        handle->command_history.end(/*succeeded=*/true);
     }
 
     // le_mouse_up's Edit-mode click with Resize armed - Resize's two-click
@@ -411,14 +437,15 @@ namespace
             return 0;
 
         const le::PlacementSnapper snapper(handle->root, handle->current_layout(), handle->placement_snap_mode());
-        int32_t mask = (1 << LE_ORIENTATION_OP_ROTATE_CCW) | (1 << LE_ORIENTATION_OP_FLIP_HORIZONTAL) | (1 << LE_ORIENTATION_OP_FLIP_VERTICAL);
+        int32_t mask = (1 << static_cast<int32_t>(le::OrientationOp::ROTATE_CCW)) | (1 << static_cast<int32_t>(le::OrientationOp::FLIP_HORIZONTAL)) |
+                       (1 << static_cast<int32_t>(le::OrientationOp::FLIP_VERTICAL));
         for (const le::PlacementId id : placements)
         {
             const le::PlacementData *placement = handle->root.get_placement(id);
             if (!placement || !placement->location)
                 continue;
             const le::AbstractData *abstract = handle->root.get_abstract(handle->root.get_design_abstract(placement->reference_design));
-            for (int32_t op = LE_ORIENTATION_OP_ROTATE_CCW; op <= LE_ORIENTATION_OP_FLIP_VERTICAL; ++op)
+            for (int32_t op = static_cast<int32_t>(le::OrientationOp::ROTATE_CCW); op <= static_cast<int32_t>(le::OrientationOp::FLIP_VERTICAL); ++op)
                 if (!snapper.permits(static_cast<le::OrientationOp>(op), *placement->location, abstract))
                     mask &= ~(1 << op);
         }
@@ -440,7 +467,7 @@ namespace
     constexpr int32_t kKeyFitPaddingPx = 10;
     constexpr double kKeyPanFactor = 0.25;
 
-    // le_tooltip_message's text, one per LeHandle::Mode. Edit mode lists
+    // The tooltip's text, one per InteractionMode. Edit mode lists
     // every key le_key_down acts on in that mode, separated by a blank
     // line ("\n\n"); the Info panel wraps each to its width.
     constexpr const char *kSelectModeTooltip =
@@ -619,7 +646,7 @@ namespace
         const std::vector<le::PlacementMoveTarget> placement_targets =
             placements.empty() ? std::vector<le::PlacementMoveTarget>{} : plan_moving_placements_unlocked(handle, placements, *raw_delta);
 
-        handle->command_history.begin("move");
+        std::optional<OwnStep> step(std::in_place, *handle, "move");
         const std::vector<LeHandle::SelectedObject> moving_pieces = handle->move().moving_pieces;
         for (size_t moving_index = 0; moving_index < moving_pieces.size() && moving_index < deltas->size(); ++moving_index)
         {
@@ -659,7 +686,7 @@ namespace
             if (le::editing::Transaction *txn = handle->command_history.current())
                 txn->record_update<le::PlacementId, le::PlacementData>(target.id, before, *handle->root.get_placement(target.id), &le::apply_placement_snapshot);
         }
-        handle->command_history.end(/*succeeded=*/true);
+        step.reset();
         if (placed_any)
             reveal_placement_status_unlocked(handle, le::PlacementStatus::PLACED);
 
@@ -729,11 +756,7 @@ namespace
         int32_t deleted = 0;
         std::vector<LeHandle::ShapePiece> removed;
         std::vector<le::GeometryId> emptied;
-        // Its own undo step - unless a typed Tcl command already opened one
-        // (le_repl_eval), which this then records into and leaves open.
-        const bool own_transaction = !handle->command_history.is_recording();
-        if (own_transaction)
-            handle->command_history.begin("delete");
+        std::optional<OwnStep> step(std::in_place, *handle, "delete");
         for (auto &[owner, pieces] : by_shape)
         {
             const std::optional<le::ShapeData> existing = owner_geometry(handle->root, owner);
@@ -758,8 +781,9 @@ namespace
             store_owner_geometry(handle, owner, before, after);
         }
         delete_owners(handle, emptied);
-        if (own_transaction)
-            handle->command_history.end(/*succeeded=*/deleted > 0);
+        if (deleted == 0)
+            step->fail();
+        step.reset();
         for (const LeHandle::ShapePiece &piece : removed)
             handle->deselect(piece);
         if (deleted > 0)
@@ -867,6 +891,17 @@ namespace
     }
 }
 
+namespace
+{
+    // Whether `selected` is a piece of a kind Resize can change (a via has
+    // no edges to drag).
+    const LeHandle::ShapePiece *resizable_piece(const LeHandle::SelectedObject &selected)
+    {
+        const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+        return piece && piece->piece_kind != le::PieceKind::VIA && piece->piece_kind != le::PieceKind::VIA_ITERATE ? piece : nullptr;
+    }
+}
+
 namespace le::edit
 {
     std::expected<void, std::string> add_ruler(LeHandle &handle, std::span<const Point> points)
@@ -880,6 +915,422 @@ namespace le::edit
     void finish_ruler(LeHandle &handle) { handle.finish_active_ruler(); }
 
     void clear_rulers(LeHandle &handle) { handle.clear_rulers(); }
+
+    InteractionMode mode(const LeHandle &handle) { return handle.mode(); }
+
+    void set_mode(LeHandle &handle, InteractionMode mode)
+    {
+        if (mode == InteractionMode::RULER)
+            handle.reset_ruler_mode();
+        else
+            handle.set_mode(mode);
+    }
+
+    std::string_view tooltip(const LeHandle &handle)
+    {
+        switch (handle.mode())
+        {
+        case InteractionMode::EDIT:
+            return kEditModeTooltip;
+        case InteractionMode::RULER:
+            return kRulerModeTooltip;
+        case InteractionMode::SELECT:
+            break;
+        }
+        return kSelectModeTooltip;
+    }
+
+    void arm_move(LeHandle &handle) { arm_move_unlocked(&handle); }
+
+    void cancel_move(LeHandle &handle) { handle.end_move(); }
+
+    bool move_armed(const LeHandle &handle) { return handle.move().armed; }
+
+    bool move_anchored(const LeHandle &handle) { return handle.move().anchor.has_value(); }
+
+    void set_placement_snap_mode(LeHandle &handle, PlacementSnapMode mode) { handle.set_placement_snap_mode(mode); }
+
+    PlacementSnapMode placement_snap_mode(const LeHandle &handle) { return handle.placement_snap_mode(); }
+
+    bool placement_snap_mode_available(const LeHandle &handle, PlacementSnapMode mode)
+    {
+        return PlacementSnapper::available(handle.root, handle.current_layout(), mode);
+    }
+
+    size_t delete_selected_pieces(LeHandle &handle) { return static_cast<size_t>(delete_selected_pieces_unlocked(&handle)); }
+
+    size_t selected_locked_placement_count(const LeHandle &handle) { return static_cast<size_t>(locked_placement_count_unlocked(&handle)); }
+
+    bool selected_placements_all_fixed(const LeHandle &handle)
+    {
+        const std::vector<PlacementId> placements = selected_placements_unlocked(&handle);
+        return !placements.empty() && std::ranges::all_of(placements, [&](PlacementId id)
+                                                           {
+                                                               const PlacementData *placement = handle.root.get_placement(id);
+                                                               return placement && placement->placement_status == PlacementStatus::FIXED;
+                                                           });
+    }
+
+    uint32_t placement_orientation_ops_enabled(const LeHandle &handle)
+    {
+        return static_cast<uint32_t>(orientation_ops_enabled_unlocked(&handle, selected_placements_unlocked(&handle)));
+    }
+
+    std::expected<void, OrientationOpError> apply_placement_orientation_op(LeHandle &handle, OrientationOp op)
+    {
+        const std::vector<PlacementId> placements = selected_placements_unlocked(&handle);
+        if (placements.empty())
+            return std::unexpected(OrientationOpError::NOTHING_SELECTED);
+        if (any_placement_locked(&handle, placements))
+            return std::unexpected(OrientationOpError::LOCKED);
+        if (!(orientation_ops_enabled_unlocked(&handle, placements) & (1 << static_cast<int32_t>(op))))
+            return std::unexpected(OrientationOpError::NOT_AVAILABLE);
+
+        // Rotate or flip in place, about each placement's own bbox center,
+        // with no snapping: a zero-delta, SNAP_NONE move plan.
+        const int remaining_depth = std::max(0, handle.hierarchy_depth() - 1);
+        const std::vector<PlacementMoveTarget> targets = plan_placement_move(handle.root, handle.current_layout(), placements, orientation_for_op(op),
+                                                                             Point{}, PlacementSnapMode::NONE, remaining_depth);
+
+        OwnStep step(handle, op == OrientationOp::ROTATE_CCW ? "rotate" : "flip");
+        for (const PlacementMoveTarget &target : targets)
+        {
+            const PlacementData before = *handle.root.get_placement(target.id);
+            handle.root.update_placement(target.id, before.layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                                         target.location, target.orientation, std::nullopt, std::nullopt);
+            handle.root.bump_mutation_version();
+            if (editing::Transaction *txn = handle.command_history.current())
+                txn->record_update<PlacementId, PlacementData>(target.id, before, *handle.root.get_placement(target.id), &apply_placement_snapshot);
+        }
+        return {};
+    }
+
+    std::string_view describe(OrientationOpError error)
+    {
+        switch (error)
+        {
+        case OrientationOpError::NOTHING_SELECTED:
+            return "no placement is selected";
+        case OrientationOpError::NOT_AVAILABLE:
+            return "the selection can't take that orientation right now (a Move is under way, no Layout is open, or its rows' sites don't allow it)";
+        case OrientationOpError::LOCKED:
+            return "a selected placement is FIXED or COVER";
+        }
+        return "unknown error";
+    }
+
+    void arm_resize(LeHandle &handle) { arm_resize_unlocked(&handle); }
+
+    bool resize_armed(const LeHandle &handle) { return handle.resize().armed; }
+
+    std::optional<ResizeAxis> resize_hover_axis(const LeHandle &handle)
+    {
+        if (!handle.resize().hover)
+            return std::nullopt;
+        return handle.resize().hover->axis;
+    }
+
+    bool set_shape_snap_mode(LeHandle &handle, PieceKind kind, ShapeSnapMode mode)
+    {
+        if (!shape_snap_mode_applies(kind, mode))
+            return false;
+        handle.set_shape_snap_mode(kind, mode);
+        return true;
+    }
+
+    ShapeSnapMode shape_snap_mode(const LeHandle &handle, PieceKind kind) { return handle.shape_snap_mode(kind); }
+
+    bool shape_snap_mode_available(const LeHandle &handle, PieceKind kind, ShapeSnapMode mode)
+    {
+        if (!shape_snap_mode_applies(kind, mode))
+            return false;
+        switch (mode)
+        {
+        case ShapeSnapMode::NONE:
+        case ShapeSnapMode::USER_GRID:
+            return true;
+        case ShapeSnapMode::MANUFACTURING_GRID:
+            return technology_manufacturing_grid(handle.root).has_value();
+        case ShapeSnapMode::FIN_GRID:
+            return technology_fin_grid(handle.root).has_value();
+        case ShapeSnapMode::TRACKS:
+            for (const LeHandle::SelectedObject &selected : handle.selection())
+                if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+                    piece && shape_snap_slot(piece->piece_kind) == shape_snap_slot(kind))
+                {
+                    ShapeData scratch;
+                    if (const ShapeData *data = geometry_shape(handle.root, piece->owner(), scratch);
+                        data && !layer_track_grids(handle.root, handle.current_layout(), data->layer).empty())
+                        return true;
+                }
+            return false;
+        }
+        return false;
+    }
+
+    uint32_t selected_piece_kinds(const LeHandle &handle)
+    {
+        uint32_t mask = 0;
+        for (const LeHandle::SelectedObject &selected : handle.selection())
+            if (const LeHandle::ShapePiece *piece = resizable_piece(selected))
+                mask |= 1u << static_cast<uint32_t>(piece->piece_kind);
+        return mask;
+    }
+
+    uint32_t selected_move_snap_piece_kinds(const LeHandle &handle)
+    {
+        uint32_t mask = 0;
+        for (const LeHandle::SelectedObject &selected : handle.selection())
+            if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
+                piece && snaps_individually_when_moved(piece->piece_kind))
+                mask |= 1u << static_cast<uint32_t>(shape_snap_slot(piece->piece_kind));
+        return mask;
+    }
+
+    void set_mouse_position(LeHandle &handle, int32_t x, int32_t y)
+    {
+        handle.set_mouse_position(x, y);
+        update_resize_hover_unlocked(&handle);
+    }
+
+    void clear_mouse_position(LeHandle &handle) { handle.clear_mouse_position(); }
+
+    std::optional<Point> snapped_mouse_position(const LeHandle &handle) { return handle.snapped_mouse_position(); }
+
+    void key_down(LeHandle &handle, Key key)
+    {
+        LeHandle *const h = &handle;
+        handle.press_key(static_cast<int32_t>(key));
+        const bool ctrl = handle.is_key_held(static_cast<int32_t>(Key::CTRL));
+        const bool shift = handle.is_key_held(static_cast<int32_t>(Key::SHIFT));
+        handle.set_ruler_free_form(shift);
+        handle.set_move_free_form(shift);
+
+        // Each action fires only for its own modifier combination, so an
+        // extra modifier makes it a no-op rather than another action (Ctrl-S
+        // must not switch modes). ZOOM gives every combination a meaning;
+        // FINISH_RULER (Escape) ignores modifiers, since a free-form ruler
+        // often ends with Shift still held.
+        switch (key)
+        {
+        case Key::ZOOM:
+            if (ctrl)
+            {
+                if (shift)
+                    report_replay(h, handle.command_history.redo(), "redo");
+                else
+                    report_replay(h, handle.command_history.undo(), "undo");
+                refresh_armed_move_geometry_unlocked(h);
+                break;
+            }
+            zoom_unlocked(h, shift ? -kKeyZoomFactor : kKeyZoomFactor, handle.mouse_x_px(), handle.mouse_y_px());
+            break;
+        case Key::FIT:
+            if (shift)
+                break;
+            if (ctrl)
+                fit_selected_unlocked(h, kKeyFitPaddingPx);
+            else
+                fit_scene_unlocked(h, kKeyFitPaddingPx);
+            break;
+        // Arrow keys pan in screen directions, so a mirrored axis pans the
+        // other way in dbu.
+        case Key::PAN_LEFT:
+            if (!ctrl && !shift)
+                pan_unlocked(h, -kKeyPanFactor * screen_x_sign(h), 0.0);
+            break;
+        case Key::PAN_RIGHT:
+            if (!ctrl && !shift)
+                pan_unlocked(h, kKeyPanFactor * screen_x_sign(h), 0.0);
+            break;
+        case Key::PAN_UP:
+            if (!ctrl && !shift)
+                pan_unlocked(h, 0.0, kKeyPanFactor * screen_y_sign(h));
+            break;
+        case Key::PAN_DOWN:
+            if (!ctrl && !shift)
+                pan_unlocked(h, 0.0, -kKeyPanFactor * screen_y_sign(h));
+            break;
+        case Key::DIGIT_1:
+        case Key::DIGIT_2:
+        case Key::DIGIT_3:
+        case Key::DIGIT_4:
+        case Key::DIGIT_5:
+        case Key::DIGIT_6:
+        case Key::DIGIT_7:
+        case Key::DIGIT_8:
+        case Key::DIGIT_9:
+        {
+            // Ctrl moves the digits to the 11th..19th routing layers.
+            if (shift)
+                break;
+            const int base_index = static_cast<int>(key) - static_cast<int>(Key::DIGIT_1);
+            toggle_routing_layer_visibility_unlocked(h, ctrl ? base_index + 10 : base_index);
+            break;
+        }
+        case Key::DIGIT_0:
+            if (!ctrl && !shift)
+                toggle_routing_layer_visibility_unlocked(h, 9); // the 10th routing layer
+            break;
+        case Key::DESELECT_ALL:
+            if (handle.mode() == InteractionMode::SELECT && ctrl && !shift)
+                handle.clear_selection();
+            break;
+        case Key::MOVE:
+            if (ctrl && !shift)
+                arm_move_unlocked(h);
+            break;
+        case Key::DELETE:
+            if (handle.mode() == InteractionMode::EDIT && !ctrl && !shift)
+                delete_selected_pieces_unlocked(h);
+            break;
+        case Key::SELECT_MODE:
+            if (!ctrl && !shift)
+                handle.set_mode(InteractionMode::SELECT);
+            break;
+        case Key::EDIT_MODE:
+            if (!ctrl && !shift)
+                handle.set_mode(InteractionMode::EDIT);
+            break;
+        case Key::RULER_MODE:
+            if (!ctrl && !shift)
+                handle.reset_ruler_mode();
+            else if (ctrl && !shift)
+                arm_resize_unlocked(h);
+            break;
+        case Key::FINISH_RULER:
+            // One gesture per press: a rubber-band drag in progress is
+            // cancelled on its own.
+            if (handle.is_dragging())
+            {
+                handle.end_drag();
+                break;
+            }
+            handle.finish_active_ruler();
+            handle.end_move();
+            if (handle.resize().grab)
+            {
+                handle.end_resize_grab();
+                update_resize_hover_unlocked(h);
+            }
+            else
+                handle.end_resize();
+            break;
+        case Key::SHIFT:
+        case Key::CTRL:
+            break;
+        }
+    }
+
+    void key_up(LeHandle &handle, Key key)
+    {
+        handle.release_key(static_cast<int32_t>(key));
+        const bool shift = handle.is_key_held(static_cast<int32_t>(Key::SHIFT));
+        handle.set_ruler_free_form(shift);
+        handle.set_move_free_form(shift);
+    }
+
+    bool key_held(const LeHandle &handle, Key key) { return handle.is_key_held(static_cast<int32_t>(key)); }
+
+    void clear_keys(LeHandle &handle) { handle.clear_all_keys(); }
+
+    void mouse_down(LeHandle &handle, int32_t x, int32_t y) { handle.begin_drag(x, y); }
+
+    void zoom_drag_down(LeHandle &handle, int32_t x, int32_t y) { handle.begin_drag(x, y, LeHandle::DragKind::ZOOM); }
+
+    void cancel_drag(LeHandle &handle)
+    {
+        if (handle.is_dragging())
+            handle.end_drag();
+    }
+
+    void mouse_up(LeHandle &handle, int32_t x, int32_t y)
+    {
+        if (!handle.is_dragging())
+            return;
+        LeHandle *const h = &handle;
+        ensure_view_layers_current(h); // click and drag-select hit-test against view_layers
+
+        const int32_t dx = x - handle.drag_start_x_px();
+        const int32_t dy = y - handle.drag_start_y_px();
+        const bool is_click = dx * dx + dy * dy < kClickDragThresholdPx * kClickDragThresholdPx;
+
+        if (handle.drag_kind() == LeHandle::DragKind::ZOOM)
+        {
+            // Rectangle zoom leaves the selection alone; a click-sized
+            // rectangle would zoom absurdly far, so it does nothing.
+            if (!is_click)
+            {
+                const Point start = handle.pixel_to_dbu(handle.drag_start_x_px(), handle.drag_start_y_px());
+                const Point end = handle.pixel_to_dbu(x, y);
+                const Rect zoom_rect{
+                    .ll = Point{std::min(start.x, end.x), std::min(start.y, end.y)},
+                    .ur = Point{std::max(start.x, end.x), std::max(start.y, end.y)},
+                };
+                handle.fit_to_content(zoom_rect, 0);
+            }
+            handle.end_drag();
+            return;
+        }
+
+        switch (handle.mode())
+        {
+        case InteractionMode::SELECT:
+        {
+            const bool shift = handle.is_key_held(static_cast<int32_t>(Key::SHIFT));
+            const std::vector<LeHandle::SelectedObject> previous = handle.selection();
+            if (!shift)
+                handle.clear_selection();
+            if (is_click)
+                click_select_unlocked(h, handle.pixel_to_dbu(x, y), previous, shift);
+            // A Layout view hit-tests the Layout's own content, never
+            // whatever Abstract content happens to exist.
+            else if (handle.current_layout().valid())
+                select_in_layout_view_unlocked(h, x, y);
+            else
+                select_in_abstract_view_unlocked(h, x, y);
+            break;
+        }
+        case InteractionMode::RULER:
+            // A click adds a ruler point; a drag does nothing.
+            if (is_click)
+                handle.add_ruler_point(handle.is_key_held(static_cast<int32_t>(Key::SHIFT)));
+            break;
+        case InteractionMode::EDIT:
+            // A click grabs or places a Resize, else anchors or commits a
+            // Move (if armed); a drag does nothing.
+            if (is_click && !resize_click_unlocked(h, x, y))
+                move_click_unlocked(h);
+            break;
+        }
+        handle.end_drag();
+    }
+}
+
+// The C API's values are the C++ enums'.
+static_assert(LE_MODE_SELECT == static_cast<int32_t>(le::InteractionMode::SELECT) && LE_MODE_EDIT == static_cast<int32_t>(le::InteractionMode::EDIT) &&
+              LE_MODE_RULER == static_cast<int32_t>(le::InteractionMode::RULER));
+static_assert(LE_KEY_SHIFT == static_cast<int32_t>(le::Key::SHIFT) && LE_KEY_ZOOM == static_cast<int32_t>(le::Key::ZOOM) &&
+              LE_KEY_FIT == static_cast<int32_t>(le::Key::FIT) && LE_KEY_PAN_LEFT == static_cast<int32_t>(le::Key::PAN_LEFT) &&
+              LE_KEY_PAN_RIGHT == static_cast<int32_t>(le::Key::PAN_RIGHT) && LE_KEY_PAN_UP == static_cast<int32_t>(le::Key::PAN_UP) &&
+              LE_KEY_PAN_DOWN == static_cast<int32_t>(le::Key::PAN_DOWN) && LE_KEY_CTRL == static_cast<int32_t>(le::Key::CTRL) &&
+              LE_KEY_1 == static_cast<int32_t>(le::Key::DIGIT_1) && LE_KEY_9 == static_cast<int32_t>(le::Key::DIGIT_9) &&
+              LE_KEY_DESELECT_ALL == static_cast<int32_t>(le::Key::DESELECT_ALL) && LE_KEY_0 == static_cast<int32_t>(le::Key::DIGIT_0) &&
+              LE_KEY_SELECT_MODE == static_cast<int32_t>(le::Key::SELECT_MODE) && LE_KEY_EDIT_MODE == static_cast<int32_t>(le::Key::EDIT_MODE) &&
+              LE_KEY_RULER_MODE == static_cast<int32_t>(le::Key::RULER_MODE) && LE_KEY_FINISH_RULER == static_cast<int32_t>(le::Key::FINISH_RULER) &&
+              LE_KEY_MOVE == static_cast<int32_t>(le::Key::MOVE) && LE_KEY_DELETE == static_cast<int32_t>(le::Key::DELETE));
+static_assert(LE_PLACEMENT_SNAP_NONE == static_cast<int32_t>(le::PlacementSnapMode::NONE) &&
+              LE_PLACEMENT_SNAP_MANUFACTURING_GRID == static_cast<int32_t>(le::PlacementSnapMode::MANUFACTURING_GRID));
+static_assert(LE_ORIENTATION_OP_ROTATE_CCW == static_cast<int32_t>(le::OrientationOp::ROTATE_CCW) &&
+              LE_ORIENTATION_OP_FLIP_VERTICAL == static_cast<int32_t>(le::OrientationOp::FLIP_VERTICAL));
+static_assert(LE_SHAPE_SNAP_NONE == static_cast<int32_t>(le::ShapeSnapMode::NONE) && LE_SHAPE_SNAP_TRACKS == static_cast<int32_t>(le::ShapeSnapMode::TRACKS));
+static_assert(LE_PIECE_KIND_RECT == static_cast<int32_t>(le::PieceKind::RECT) && LE_PIECE_KIND_VIA_ITERATE == static_cast<int32_t>(le::PieceKind::VIA_ITERATE));
+
+namespace
+{
+    bool valid_piece_kind(int32_t kind) { return kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE; }
+    bool valid_shape_snap_mode(int32_t mode) { return mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS; }
+    bool valid_placement_snap_mode(int32_t mode) { return mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID; }
 }
 
 extern "C"
@@ -889,18 +1340,15 @@ extern "C"
         if (!handle)
             return LE_MODE_SELECT;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->mode());
+        return static_cast<int32_t>(le::edit::mode(*handle));
     }
 
     void le_set_mode(LeHandle *handle, int32_t mode)
     {
-        if (!handle)
+        if (!handle || mode < LE_MODE_SELECT || mode > LE_MODE_RULER)
             return;
         HandleWriteLock lock(handle);
-        if (mode == LE_MODE_RULER)
-            handle->reset_ruler_mode();
-        else
-            handle->set_mode(static_cast<LeHandle::Mode>(mode));
+        le::edit::set_mode(*handle, static_cast<le::InteractionMode>(mode));
     }
 
     int32_t le_ruler_count(LeHandle *handle)
@@ -962,7 +1410,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        arm_move_unlocked(handle);
+        le::edit::arm_move(*handle);
     }
 
     void le_cancel_move(LeHandle *handle)
@@ -970,18 +1418,15 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->end_move();
+        le::edit::cancel_move(*handle);
     }
 
     int32_t le_is_move_armed(LeHandle *handle)
     {
-        // Pre-existing gap, fixed here rather than left as-is - see
-        // le_tooltip_message's own comment just above for why (same
-        // "read one field with no lock at all" shape).
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->move().armed ? 1 : 0;
+        return le::edit::move_armed(*handle) ? 1 : 0;
     }
 
     int32_t le_is_move_anchored(LeHandle *handle)
@@ -989,15 +1434,15 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->move().anchor ? 1 : 0;
+        return le::edit::move_anchored(*handle) ? 1 : 0;
     }
 
     void le_set_placement_snap_mode(LeHandle *handle, int32_t mode)
     {
-        if (!handle || mode < LE_PLACEMENT_SNAP_NONE || mode > LE_PLACEMENT_SNAP_MANUFACTURING_GRID)
+        if (!handle || !valid_placement_snap_mode(mode))
             return;
         HandleWriteLock lock(handle);
-        handle->set_placement_snap_mode(static_cast<le::PlacementSnapMode>(mode));
+        le::edit::set_placement_snap_mode(*handle, static_cast<le::PlacementSnapMode>(mode));
     }
 
     int32_t le_get_placement_snap_mode(LeHandle *handle)
@@ -1005,15 +1450,15 @@ extern "C"
         if (!handle)
             return LE_PLACEMENT_SNAP_SITE;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->placement_snap_mode());
+        return static_cast<int32_t>(le::edit::placement_snap_mode(*handle));
     }
 
     int32_t le_is_placement_snap_mode_available(LeHandle *handle, int32_t mode)
     {
-        if (!handle || mode < LE_PLACEMENT_SNAP_NONE || mode > LE_PLACEMENT_SNAP_MANUFACTURING_GRID)
+        if (!handle || !valid_placement_snap_mode(mode))
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::PlacementSnapper::available(handle->root, handle->current_layout(), static_cast<le::PlacementSnapMode>(mode)) ? 1 : 0;
+        return le::edit::placement_snap_mode_available(*handle, static_cast<le::PlacementSnapMode>(mode)) ? 1 : 0;
     }
 
     int32_t le_delete_selected_pieces(LeHandle *handle)
@@ -1021,7 +1466,7 @@ extern "C"
         if (!handle)
             return 0;
         HandleWriteLock lock(handle);
-        return delete_selected_pieces_unlocked(handle);
+        return static_cast<int32_t>(le::edit::delete_selected_pieces(*handle));
     }
 
     int32_t le_selected_locked_placement_count(LeHandle *handle)
@@ -1029,7 +1474,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return locked_placement_count_unlocked(handle);
+        return static_cast<int32_t>(le::edit::selected_locked_placement_count(*handle));
     }
 
     int32_t le_selected_placements_all_fixed(LeHandle *handle)
@@ -1037,14 +1482,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        const std::vector<le::PlacementId> placements = selected_placements_unlocked(handle);
-        return !placements.empty() && std::ranges::all_of(placements, [&](le::PlacementId id)
-                                                           {
-                                                               const le::PlacementData *placement = handle->root.get_placement(id);
-                                                               return placement && placement->placement_status == le::PlacementStatus::FIXED;
-                                                           })
-                   ? 1
-                   : 0;
+        return le::edit::selected_placements_all_fixed(*handle) ? 1 : 0;
     }
 
     int32_t le_placement_orientation_ops_enabled(LeHandle *handle)
@@ -1052,7 +1490,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return orientation_ops_enabled_unlocked(handle, selected_placements_unlocked(handle));
+        return static_cast<int32_t>(le::edit::placement_orientation_ops_enabled(*handle));
     }
 
     int32_t le_apply_placement_orientation_op(LeHandle *handle, int32_t op)
@@ -1060,35 +1498,19 @@ extern "C"
         if (!handle || op < LE_ORIENTATION_OP_ROTATE_CCW || op > LE_ORIENTATION_OP_FLIP_VERTICAL)
             return -1;
         HandleWriteLock lock(handle);
-
-        const std::vector<le::PlacementId> placements = selected_placements_unlocked(handle);
-        if (placements.empty())
-            return 1;
-        if (any_placement_locked(handle, placements))
-            return 3;
-        if (!(orientation_ops_enabled_unlocked(handle, placements) & (1 << op)))
-            return 2;
-
-        // Rotate/flip in place, about each placement's own bbox center, no
-        // snapping - plan_placement_move with a zero delta and SNAP_NONE is
-        // exactly that. One transaction for the whole selection.
-        const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
-        const le::OrientationOp orientation_op = static_cast<le::OrientationOp>(op);
-        const std::vector<le::PlacementMoveTarget> targets = le::plan_placement_move(
-            handle->root, handle->current_layout(), placements, le::orientation_for_op(orientation_op), le::Point{}, le::PlacementSnapMode::NONE, remaining_depth);
-
-        handle->command_history.begin(orientation_op == le::OrientationOp::ROTATE_CCW ? "rotate" : "flip");
-        for (const le::PlacementMoveTarget &target : targets)
+        const std::expected<void, le::OrientationOpError> applied = le::edit::apply_placement_orientation_op(*handle, static_cast<le::OrientationOp>(op));
+        if (applied)
+            return 0;
+        switch (applied.error())
         {
-            const le::PlacementData before = *handle->root.get_placement(target.id);
-            handle->root.update_placement(target.id, before.layout, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
-                                          target.location, target.orientation, std::nullopt, std::nullopt);
-            handle->root.bump_mutation_version();
-            if (le::editing::Transaction *txn = handle->command_history.current())
-                txn->record_update<le::PlacementId, le::PlacementData>(target.id, before, *handle->root.get_placement(target.id), &le::apply_placement_snapshot);
+        case le::OrientationOpError::NOTHING_SELECTED:
+            return 1;
+        case le::OrientationOpError::NOT_AVAILABLE:
+            return 2;
+        case le::OrientationOpError::LOCKED:
+            return 3;
         }
-        handle->command_history.end(/*succeeded=*/true);
-        return 0;
+        return -1;
     }
 
     void le_arm_resize(LeHandle *handle)
@@ -1096,7 +1518,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        arm_resize_unlocked(handle);
+        le::edit::arm_resize(*handle);
     }
 
     int32_t le_is_resize_armed(LeHandle *handle)
@@ -1104,7 +1526,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->resize().armed ? 1 : 0;
+        return le::edit::resize_armed(*handle) ? 1 : 0;
     }
 
     int32_t le_resize_hover_axis(LeHandle *handle)
@@ -1112,9 +1534,10 @@ extern "C"
         if (!handle)
             return LE_RESIZE_AXIS_NONE;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        if (!handle->resize().hover)
+        const std::optional<le::ResizeAxis> axis = le::edit::resize_hover_axis(*handle);
+        if (!axis)
             return LE_RESIZE_AXIS_NONE;
-        switch (handle->resize().hover->axis)
+        switch (*axis)
         {
         case le::ResizeAxis::X:
             return LE_RESIZE_AXIS_X;
@@ -1128,55 +1551,26 @@ extern "C"
 
     void le_set_shape_snap_mode(LeHandle *handle, int32_t kind, int32_t mode)
     {
-        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
-            return;
-        const le::PieceKind piece_kind = static_cast<le::PieceKind>(kind);
-        const le::ShapeSnapMode snap_mode = static_cast<le::ShapeSnapMode>(mode);
-        if (!le::shape_snap_mode_applies(piece_kind, snap_mode))
+        if (!handle || !valid_piece_kind(kind) || !valid_shape_snap_mode(mode))
             return;
         HandleWriteLock lock(handle);
-        handle->set_shape_snap_mode(piece_kind, snap_mode);
+        le::edit::set_shape_snap_mode(*handle, static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
     }
 
     int32_t le_get_shape_snap_mode(LeHandle *handle, int32_t kind)
     {
-        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE)
+        if (!handle || !valid_piece_kind(kind))
             return LE_SHAPE_SNAP_USER_GRID;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->shape_snap_mode(static_cast<le::PieceKind>(kind)));
+        return static_cast<int32_t>(le::edit::shape_snap_mode(*handle, static_cast<le::PieceKind>(kind)));
     }
 
     int32_t le_is_shape_snap_mode_available(LeHandle *handle, int32_t kind, int32_t mode)
     {
-        if (!handle || kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
-            return 0;
-        const le::PieceKind piece_kind = static_cast<le::PieceKind>(kind);
-        const le::ShapeSnapMode snap_mode = static_cast<le::ShapeSnapMode>(mode);
-        if (!le::shape_snap_mode_applies(piece_kind, snap_mode))
+        if (!handle || !valid_piece_kind(kind) || !valid_shape_snap_mode(mode))
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        switch (snap_mode)
-        {
-        case le::ShapeSnapMode::NONE:
-        case le::ShapeSnapMode::USER_GRID:
-            return 1;
-        case le::ShapeSnapMode::MANUFACTURING_GRID:
-            return le::technology_manufacturing_grid(handle->root) ? 1 : 0;
-        case le::ShapeSnapMode::FIN_GRID:
-            return le::technology_fin_grid(handle->root) ? 1 : 0;
-        case le::ShapeSnapMode::TRACKS:
-            for (const LeHandle::SelectedObject &selected : handle->selection())
-                if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
-                    piece && le::shape_snap_slot(piece->piece_kind) == le::shape_snap_slot(piece_kind))
-                {
-                    le::ShapeData scratch;
-                    if (const le::ShapeData *data = le::geometry_shape(handle->root, piece->owner(), scratch);
-                        data && !le::layer_track_grids(handle->root, handle->current_layout(), data->layer).empty())
-                        return 1;
-                }
-            return 0;
-        }
-        return 0;
+        return le::edit::shape_snap_mode_available(*handle, static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode)) ? 1 : 0;
     }
 
     int32_t le_selected_piece_kinds(LeHandle *handle)
@@ -1184,12 +1578,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        int32_t mask = 0;
-        for (const LeHandle::SelectedObject &selected : handle->selection())
-            if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
-                piece && piece->piece_kind != le::PieceKind::VIA && piece->piece_kind != le::PieceKind::VIA_ITERATE) // a via has nothing to resize
-                mask |= 1 << static_cast<int32_t>(piece->piece_kind);
-        return mask;
+        return static_cast<int32_t>(le::edit::selected_piece_kinds(*handle));
     }
 
     int32_t le_selected_move_snap_piece_kinds(LeHandle *handle)
@@ -1197,12 +1586,7 @@ extern "C"
         if (!handle)
             return 0;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        int32_t mask = 0;
-        for (const LeHandle::SelectedObject &selected : handle->selection())
-            if (const LeHandle::ShapePiece *piece = std::get_if<LeHandle::ShapePiece>(&selected);
-                piece && snaps_individually_when_moved(piece->piece_kind))
-                mask |= 1 << static_cast<int32_t>(le::shape_snap_slot(piece->piece_kind));
-        return mask;
+        return static_cast<int32_t>(le::edit::selected_move_snap_piece_kinds(*handle));
     }
 
     void le_set_mouse_position(LeHandle *handle, int32_t x, int32_t y)
@@ -1210,9 +1594,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-
-        handle->set_mouse_position(x, y);
-        update_resize_hover_unlocked(handle);
+        le::edit::set_mouse_position(*handle, x, y);
     }
 
     void le_clear_mouse_position(LeHandle *handle)
@@ -1220,36 +1602,21 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->clear_mouse_position();
+        le::edit::clear_mouse_position(*handle);
     }
 
     LeSnappedMousePosition le_snapped_mouse_position(LeHandle *handle)
     {
+        constexpr LeSnappedMousePosition kNone{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
         if (!handle)
-            return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
+            return kNone;
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-
-        const std::optional<le::Point> snapped = handle->snapped_mouse_position();
-        if (!snapped)
-            return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
-
-        // Single shared/global Technology, same assumption le_read_lef's
-        // own ViewLayerSet::build_for_technology(..., technology_ids.front())
-        // call already makes.
-        const auto technology_ids = handle->root.get_technology_ids();
-        if (technology_ids.empty())
-            return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
-
-        const le::TechnologyData *technology = handle->root.get_technology(technology_ids.front());
-        if (!technology || technology->database_units_microns <= 0.0)
-            return LeSnappedMousePosition{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
-
+        const std::optional<le::Point> snapped = le::edit::snapped_mouse_position(*handle);
+        const std::optional<double> dbu_per_um = database_units_microns(handle->root);
+        if (!snapped || !dbu_per_um)
+            return kNone;
         const auto [x, y] = display_point_unlocked(handle, *snapped);
-        return LeSnappedMousePosition{
-            .x_um = x / technology->database_units_microns,
-            .y_um = y / technology->database_units_microns,
-            .has_position = 1,
-        };
+        return LeSnappedMousePosition{.x_um = x / *dbu_per_um, .y_um = y / *dbu_per_um, .has_position = 1};
     }
 
     void le_key_down(LeHandle *handle, int32_t key_code)
@@ -1257,166 +1624,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->press_key(key_code);
-        const bool ctrl = handle->is_key_held(LE_KEY_CTRL);
-        const bool shift = handle->is_key_held(LE_KEY_SHIFT);
-        handle->set_ruler_free_form(shift);
-        handle->set_move_free_form(shift);
-
-        // Every case below fires only for the *exact* modifier
-        // combination its own action is actually defined for - an
-        // unexpected extra modifier (e.g. Shift held for a key with no
-        // Shift-specific meaning) is a no-op, not a silent fall-through
-        // to the bare/Ctrl behavior - e.g. Ctrl-S must not also switch
-        // modes. LE_KEY_ZOOM is the one exception that's
-        // deliberately exhaustive instead (Ctrl and Shift each already
-        // select a real, distinct action of their own - see below) and
-        // LE_KEY_FINISH_RULER, which is deliberately *not* modifier-
-        // gated at all (see its own case).
-        switch (key_code)
-        {
-        case LE_KEY_ZOOM:
-        {
-            // Ctrl-Z/Ctrl-Shift-Z undo/redo, branched
-            // here rather than a separate key code (see LE_KEY_ZOOM's own
-            // api.hpp doc comment for why). Falls through to the ordinary
-            // zoom action when Ctrl isn't held. Every one of the four
-            // Ctrl/Shift combinations already has a real, distinct
-            // meaning (undo/redo, zoom in/out), unlike every other action
-            // key below - nothing to suppress here.
-            if (ctrl)
-            {
-                if (shift)
-                    report_replay(handle, handle->command_history.redo(), "redo");
-                else
-                    report_replay(handle, handle->command_history.undo(), "undo");
-                refresh_armed_move_geometry_unlocked(handle);
-                break;
-            }
-            // Unlocked variants (see their own comment) - handle->mutex_
-            // is already held above; le_zoom/le_fit_scene/le_pan
-            // themselves would re-lock it and deadlock.
-            const double factor = shift ? -kKeyZoomFactor : kKeyZoomFactor;
-            zoom_unlocked(handle, factor, handle->mouse_x_px(), handle->mouse_y_px());
-            break;
-        }
-        case LE_KEY_FIT:
-            // Shift has no meaning for Fit - held at all (with or without
-            // Ctrl) suppresses the action rather than falling through to
-            // the bare/Ctrl behavior.
-            if (shift)
-                break;
-            if (ctrl)
-                fit_selected_unlocked(handle, kKeyFitPaddingPx);
-            else
-                fit_scene_unlocked(handle, kKeyFitPaddingPx);
-            break;
-        // Arrow keys pan in screen directions, so a mirrored axis pans the
-        // other way in dbu.
-        case LE_KEY_PAN_LEFT:
-            if (!ctrl && !shift)
-                pan_unlocked(handle, -kKeyPanFactor * screen_x_sign(handle), 0.0);
-            break;
-        case LE_KEY_PAN_RIGHT:
-            if (!ctrl && !shift)
-                pan_unlocked(handle, kKeyPanFactor * screen_x_sign(handle), 0.0);
-            break;
-        case LE_KEY_PAN_UP:
-            if (!ctrl && !shift)
-                pan_unlocked(handle, 0.0, kKeyPanFactor * screen_y_sign(handle));
-            break;
-        case LE_KEY_PAN_DOWN:
-            if (!ctrl && !shift)
-                pan_unlocked(handle, 0.0, -kKeyPanFactor * screen_y_sign(handle));
-            break;
-        case LE_KEY_1:
-        case LE_KEY_2:
-        case LE_KEY_3:
-        case LE_KEY_4:
-        case LE_KEY_5:
-        case LE_KEY_6:
-        case LE_KEY_7:
-        case LE_KEY_8:
-        case LE_KEY_9:
-        {
-            // The same physical 1-9 keys address the
-            // 11th..19th ROUTING layer instead of the 1st..9th while Ctrl
-            // is held (LE_KEY_0 covers the 10th - see its own case).
-            // Shift has no meaning for either - held at all suppresses
-            // the action.
-            if (shift)
-                break;
-            const int base_index = key_code - LE_KEY_1; // 0-8
-            const int routing_index = ctrl ? base_index + 10 : base_index;
-            toggle_routing_layer_visibility_unlocked(handle, routing_index);
-            break;
-        }
-        case LE_KEY_0:
-            // Same "no modifier meaning at all" shape as the mode keys
-            // below - LE_KEY_1..9's own Ctrl-held branch has no digit
-            // left over to double up on for the 10th layer, so this key
-            // is bare-only, not Ctrl-gated.
-            if (!ctrl && !shift)
-                toggle_routing_layer_visibility_unlocked(handle, 9); // the 10th ROUTING layer
-            break;
-        case LE_KEY_DESELECT_ALL:
-            // Select-mode-only, in addition to the Ctrl-held gate (switch
-            // back to Select mode to change the selection from Edit/Ruler
-            // mode). Shift has no meaning here - Ctrl-Shift-D is a no-op.
-            if (handle->mode() == LeHandle::Mode::SELECT && ctrl && !shift)
-                handle->clear_selection();
-            break;
-        case LE_KEY_MOVE:
-            if (ctrl && !shift)
-                arm_move_unlocked(handle);
-            break;
-        case LE_KEY_DELETE:
-            if (handle->mode() == LeHandle::Mode::EDIT && !ctrl && !shift)
-                delete_selected_pieces_unlocked(handle);
-            break;
-        case LE_KEY_SELECT_MODE:
-            if (!ctrl && !shift)
-                handle->set_mode(LeHandle::Mode::SELECT);
-            break;
-        case LE_KEY_EDIT_MODE:
-            if (!ctrl && !shift)
-                handle->set_mode(LeHandle::Mode::EDIT);
-            break;
-        case LE_KEY_RULER_MODE:
-            if (!ctrl && !shift)
-                handle->reset_ruler_mode();
-            else if (ctrl && !shift)
-                arm_resize_unlocked(handle); // Ctrl-R
-            break;
-        case LE_KEY_FINISH_RULER:
-            // Deliberately *not* modifier-gated, unlike every other bare
-            // key above: Escape is a pure cancel/finish gesture, and a
-            // real ruler-drawing sequence routinely ends with Shift
-            // (free-form) still physically held right up to the Escape
-            // press - suppressing it here would make "finish the ruler"
-            // unreliable in exactly the workflow that uses Shift most.
-            // A rubber-band drag in progress is cancelled first, on its own
-            // - one gesture per press.
-            if (handle->is_dragging())
-            {
-                handle->end_drag();
-                break;
-            }
-            handle->finish_active_ruler();
-            handle->end_move(); // Escape also cancels an in-progress move
-            // Escape cancels a Resize in
-            // progress (its first click), else disarms Resize.
-            if (handle->resize().grab)
-            {
-                handle->end_resize_grab();
-                update_resize_hover_unlocked(handle);
-            }
-            else
-                handle->end_resize();
-            break;
-        default:
-            break;
-        }
+        le::edit::key_down(*handle, static_cast<le::Key>(key_code));
     }
 
     void le_key_up(LeHandle *handle, int32_t key_code)
@@ -1424,14 +1632,15 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->release_key(key_code);
-        handle->set_ruler_free_form(handle->is_key_held(LE_KEY_SHIFT));
-        handle->set_move_free_form(handle->is_key_held(LE_KEY_SHIFT));
+        le::edit::key_up(*handle, static_cast<le::Key>(key_code));
     }
 
     int32_t le_is_key_held(LeHandle *handle, int32_t key_code)
     {
-        return handle && handle->is_key_held(key_code) ? 1 : 0;
+        if (!handle)
+            return 0;
+        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
+        return le::edit::key_held(*handle, static_cast<le::Key>(key_code)) ? 1 : 0;
     }
 
     void le_clear_all_keys(LeHandle *handle)
@@ -1439,7 +1648,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->clear_all_keys();
+        le::edit::clear_keys(*handle);
     }
 
     void le_mouse_down(LeHandle *handle, int32_t x, int32_t y)
@@ -1447,7 +1656,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->begin_drag(x, y);
+        le::edit::mouse_down(*handle, x, y);
     }
 
     void le_cancel_drag(LeHandle *handle)
@@ -1455,8 +1664,7 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        if (handle->is_dragging())
-            handle->end_drag();
+        le::edit::cancel_drag(*handle);
     }
 
     void le_zoom_drag_down(LeHandle *handle, int32_t x, int32_t y)
@@ -1464,109 +1672,22 @@ extern "C"
         if (!handle)
             return;
         HandleWriteLock lock(handle);
-        handle->begin_drag(x, y, LeHandle::DragKind::ZOOM);
+        le::edit::zoom_drag_down(*handle, x, y);
     }
 
     void le_mouse_up(LeHandle *handle, int32_t x, int32_t y)
     {
-        if (!handle || !handle->is_dragging())
+        if (!handle)
             return;
         HandleWriteLock lock(handle);
-        ensure_view_layers_current(handle); // click and drag-select hit-test against view_layers
-
-        const int32_t dx = x - handle->drag_start_x_px();
-        const int32_t dy = y - handle->drag_start_y_px();
-        const bool is_click = dx * dx + dy * dy < kClickDragThresholdPx * kClickDragThresholdPx;
-
-        if (handle->drag_kind() == LeHandle::DragKind::ZOOM)
-        {
-            // Rectangle-zoom - purely navigational,
-            // selection is untouched. A click-sized release is a no-op
-            // (fitting to a near-zero-size rect would produce an absurd
-            // scale) - same threshold used for the select gesture below.
-            if (!is_click)
-            {
-                const le::Point start = handle->pixel_to_dbu(handle->drag_start_x_px(), handle->drag_start_y_px());
-                const le::Point end = handle->pixel_to_dbu(x, y);
-                const le::Rect zoom_rect{
-                    .ll = le::Point{std::min(start.x, end.x), std::min(start.y, end.y)},
-                    .ur = le::Point{std::max(start.x, end.x), std::max(start.y, end.y)},
-                };
-                handle->fit_to_content(zoom_rect, 0);
-            }
-            handle->end_drag();
-            return;
-        }
-
-        // Only Select mode changes the selection; in Edit mode a
-        // click/drag edits the existing selection (Move/Resize below), so
-        // this whole block is skipped. end_drag() below stays
-        // unconditional so drag state
-        // always resets regardless of mode.
-        if (handle->mode() == LeHandle::Mode::SELECT)
-        {
-            const bool shift = handle->is_key_held(LE_KEY_SHIFT);
-            const std::vector<LeHandle::SelectedObject> previous = handle->selection();
-
-            if (!shift)
-                handle->clear_selection();
-
-            if (is_click)
-            {
-                click_select_unlocked(handle, handle->pixel_to_dbu(x, y), previous, shift);
-                handle->end_drag();
-                return;
-            }
-
-            // A Layout view hit-tests the Layout's own content, never
-            // whatever Abstract content happens to exist.
-            if (handle->current_layout().valid())
-                select_in_layout_view_unlocked(handle, x, y);
-            else
-                select_in_abstract_view_unlocked(handle, x, y);
-        }
-        else if (handle->mode() == LeHandle::Mode::RULER)
-        {
-            // Only a click (not a drag) commits a
-            // ruler point; a drag in Ruler mode does nothing beyond
-            // ending the gesture below.
-            if (is_click)
-                handle->add_ruler_point(handle->is_key_held(LE_KEY_SHIFT));
-        }
-        else if (handle->mode() == LeHandle::Mode::EDIT)
-        {
-            // Only a click (not a drag) sets the
-            // move's anchor / commits it; a drag in Edit mode does
-            // nothing beyond ending the gesture below, same as Ruler
-            // mode's own click-only handling just above. A no-op if
-            // Move isn't armed (see move_click_unlocked).
-            if (is_click && !resize_click_unlocked(handle, x, y))
-                move_click_unlocked(handle);
-        }
-
-        handle->end_drag();
+        le::edit::mouse_up(*handle, x, y);
     }
 
     const char *le_tooltip_message(LeHandle *handle)
     {
         if (!handle)
             return nullptr;
-        // Pre-existing gap, fixed here rather than left as-is now that
-        // handle->mutex_ actually matters for cross-thread correctness
-        // (le_handle.hpp's own mutex_ doc comment) - this read handle->mode()
-        // with no lock at all before; a shared_lock costs nothing
-        // (mode() is a single enum read) and closes a real, if narrow,
-        // data race against a concurrent le_set_mode.
         std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        switch (handle->mode())
-        {
-        case LeHandle::Mode::EDIT:
-            return kEditModeTooltip;
-        case LeHandle::Mode::RULER:
-            return kRulerModeTooltip;
-        case LeHandle::Mode::SELECT:
-        default:
-            return kSelectModeTooltip;
-        }
+        return le::edit::tooltip(*handle).data(); // static storage, null-terminated
     }
 }

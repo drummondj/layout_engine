@@ -149,7 +149,8 @@ fails on a temp path that isn't unique to its process.
   a `LeHandle`; `ReadView`/`WriteView` hold its lock shared/exclusive and
   their members are the operations (over `le::edit`); `Transaction` groups
   edits into one undo step; `Renderer` is the render thread's wait/render/
-  cancel, never opening a view. Front ends are moving onto it from
+  cancel, never opening a view. `interaction_types.hpp` holds the design
+  view's modes, keys and snap/orientation enums the views take. Front ends are moving onto it from
   `api.hpp`, the plain-C API, implemented by concern: `api.cpp` (I/O, design/library access,
   properties and search, undo, shape ops, rendering), `input.cpp` (the
   mouse/key state machine, modes, rulers, Move, Resize, Delete),

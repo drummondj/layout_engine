@@ -5,6 +5,7 @@
 #include "../core/flightlines.hpp"
 #include "../core/object_filters.hpp"
 #include "../core/session_types.hpp"
+#include "interaction_types.hpp"
 #include "placement_move.hpp"
 #include "shape_resize.hpp"
 #include "../database/database.hpp"
@@ -771,12 +772,7 @@ struct LeHandle
         // interaction to editing whatever is already selected (Move,
         // Resize, Delete), so the selection can only change back in
         // Select mode. Ruler mode is documented in the Rulers section below.
-        enum class Mode
-        {
-            SELECT,
-            EDIT,
-            RULER,
-        };
+        using Mode = le::InteractionMode;
 
         // Leaving Ruler mode always finishes whatever ruler was active
         // (see finish_active_ruler) - keeps "an active ruler exists only

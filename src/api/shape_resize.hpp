@@ -1,4 +1,5 @@
 #pragma once
+#include "interaction_types.hpp"
 #include "../database/database.hpp"
 #include "../geometry/geometry.hpp"
 #include "fin_grid.hpp"
@@ -12,21 +13,6 @@
 
 namespace le
 {
-    /// @brief What a resized edge/segment snaps to - values are the C
-    /// API's own LE_SHAPE_SNAP_* numbering.
-    /// Rects and polygons offer NONE/USER_GRID/MANUFACTURING_GRID/FIN_GRID;
-    /// paths offer NONE/USER_GRID/MANUFACTURING_GRID (their *edges* - the
-    /// centerline +/- half the width - land on it)/TRACKS (the centerline
-    /// lands on a routing track of the path's layer). See shape_snap_mode_applies.
-    enum class ShapeSnapMode : int32_t
-    {
-        NONE = 0,
-        USER_GRID = 1,
-        MANUFACTURING_GRID = 2,
-        FIN_GRID = 3,
-        TRACKS = 4,
-    };
-
     /// @brief Routing pieces - paths, vias and via arrays - share one snap
     /// setting (the PATH slot), so a Move of wires and vias together snaps
     /// them all the same way. The VIA slot itself is unused.
@@ -285,16 +271,6 @@ namespace le
         }
         return best;
     }
-
-    /// @brief Which way a handle moves when dragged - for the hover
-    /// cursor: across x (a vertical edge), across
-    /// y (a horizontal one), or both (a diagonal polygon edge/path segment).
-    enum class ResizeAxis
-    {
-        X,
-        Y,
-        BOTH,
-    };
 
     /// @brief `handle`'s own segment in `piece` (one-piece) - what the hover
     /// indicator highlights - plus the axis it moves along. nullopt if the
