@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <filesystem>
@@ -9,6 +10,7 @@
 #include <string_view>
 #include <thread>
 #include <unistd.h>
+#include <variant>
 
 namespace
 {
@@ -20,12 +22,6 @@ namespace
         return std::filesystem::temp_directory_path() / ("hello_ext_" + std::to_string(::getpid()) + "_" + name);
     }
 
-    struct Session
-    {
-        LeHandle *handle = le_create();
-        ~Session() { le_destroy(handle); }
-    };
-
     // Golden files: .led files written by each schema version of this
     // extension, loaded by every later build.
     const std::filesystem::path kGoldenDir = std::filesystem::path(__FILE__).parent_path() / "golden";
@@ -33,36 +29,96 @@ namespace
     // schema_ext.py's VERSION: the golden directory a new file goes in.
     constexpr const char *kSchemaVersion = "0.4.0";
 
+    le::ext::ExtensionContext context(le::Session &session) { return le::ext::ExtensionContext(session.handle(), "hello_ext"); }
+
     // A HelloMarker owning one Shape (a 2x1 um DEBUG rect), in a new layout.
-    LeHelloMarkerId add_marker(LeHandle *handle)
+    le::HelloMarkerId add_marker(le::Session &session)
     {
-        le::ext::WriteView view = le::ext::ExtensionContext(handle, "hello_ext").write();
+        le::WriteView view = session.write();
         view.create_technology({.database_units_microns = 1000}).value(); // 1000 dbu per micron
         const le::LibraryId library = view.create_library({.name = "markers"}).value();
         const le::DesignId design = view.create_design({.library = library, .name = "top"}).value();
         const le::LayoutId layout = view.create_layout({.design = design}).value();
         const le::HelloMarkerId marker = view.create_hello_marker({.layout = layout, .name = "clock_root"}).value();
         view.build_shape(le::ShapeOwner::hello_marker(marker)).purpose(le::ShapePurpose::DEBUG).rect(0, 0, 2, 1).create().value();
-        return le::ext::to_c(marker);
+        return marker;
     }
 
     // How many markers the session has, and how many shapes they own.
-    std::pair<size_t, size_t> markers_and_shapes(LeHandle *handle)
+    std::pair<size_t, size_t> markers_and_shapes(le::Session &session)
     {
-        le::ext::ExtensionContext ctx(handle, "hello_ext");
-        const le::ext::ReadView view = ctx.read();
+        const le::ReadView view = session.read();
         size_t shapes = 0;
         for (const le::HelloMarkerId marker : view.root().get_hello_marker_ids())
             shapes += view.root().get_hello_marker_shapes(marker).size();
         return {view.root().get_hello_marker_ids().size(), shapes};
     }
 
-    LeLibraryId add_two_notes(LeHandle *handle)
+    le::LibraryId add_two_notes(le::Session &session)
     {
-        const LeLibraryId library = le_create_library(handle, "lib1");
-        le_create_hello_note(handle, library, "route the clock first");
-        le_create_hello_note(handle, library, "then the resets");
+        le::WriteView view = session.write();
+        const le::LibraryId library = view.create_library({.name = "lib1"}).value();
+        view.create_hello_note({.library = library, .body = "route the clock first"}).value();
+        view.create_hello_note({.library = library, .body = "then the resets"}).value();
         return library;
+    }
+
+    // A design "top" with a Layout, under a 1000 dbu/um Technology that's
+    // current (as reading a LEF makes it), and that Layout open.
+    struct OpenLayout
+    {
+        le::DesignId design;
+        le::LayoutId layout;
+    };
+
+    OpenLayout open_new_layout(le::WriteView &view)
+    {
+        const le::TechnologyId technology = view.create_technology({.database_units_microns = 1000}).value();
+        view.set_current_technology(technology).value();
+        const le::DesignId design = view.create_design({.library = view.create_library({.name = "lib"}).value(), .name = "top"}).value();
+        const le::LayoutId layout = view.create_layout({.design = design}).value();
+        return {design, layout};
+    }
+
+    // A 100 x 100 um die area, which the view fits.
+    void add_die_area(le::WriteView &view, le::LayoutId layout)
+    {
+        view.build_shape(le::ShapeOwner::layout(layout)).purpose(le::ShapePurpose::BOUNDARY).polygon({{0, 0}, {100, 0}, {100, 100}, {0, 100}}).create().value();
+    }
+
+    // Whether pixel (x, y) of a fresh render is drawn on.
+    bool lit(le::Session &session, int x, int y)
+    {
+        const le::RenderedFrame frame = session.renderer().render();
+        if (frame.empty() || x >= frame.width || y >= frame.height)
+            return false;
+        const uint8_t *px = frame.data + y * frame.row_bytes + x * 4;
+        return px[0] + px[1] + px[2] > 30;
+    }
+
+    void click(le::Session &session, int x, int y)
+    {
+        session.write().mouse_down(x, y);
+        session.write().mouse_up(x, y);
+    }
+
+    // The Shape or Wire of each selected piece.
+    std::vector<le::GeometryId> selected_shapes(le::Session &session)
+    {
+        std::vector<le::GeometryId> shapes;
+        for (const le::SelectedObject &entry : session.read().selection())
+            if (const le::ShapePiece *piece = std::get_if<le::ShapePiece>(&entry))
+                shapes.push_back(piece->owner());
+        return shapes;
+    }
+
+    // A purpose by its label: an extension's purposes are named after it.
+    std::optional<le::ViewLayerPurpose> purpose_named(std::string_view label)
+    {
+        for (const le::ViewLayerPurposeInfo &info : le::kViewLayerPurposes)
+            if (info.label == label)
+                return info.purpose;
+        return std::nullopt;
     }
 }
 
@@ -70,42 +126,38 @@ TEST(HelloExt, IsRegistered)
 {
     le::ext::register_all();
     le::ext::register_all(); // idempotent
-    int found = 0;
-    for (int32_t i = 0; i < le_extension_count(); ++i)
-        if (std::string(le_extension_name(i)) == "hello_ext")
-        {
-            ++found;
-            EXPECT_STREQ(le_extension_version(i), "0.1.0");
-        }
-    EXPECT_EQ(found, 1);
-    EXPECT_EQ(le_extension_name(le_extension_count()), nullptr);
+    const auto &extensions = le::ext::registry().extensions();
+    const auto hello = std::ranges::find(extensions, std::string("hello_ext"), &le::ext::ExtensionInfo::name);
+    ASSERT_NE(hello, extensions.end());
+    EXPECT_EQ(hello->version, "0.1.0");
+    EXPECT_EQ(std::ranges::count(extensions, std::string("hello_ext"), &le::ext::ExtensionInfo::name), 1);
 }
 
 TEST(HelloExt, ReadsTheDatabase)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
     EXPECT_EQ(hello::library_count(ctx), 0);
-    le_create_library(session.handle, "lib1");
+    session.write().create_library({.name = "lib1"}).value();
     EXPECT_EQ(hello::library_count(ctx), 1);
 }
 
 TEST(HelloExt, AnEditIsOneUndoStep)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
     ASSERT_TRUE(hello::add_library(ctx, "world"));
     EXPECT_EQ(hello::library_count(ctx), 1);
-    ASSERT_NE(le_undo(session.handle), 0);
+    ASSERT_EQ(session.write().undo(), true);
     EXPECT_EQ(hello::library_count(ctx), 0);
 }
 
 TEST(HelloExt, StateIsPerSessionAndPerExtension)
 {
-    Session a, b;
-    le::ext::ExtensionContext in_a(a.handle, "hello_ext");
-    le::ext::ExtensionContext in_b(b.handle, "hello_ext");
-    le::ext::ExtensionContext other_extension(a.handle, "other_ext");
+    le::Session a, b;
+    le::ext::ExtensionContext in_a = context(a);
+    le::ext::ExtensionContext in_b = context(b);
+    le::ext::ExtensionContext other_extension(a.handle(), "other_ext");
     ASSERT_TRUE(hello::add_library(in_a, "one"));
     ASSERT_TRUE(hello::add_library(in_a, "two"));
     EXPECT_EQ(in_a.data<hello::State>().libraries_added, 2);
@@ -115,60 +167,69 @@ TEST(HelloExt, StateIsPerSessionAndPerExtension)
 
 TEST(HelloExt, AnEditIsRecalledByItsLabel)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
     ASSERT_TRUE(hello::add_library(ctx, "world"));
-    ASSERT_EQ(le_command_history_count(session.handle), 1);
-    EXPECT_STREQ(le_command_history_at(session.handle, 0), "hello_add_library world");
+    const le::ReadView view = session.read();
+    ASSERT_EQ(view.command_history_size(), 1u);
+    EXPECT_EQ(view.command_history_at(0), "hello_add_library world");
 }
 
 TEST(HelloExt, AFailedEditLeavesNothingToUndo)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
     EXPECT_FALSE(hello::add_library(ctx, ""));
     EXPECT_EQ(ctx.data<hello::State>().libraries_added, 0);
-    EXPECT_EQ(le_undo(session.handle), 0);
+    EXPECT_EQ(session.write().undo(), false);
 }
 
 TEST(HelloExt, ItsIdsConvertBetweenTheCApiAndTheDatabase)
 {
-    Session session;
-    const LeHelloMarkerId marker = add_marker(session.handle);
-    const le::HelloMarkerId id = le::ext::from_c(marker);
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    EXPECT_EQ(ctx.read().root().get_hello_marker(id)->name, "clock_root");
-    EXPECT_EQ(le::ext::to_c(id).index, marker.index);
-    EXPECT_EQ(le::ext::to_c(id).generation, marker.generation);
+    le::Session session;
+    const le::HelloMarkerId id = add_marker(session);
+    const LeHelloMarkerId marker = le::ext::to_c(id);
+    EXPECT_EQ(context(session).read().root().get_hello_marker(le::ext::from_c(marker))->name, "clock_root");
+    EXPECT_EQ(marker.index, id.index);
+    EXPECT_EQ(marker.generation, id.generation);
 }
 
 TEST(HelloExt, AddsAMarkerToTheCurrentLayoutAsOneUndoStep)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    const LeLayoutId layout = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
-    ASSERT_EQ(le_set_current_layout(session.handle, layout), 0);
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
+    le::LayoutId layout;
+    {
+        le::WriteView view = session.write();
+        const le::DesignId design = view.create_design({.library = view.create_library({.name = "lib"}).value(), .name = "top"}).value();
+        layout = view.create_layout({.design = design}).value();
+        ASSERT_TRUE(view.set_current_layout(layout));
+    }
 
     ASSERT_TRUE(hello::add_marker(ctx, "clock_root"));
-    EXPECT_EQ(ctx.read().root().get_layout_hello_markers(le::ext::from_c(layout)).size(), 1u);
-    ASSERT_NE(le_undo(session.handle), 0);
-    EXPECT_EQ(ctx.read().root().get_layout_hello_markers(le::ext::from_c(layout)).size(), 0u);
+    EXPECT_EQ(ctx.read().root().get_layout_hello_markers(layout).size(), 1u);
+    ASSERT_EQ(session.write().undo(), true);
+    EXPECT_EQ(ctx.read().root().get_layout_hello_markers(layout).size(), 0u);
 }
 
 TEST(HelloExt, AddingAMarkerWithNoCurrentLayoutFails)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
+    {
+        le::WriteView view = session.write();
+        const le::DesignId design = view.create_design({.library = view.create_library({.name = "lib"}).value(), .name = "top"}).value();
+        view.create_layout({.design = design}).value();
+    }
     EXPECT_FALSE(hello::add_marker(ctx, "clock_root"));
-    EXPECT_EQ(markers_and_shapes(session.handle).first, 0u);
-    EXPECT_EQ(le_undo(session.handle), 0);
+    EXPECT_EQ(markers_and_shapes(session).first, 0u);
+    EXPECT_EQ(session.write().undo(), false);
 }
 
 TEST(HelloExt, AWriteViewEditIsSeenByReaders)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
     {
         le::ext::WriteView view = ctx.write();
         view.unrecorded_root().create_library(le::LibraryData{.name = "bulk"});
@@ -178,17 +239,15 @@ TEST(HelloExt, AWriteViewEditIsSeenByReaders)
 
 TEST(HelloExt, NotesBelongToTheirLibraryAndGoWithIt)
 {
-    Session session;
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    const LeLibraryId library = add_two_notes(session.handle);
+    le::Session session;
+    le::ext::ExtensionContext ctx = context(session);
+    const le::LibraryId library = add_two_notes(session);
     EXPECT_EQ(hello::notes_on(ctx, "lib1"), (std::vector<std::string>{"route the clock first", "then the resets"}));
     EXPECT_TRUE(hello::notes_on(ctx, "nope").empty());
 
-    le_begin_command(session.handle, "delete_library lib1");
-    ASSERT_EQ(le_delete_library(session.handle, library), 0);
-    le_end_command(session.handle, 1);
+    ASSERT_TRUE(session.write("delete_library lib1").delete_library(library));
     EXPECT_EQ(ctx.read().root().get_hello_note_ids().size(), 0u);
-    ASSERT_NE(le_undo(session.handle), 0);
+    ASSERT_EQ(session.write().undo(), true);
     EXPECT_EQ(hello::notes_on(ctx, "lib1").size(), 2u);
 }
 
@@ -196,17 +255,17 @@ TEST(HelloExt, NotesRoundTripThroughANativeFile)
 {
     const std::filesystem::path path = scratch_path("notes_test.led");
     {
-        Session session;
-        add_two_notes(session.handle);
-        ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
+        le::Session session;
+        add_two_notes(session);
+        ASSERT_TRUE(session.write().write_db(path, true));
     }
-    const std::string info = le_db_info(path.c_str());
+    const std::string info = le::db_info(path).value();
     const std::string schema = kSchemaVersion;
     EXPECT_NE(info.find("extension hello_ext 0.1.0 (schema " + schema + "): this build has schema " + schema), std::string::npos) << info;
 
-    Session session;
-    ASSERT_EQ(le_read_db(session.handle, path.c_str(), 1), 0);
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    le::Session session;
+    ASSERT_TRUE(session.write().read_db(path, true));
+    le::ext::ExtensionContext ctx = context(session);
     EXPECT_EQ(hello::notes_on(ctx, "lib1"), (std::vector<std::string>{"route the clock first", "then the resets"}));
     std::filesystem::remove(path);
 }
@@ -218,10 +277,10 @@ TEST(HelloExt, EverySchemaVersionsGoldenFileStillLoads)
     int loaded = 0;
     for (const auto &version : std::filesystem::directory_iterator(kGoldenDir))
     {
-        Session session;
+        le::Session session;
         const std::filesystem::path file = version.path() / "notes.led";
-        ASSERT_EQ(le_read_db(session.handle, file.c_str(), 1), 0) << file;
-        le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+        ASSERT_TRUE(session.write().read_db(file, true)) << file;
+        le::ext::ExtensionContext ctx = context(session);
         EXPECT_EQ(hello::notes_on(ctx, "lib1"), (std::vector<std::string>{"route the clock first", "then the resets"})) << file;
         ++loaded;
     }
@@ -235,17 +294,18 @@ TEST(HelloExt, AnOlderFileListsItsMigrationsAndMigrateDbRunsThem)
     const std::filesystem::path oldest = kGoldenDir / "0.1.0" / "notes.led";
     if (!std::filesystem::exists(oldest) || kSchemaVersion == std::string("0.1.0"))
         GTEST_SKIP() << "no older schema version's golden file to migrate yet";
-    const std::string info = le_db_info(oldest.c_str());
+    const std::string info = le::db_info(oldest).value();
     EXPECT_NE(info.find("hello_ext 0.2.0: HelloNote.text renamed to body"), std::string::npos) << info;
     EXPECT_NE(info.find("hello_ext 0.4.0: HelloPin added, owning Shapes"), std::string::npos) << info;
 
     const std::string path = scratch_path("migrated.led").string();
-    const std::string summary = le_migrate_db(oldest.c_str(), path.c_str());
-    EXPECT_NE(summary.find("applied hello_ext migration to 0.2.0"), std::string::npos) << summary;
-    EXPECT_NE(std::string(le_db_info(path.c_str())).find("migrations to run: none"), std::string::npos);
-    Session session;
-    ASSERT_EQ(le_read_db(session.handle, path.c_str(), 1), 0);
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
+    const std::expected<std::string, std::string> summary = le::migrate_db(oldest, path);
+    ASSERT_TRUE(summary) << summary.error();
+    EXPECT_NE(summary->find("applied hello_ext migration to 0.2.0"), std::string::npos) << *summary;
+    EXPECT_NE(le::db_info(path).value().find("migrations to run: none"), std::string::npos);
+    le::Session session;
+    ASSERT_TRUE(session.write().read_db(path, true));
+    le::ext::ExtensionContext ctx = context(session);
     EXPECT_EQ(hello::notes_on(ctx, "lib1"), (std::vector<std::string>{"route the clock first", "then the resets"}));
     std::filesystem::remove(path);
 }
@@ -254,16 +314,19 @@ TEST(HelloExt, AnOlderFileListsItsMigrationsAndMigrateDbRunsThem)
 // --gtest_filter='*WriteGolden*'), then commit the file.
 TEST(HelloExt, DISABLED_WriteGoldenFileForThisSchemaVersion)
 {
-    Session session;
-    add_two_notes(session.handle);
-    add_marker(session.handle);
-    // And a HelloPin owning a shape, in a layout of its own.
-    const LeLayoutId pins = le_create_layout(session.handle, le_create_design(session.handle, le_create_library(session.handle, "pins"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
-    const double rect[] = {1.0, 1.0, 2.0, 2.0};
-    le_create_shape(session.handle, le_shape_owner_hello_pin(le_create_hello_pin(session.handle, pins)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1,
-                    rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
+    le::Session session;
+    add_two_notes(session);
+    add_marker(session);
+    {
+        // And a HelloPin owning a shape, in a layout of its own.
+        le::WriteView view = session.write();
+        const le::DesignId design = view.create_design({.library = view.create_library({.name = "pins"}).value(), .name = "top"}).value();
+        const le::LayoutId pins = view.create_layout({.design = design}).value();
+        const le::HelloPinId pin = view.create_hello_pin({.layout = pins}).value();
+        view.build_shape(le::ShapeOwner::hello_pin(pin)).rect(1.0, 1.0, 2.0, 2.0).create().value();
+    }
     std::filesystem::create_directories(kGoldenDir / kSchemaVersion);
-    ASSERT_EQ(le_write_db(session.handle, (kGoldenDir / kSchemaVersion / "notes.led").c_str(), 1), 0);
+    ASSERT_TRUE(session.write().write_db(kGoldenDir / kSchemaVersion / "notes.led", true));
 }
 
 // hello_ext's section of settings.json: saved with the core settings, its
@@ -274,10 +337,9 @@ TEST(HelloExt, ItsSettingsSectionRoundTripsAndOthersAreKept)
     le::ext::register_all();
     const std::filesystem::path path = scratch_path("settings_test.json");
     {
-        Session session;
-        le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-        ctx.data<hello::State>().library_name = "mine";
-        ASSERT_EQ(le_save_settings(session.handle, path.c_str()), 0);
+        le::Session session;
+        context(session).data<hello::State>().library_name = "mine";
+        ASSERT_TRUE(session.write().save_settings(path));
     }
     std::ifstream in(path);
     nlohmann::json saved = nlohmann::json::parse(in);
@@ -285,11 +347,10 @@ TEST(HelloExt, ItsSettingsSectionRoundTripsAndOthersAreKept)
 
     saved["extensions"]["other_ext"] = {{"version", 3}, {"colour", "red"}};
     std::ofstream(path) << saved.dump();
-    Session session;
-    ASSERT_EQ(le_load_settings(session.handle, path.c_str()), 0);
-    le::ext::ExtensionContext ctx(session.handle, "hello_ext");
-    EXPECT_EQ(ctx.data<hello::State>().library_name, "mine");
-    ASSERT_EQ(le_save_settings(session.handle, path.c_str()), 0);
+    le::Session session;
+    ASSERT_TRUE(session.write().load_settings(path));
+    EXPECT_EQ(context(session).data<hello::State>().library_name, "mine");
+    ASSERT_TRUE(session.write().save_settings(path));
     std::ifstream again(path);
     EXPECT_EQ(nlohmann::json::parse(again)["extensions"]["other_ext"], (nlohmann::json{{"version", 3}, {"colour", "red"}}));
     std::filesystem::remove(path);
@@ -309,25 +370,25 @@ TEST(HelloExt, RegistersItsOverlay)
 // together and saved.
 TEST(HelloExt, MarkersOwnShapes)
 {
-    Session session;
-    le_begin_command(session.handle, "markers");
-    const LeHelloMarkerId marker = add_marker(session.handle);
-    le_end_command(session.handle, 1);
-    EXPECT_EQ(markers_and_shapes(session.handle), (std::pair<size_t, size_t>{1, 1}));
+    le::Session session;
+    le::HelloMarkerId marker;
+    {
+        le::Transaction transaction = session.transaction("markers");
+        marker = add_marker(session);
+    }
+    EXPECT_EQ(markers_and_shapes(session), (std::pair<size_t, size_t>{1, 1}));
 
-    le_begin_command(session.handle, "delete marker");
-    ASSERT_EQ(le_delete_hello_marker(session.handle, marker), 0);
-    le_end_command(session.handle, 1);
-    EXPECT_EQ(markers_and_shapes(session.handle), (std::pair<size_t, size_t>{0, 0}));
-    EXPECT_EQ(le::ext::ExtensionContext(session.handle, "hello_ext").read().root().get_shape_ids().size(), 0u) << "the shape goes with its marker";
-    ASSERT_NE(le_undo(session.handle), 0);
-    EXPECT_EQ(markers_and_shapes(session.handle), (std::pair<size_t, size_t>{1, 1}));
+    ASSERT_TRUE(session.write("delete marker").delete_hello_marker(marker));
+    EXPECT_EQ(markers_and_shapes(session), (std::pair<size_t, size_t>{0, 0}));
+    EXPECT_EQ(session.read().root().get_shape_ids().size(), 0u) << "the shape goes with its marker";
+    ASSERT_EQ(session.write().undo(), true);
+    EXPECT_EQ(markers_and_shapes(session), (std::pair<size_t, size_t>{1, 1}));
 
     const std::filesystem::path path = scratch_path("markers_test.led");
-    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
-    Session loaded;
-    ASSERT_EQ(le_read_db(loaded.handle, path.c_str(), 1), 0);
-    EXPECT_EQ(markers_and_shapes(loaded.handle), (std::pair<size_t, size_t>{1, 1}));
+    ASSERT_TRUE(session.write().write_db(path, true));
+    le::Session loaded;
+    ASSERT_TRUE(loaded.write().read_db(path, true));
+    EXPECT_EQ(markers_and_shapes(loaded), (std::pair<size_t, size_t>{1, 1}));
     std::filesystem::remove(path);
 }
 
@@ -336,42 +397,29 @@ TEST(HelloExt, MarkersOwnShapes)
 TEST(HelloExt, MarkersDrawAndSelectInTheLayoutView)
 {
     le::ext::register_all();
-    Session session;
-    LeHandle *h = session.handle;
-    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0,
-                         nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
-    ASSERT_EQ(le_set_current_technology(h, technology), 0); // as reading a LEF does
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
-    const LeLayoutId layout = le_create_layout(h, design);
-    const LeHelloMarkerId marker = le_create_hello_marker(h, layout, "clock_root");
-    const double rect[] = {0.0, 0.0, 2.0, 1.0};
-    const LeShapeId shape = le_create_shape(h, le_shape_owner_hello_marker(marker), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0,
-                                            0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
-    ASSERT_NE(shape.index, UINT32_MAX);
-    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
-    le_set_viewport_size(h, 200, 100);
-    le_fit_scene(h, 10);
+    le::Session session;
+    le::ShapeId shape;
+    {
+        le::WriteView view = session.write();
+        const OpenLayout top = open_new_layout(view);
+        const le::HelloMarkerId marker = view.create_hello_marker({.layout = top.layout, .name = "clock_root"}).value();
+        shape = view.build_shape(le::ShapeOwner::hello_marker(marker)).rect(0.0, 0.0, 2.0, 1.0).create().value();
+        ASSERT_TRUE(view.open_layout(top.design));
+        view.set_viewport_size(200, 100);
+        view.fit_view(10);
+    }
+    EXPECT_TRUE(lit(session, 60, 30)) << "the marker's rect fills the view";
 
-    const auto lit = [&](int x, int y) {
-        const LePixelBuffer buffer = le_render_pixel_buffer(h);
-        if (!buffer.data || x >= buffer.width || y >= buffer.height)
-            return false;
-        const uint8_t *px = buffer.data + y * buffer.row_bytes + x * 4;
-        return px[0] + px[1] + px[2] > 30;
-    };
-    EXPECT_TRUE(lit(60, 30)) << "the marker's rect fills the view";
-
-    le_mouse_down(h, 100, 50);
-    le_mouse_up(h, 100, 50);
-    ASSERT_EQ(le_selection_count(h), 1);
-    const LeObjectRef selected = le_selected_object_ref(h, 0);
-    EXPECT_EQ(selected.kind, LE_OBJECT_KIND_SHAPE);
-    EXPECT_EQ(selected.index, shape.index);
+    click(session, 100, 50);
+    EXPECT_EQ(selected_shapes(session), std::vector<le::GeometryId>{le::GeometryId(shape)});
 
     // Moving the marker's shape out of the way redraws its chunk.
-    const double moved[] = {10.0, 10.0, 11.0, 11.0};
-    ASSERT_EQ(le_update_shape(h, shape, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0, 0, 0), 0);
-    EXPECT_FALSE(lit(60, 30)) << "away from the cursor box the click left at (100, 50)";
+    {
+        le::WriteView view = session.write();
+        const le::Units units = view.units().value();
+        ASSERT_TRUE(view.update_shape(shape, {.rects = le::CompactVector<le::Rect>{units.to_dbu(le::RectUm{{10.0, 10.0}, {11.0, 11.0}})}}));
+    }
+    EXPECT_FALSE(lit(session, 60, 30)) << "away from the cursor box the click left at (100, 50)";
 }
 
 // HelloPin has render=Render(..., tiled=True): a layout's pins are split into
@@ -380,54 +428,42 @@ TEST(HelloExt, MarkersDrawAndSelectInTheLayoutView)
 TEST(HelloExt, TiledPinsDrawSelectAndMoveBetweenTiles)
 {
     le::ext::register_all();
-    Session session;
-    LeHandle *h = session.handle;
-    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0,
-                                                           0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
-    ASSERT_EQ(le_set_current_technology(h, technology), 0);
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
-    const LeLayoutId layout = le_create_layout(h, design);
-    // A 100 x 100 um die area, which the view fits.
-    const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
-    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0).index,
-              UINT32_MAX);
+    le::Session session;
+    le::ShapeId lone;
+    {
+        le::WriteView view = session.write();
+        const OpenLayout top = open_new_layout(view);
+        add_die_area(view, top.layout);
+        const auto add_pin = [&](double x, double y, double size)
+        {
+            const le::HelloPinId pin = view.create_hello_pin({.layout = top.layout}).value();
+            return view.build_shape(le::ShapeOwner::hello_pin(pin)).rect(x, y, x + size, y + size).create().value();
+        };
+        // 6000 small pins in the left half (three tiles' worth), and one big
+        // one alone at (73..77, 73..77) um.
+        for (int i = 0; i < 6000; ++i)
+            add_pin(0.8 * (i % 60), (i / 60) * 1.0, 0.4);
+        lone = add_pin(73, 73, 4);
 
-    const auto add_pin = [&](double x, double y, double size) {
-        const LeHelloPinId pin = le_create_hello_pin(h, layout);
-        const double rect[] = {x, y, x + size, y + size};
-        return le_create_shape(h, le_shape_owner_hello_pin(pin), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
-    };
-    // 6000 small pins in the left half (three tiles' worth), and one big
-    // one alone at (73..77, 73..77) um.
-    for (int i = 0; i < 6000; ++i)
-        add_pin(0.8 * (i % 60), (i / 60) * 1.0, 0.4);
-    const LeShapeId lone = add_pin(73, 73, 4);
+        ASSERT_TRUE(view.open_layout(top.design));
+        view.set_viewport_size(400, 400);
+        view.fit_view(0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
+    }
+    EXPECT_TRUE(lit(session, 300, 100)) << "the lone pin at (75, 75) um";
+    EXPECT_FALSE(lit(session, 300, 300)) << "nothing at (75, 25) um yet";
 
-    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
-    le_set_viewport_size(h, 400, 400);
-    le_fit_scene(h, 0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
-    const auto lit = [&](int x, int y) {
-        const LePixelBuffer buffer = le_render_pixel_buffer(h);
-        if (!buffer.data || x >= buffer.width || y >= buffer.height)
-            return false;
-        const uint8_t *px = buffer.data + y * buffer.row_bytes + x * 4;
-        return px[0] + px[1] + px[2] > 30;
-    };
-    EXPECT_TRUE(lit(300, 100)) << "the lone pin at (75, 75) um";
-    EXPECT_FALSE(lit(300, 300)) << "nothing at (75, 25) um yet";
-
-    le_mouse_down(h, 300, 100);
-    le_mouse_up(h, 300, 100);
-    ASSERT_EQ(le_selection_count(h), 1);
-    EXPECT_EQ(le_selected_object_ref(h, 0).index, lone.index);
-    le_mouse_down(h, 10, 10); // click empty space: deselect, and move the cursor box away
-    le_mouse_up(h, 10, 10);
+    click(session, 300, 100);
+    EXPECT_EQ(selected_shapes(session), std::vector<le::GeometryId>{le::GeometryId(lone)});
+    click(session, 10, 10); // empty space: deselect, and move the cursor box away
 
     // Into another tile: drawn there, gone from where it was.
-    const double moved[] = {73.0, 23.0, 77.0, 27.0};
-    ASSERT_EQ(le_update_shape(h, lone, 0, LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, moved, 4, 0, 0.0, 0, 0.0, 0, 0, nullptr, nullptr, 0, 0, 0, 0), 0);
-    EXPECT_TRUE(lit(300, 300));
-    EXPECT_FALSE(lit(300, 100));
+    {
+        le::WriteView view = session.write();
+        const le::Units units = view.units().value();
+        ASSERT_TRUE(view.update_shape(lone, {.rects = le::CompactVector<le::Rect>{units.to_dbu(le::RectUm{{73.0, 23.0}, {77.0, 27.0}})}}));
+    }
+    EXPECT_TRUE(lit(session, 300, 300));
+    EXPECT_FALSE(lit(session, 300, 100));
 }
 
 // HelloPin is also per_layer: a pin's shapes draw in the helloPin column of
@@ -437,79 +473,54 @@ TEST(HelloExt, TiledPinsDrawSelectAndMoveBetweenTiles)
 TEST(HelloExt, PinsOnALayerDrawAndSelectInThatLayersRow)
 {
     le::ext::register_all();
-    Session session;
-    LeHandle *h = session.handle;
-    LeLayoutId layout{};
-    LeDesignId design{};
-    LeLayerId m1{};
-    LeTechnologyId technology_id{};
+    const std::optional<le::ViewLayerPurpose> hello_pin = purpose_named("helloPin");
+    ASSERT_TRUE(hello_pin.has_value());
+
+    le::Session session;
+    le::ShapeId on_m1;
+    le::ShapeId no_layer;
     {
-        le::ext::WriteView view = le::ext::ExtensionContext(h, "hello_ext").write();
-        const le::TechnologyId technology = view.create_technology({.database_units_microns = 1000}).value();
-        m1 = le::ext::to_c(view.create_layer({.technology = technology, .name = "M1", .type = "ROUTING"}).value());
-        const le::DesignId top = view.create_design({.library = view.create_library({.name = "lib"}).value(), .name = "top"}).value();
-        layout = le::ext::to_c(view.create_layout({.design = top}).value());
-        design = le::ext::to_c(top);
-        technology_id = le::ext::to_c(technology);
-    } // releases the write lock: le_* calls take it themselves
-    ASSERT_EQ(le_set_current_technology(h, technology_id), 0);
-    // A 100 x 100 um die area, which the view fits.
-    const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
-    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0).index,
-              UINT32_MAX);
-    const auto add_pin = [&](LeLayerId layer, double x, double y) {
-        const double rect[] = {x, y, x + 10, y + 10};
-        return le_create_shape(h, le_shape_owner_hello_pin(le_create_hello_pin(h, layout)), layer, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect, 4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
-    };
-    const LeShapeId on_m1 = add_pin(m1, 20, 70);                       // pixels (80..120, 80..120)
-    const LeShapeId no_layer = add_pin(LeLayerId{UINT32_MAX, 0}, 70, 70); // pixels (280..320, 80..120)
-    ASSERT_NE(on_m1.index, UINT32_MAX);
-    ASSERT_NE(no_layer.index, UINT32_MAX);
+        le::WriteView view = session.write();
+        const OpenLayout top = open_new_layout(view);
+        const le::LayerId m1 = view.create_layer({.technology = view.current_technology(), .name = "M1", .type = "ROUTING"}).value();
+        add_die_area(view, top.layout);
+        const auto add_pin = [&](le::LayerId layer, double x, double y)
+        {
+            const le::HelloPinId pin = view.create_hello_pin({.layout = top.layout}).value();
+            le::ShapeBuilder shape = view.build_shape(le::ShapeOwner::hello_pin(pin));
+            if (layer.valid())
+                shape.layer(layer);
+            return shape.rect(x, y, x + 10, y + 10).create().value();
+        };
+        on_m1 = add_pin(m1, 20, 70);                // pixels (80..120, 80..120)
+        no_layer = add_pin(le::LayerId{}, 70, 70);  // pixels (280..320, 80..120)
 
-    int32_t hello_pin = -1;
-    for (int32_t p = 0; p < le_purpose_kind_count(); ++p)
-        if (std::string_view(le_purpose_name(p)) == "helloPin")
-            hello_pin = p;
-    ASSERT_GE(hello_pin, 0);
+        ASSERT_TRUE(view.open_layout(top.design));
+        view.set_viewport_size(400, 400);
+        view.fit_view(0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
+    }
+    EXPECT_TRUE(lit(session, 100, 100)) << "the M1 pin";
+    EXPECT_TRUE(lit(session, 300, 100)) << "the pin with no layer";
 
-    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
-    le_set_viewport_size(h, 400, 400);
-    le_fit_scene(h, 0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
-    const auto lit = [&](int x, int y) {
-        const LePixelBuffer buffer = le_render_pixel_buffer(h);
-        if (!buffer.data || x >= buffer.width || y >= buffer.height)
-            return false;
-        const uint8_t *px = buffer.data + y * buffer.row_bytes + x * 4;
-        return px[0] + px[1] + px[2] > 30;
-    };
-    EXPECT_TRUE(lit(100, 100)) << "the M1 pin";
-    EXPECT_TRUE(lit(300, 100)) << "the pin with no layer";
+    session.write().set_layer_visible("M1", false);
+    EXPECT_FALSE(lit(session, 100, 100)) << "hidden with M1";
+    EXPECT_TRUE(lit(session, 300, 100)) << "on the HELLO_PIN row, not M1";
+    session.write().set_layer_visible("M1", true);
+    session.write().set_purpose_visible(*hello_pin, false);
+    EXPECT_FALSE(lit(session, 100, 100)) << "hidden with the purpose";
+    EXPECT_FALSE(lit(session, 300, 100));
+    session.write().set_purpose_visible(*hello_pin, true);
 
-    le_set_layer_name_visible(h, "M1", false);
-    EXPECT_FALSE(lit(100, 100)) << "hidden with M1";
-    EXPECT_TRUE(lit(300, 100)) << "on the HELLO_PIN row, not M1";
-    le_set_layer_name_visible(h, "M1", true);
-    le_set_purpose_visible(h, hello_pin, 0);
-    EXPECT_FALSE(lit(100, 100)) << "hidden with the purpose";
-    EXPECT_FALSE(lit(300, 100));
-    le_set_purpose_visible(h, hello_pin, 1);
+    click(session, 100, 100);
+    EXPECT_EQ(selected_shapes(session), std::vector<le::GeometryId>{le::GeometryId(on_m1)});
+    click(session, 380, 380); // empty space: deselect
+    ASSERT_TRUE(session.read().selection().empty());
 
-    le_mouse_down(h, 100, 100);
-    le_mouse_up(h, 100, 100);
-    ASSERT_EQ(le_selection_count(h), 1);
-    EXPECT_EQ(le_selected_object_ref(h, 0).index, on_m1.index);
-    le_mouse_down(h, 380, 380); // click empty space: deselect
-    le_mouse_up(h, 380, 380);
-    ASSERT_EQ(le_selection_count(h), 0);
-
-    le_set_layer_name_selectable(h, "M1", 0);
-    le_mouse_down(h, 100, 100);
-    le_mouse_up(h, 100, 100);
-    EXPECT_EQ(le_selection_count(h), 0) << "M1 isn't selectable";
-    le_mouse_down(h, 300, 100);
-    le_mouse_up(h, 300, 100);
-    ASSERT_EQ(le_selection_count(h), 1);
-    EXPECT_EQ(le_selected_object_ref(h, 0).index, no_layer.index);
+    session.write().set_layer_selectable("M1", false);
+    click(session, 100, 100);
+    EXPECT_TRUE(session.read().selection().empty()) << "M1 isn't selectable";
+    click(session, 300, 100);
+    EXPECT_EQ(selected_shapes(session), std::vector<le::GeometryId>{le::GeometryId(no_layer)});
 }
 
 // HelloMarker is labelled with its name (render=Render(..., label_field="name")):
@@ -518,53 +529,44 @@ TEST(HelloExt, PinsOnALayerDrawAndSelectInThatLayersRow)
 TEST(HelloExt, MarkersAreLabelledWithTheirNames)
 {
     le::ext::register_all();
-    Session session;
-    LeHandle *h = session.handle;
-    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0,
-                                                           0.0, 0, 0.0, nullptr, 0, 0, nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
-    ASSERT_EQ(le_set_current_technology(h, technology), 0);
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
-    const LeLayoutId layout = le_create_layout(h, design);
-    // A 100 x 100 um die area, which the view fits.
-    const double die[] = {1, 4, 0, 0, 100, 0, 100, 100, 0, 100};
-    ASSERT_NE(le_create_shape(h, le_shape_owner_layout(layout), LeLayerId{UINT32_MAX, 0}, "BOUNDARY", 0, nullptr, 0, 1, die, 10, 0, nullptr, 0, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0).index,
-              UINT32_MAX);
-    // Two identical 40 x 10 um markers, one named, one not.
-    const auto add_marker = [&](const char *name, double y) {
-        const double rect[] = {5.0, y, 45.0, y + 10.0};
-        return le_create_shape(h, le_shape_owner_hello_marker(le_create_hello_marker(h, layout, name)), LeLayerId{UINT32_MAX, 0}, nullptr, 0, nullptr, 0, 0, nullptr, 0, 1, rect,
-                               4, 0, 0.0, 0, 0.0, 0, nullptr, nullptr, 0, 0, 0);
-    };
-    ASSERT_NE(add_marker("WWWWWWWW", 60.0).index, UINT32_MAX);
-    ASSERT_NE(add_marker("", 20.0).index, UINT32_MAX);
+    const std::optional<le::ViewLayerPurpose> hello_marker = purpose_named("helloMarker");
+    ASSERT_TRUE(hello_marker.has_value());
 
-    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
-    le_set_viewport_size(h, 400, 400);
-    le_fit_scene(h, 0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
+    le::Session session;
+    {
+        le::WriteView view = session.write();
+        const OpenLayout top = open_new_layout(view);
+        add_die_area(view, top.layout);
+        // Two identical 40 x 10 um markers, one named, one not.
+        for (const auto &[name, y] : {std::pair{"WWWWWWWW", 60.0}, std::pair{"", 20.0}})
+        {
+            const le::HelloMarkerId marker = view.create_hello_marker({.layout = top.layout, .name = name}).value();
+            view.build_shape(le::ShapeOwner::hello_marker(marker)).rect(5.0, y, 45.0, y + 10.0).create().value();
+        }
+        ASSERT_TRUE(view.open_layout(top.design));
+        view.set_viewport_size(400, 400);
+        view.fit_view(0); // 4 px per um: (x, y) um is pixel (4x, 400 - 4y)
+    }
     // How many interior pixels differ between the named marker (pixels
     // y 120..160) and the unnamed one (y 280..320), at the same offsets.
-    const auto differing_pixels = [&] {
-        const LePixelBuffer buffer = le_render_pixel_buffer(h);
-        if (!buffer.data)
+    const auto differing_pixels = [&]
+    {
+        const le::RenderedFrame frame = session.renderer().render();
+        if (frame.empty())
             return -1;
         int differing = 0;
         for (int dy = 4; dy < 36; ++dy)
             for (int x = 24; x < 176; ++x)
             {
-                const uint8_t *named = buffer.data + (120 + dy) * buffer.row_bytes + x * 4;
-                const uint8_t *unnamed = buffer.data + (280 + dy) * buffer.row_bytes + x * 4;
+                const uint8_t *named = frame.data + (120 + dy) * frame.row_bytes + x * 4;
+                const uint8_t *unnamed = frame.data + (280 + dy) * frame.row_bytes + x * 4;
                 differing += std::memcmp(named, unnamed, 4) != 0;
             }
         return differing;
     };
     EXPECT_GT(differing_pixels(), 50) << "the name is drawn";
 
-    int32_t hello_marker = -1;
-    for (int32_t p = 0; p < le_purpose_kind_count(); ++p)
-        if (std::string_view(le_purpose_name(p)) == "helloMarker")
-            hello_marker = p;
-    ASSERT_GE(hello_marker, 0);
-    le_set_purpose_visible(h, hello_marker, 0);
+    session.write().set_purpose_visible(*hello_marker, false);
     EXPECT_EQ(differing_pixels(), 0) << "hidden with the markers";
 }
 
@@ -573,28 +575,25 @@ TEST(HelloExt, MarkersAreLabelledWithTheirNames)
 TEST(HelloExt, TheOverlayReadsItsStateWhileAnotherThreadWritesIt)
 {
     le::ext::register_all();
-    Session session;
-    LeHandle *h = session.handle;
-    const LeTechnologyId technology = le_create_technology(h, 1000.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, nullptr, 0, 0, 0, nullptr, 0, 0.0, 0, 0.0, 0, 0.0, nullptr, 0, 0,
-                                                         nullptr, nullptr, 0, 0.0, 0, 0.0, 0, 0.0);
-    ASSERT_EQ(le_set_current_technology(h, technology), 0);
-    const LeDesignId design = le_create_design(h, le_create_library(h, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
-    le_create_layout(h, design);
-    ASSERT_EQ(le_set_current_design_layout_by_id(h, design), 0);
-    le_set_viewport_size(h, 200, 100);
-    le_fit_scene(h, 10);
+    le::Session session;
+    {
+        le::WriteView view = session.write();
+        const OpenLayout top = open_new_layout(view);
+        ASSERT_TRUE(view.open_layout(top.design));
+        view.set_viewport_size(200, 100);
+        view.fit_view(10);
+    }
 
     std::atomic<bool> done = false;
-    std::thread toggler([&] {
-        le::ext::ExtensionContext ctx(h, "hello_ext");
-        while (!done)
-            ctx.with_data<hello::State>([](hello::State &state) { state.show_origin = !state.show_origin; });
-    });
+    std::thread toggler([&]
+                        {
+                            le::ext::ExtensionContext ctx = context(session);
+                            while (!done)
+                                ctx.with_data<hello::State>([](hello::State &state) { state.show_origin = !state.show_origin; }); });
     for (int i = 0; i < 200; ++i)
     {
-        le_set_mouse_position(h, i % 200, 50); // recomposes, so the overlay runs
-        const LePixelBuffer buffer = le_render_pixel_buffer(h);
-        ASSERT_NE(buffer.data, nullptr);
+        session.write().set_mouse_position(i % 200, 50); // recomposes, so the overlay runs
+        ASSERT_FALSE(session.renderer().render().empty());
     }
     done = true;
     toggler.join();

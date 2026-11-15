@@ -1,6 +1,6 @@
 // selection_profile - dev-only tool: how long a Select-mode click takes on
-// one real design, through the real C API (le_mouse_down/le_mouse_up, the
-// same path the GUI uses). One design per process:
+// one real design, through the C++ API's mouse_down/mouse_up (the same
+// path the GUI uses). One design per process:
 //
 //   selection_profile <aes_scaling label, e.g. 4x4> [repeats=5]
 //
@@ -11,7 +11,7 @@
 // clicks after it, at the view center, zoomed to fit and zoomed in 20x,
 // plus the render time. Not run by ctest.
 
-#include "../../api/api.hpp"
+#include "../../api/views.hpp"
 
 #include <sys/resource.h>
 
@@ -37,17 +37,18 @@ namespace
         return values[values.size() / 2];
     }
 
-    double time_clicks(LeHandle *handle, int x, int y, int repeats, int &selected)
+    // Down and up are separate events, each its own write, as in the GUI.
+    double time_clicks(le::Session &session, int x, int y, int repeats, size_t &selected)
     {
         std::vector<double> times;
         for (int r = 0; r < repeats; ++r)
         {
             const auto start = std::chrono::steady_clock::now();
-            le_mouse_down(handle, x, y);
-            le_mouse_up(handle, x, y);
+            session.write().mouse_down(x, y);
+            session.write().mouse_up(x, y);
             times.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
         }
-        selected = le_selection_count(handle);
+        selected = session.read().selection().size();
         return median(times);
     }
 }
@@ -63,33 +64,40 @@ int main(int argc, char **argv)
     const int repeats = argc > 2 ? std::max(1, std::atoi(argv[2])) : 5;
     const std::string data = REAL_DESIGN_TEST_DATA_DIR;
 
-    LeHandle *handle = le_create();
-    if (le_read_lef(handle, (data + "/ISPD22__final_benchmarks/__Nangate/NangateOpenCellLibrary.lef").c_str(), "tech") != 0 ||
-        le_read_def(handle, (data + "/aes_scaling_" + label + ".def").c_str(), "aes_scaling") != 0)
+    le::Session session;
     {
-        std::fprintf(stderr, "failed to read design\n");
-        return 1;
+        le::WriteView view = session.write();
+        if (!view.read_lef(data + "/ISPD22__final_benchmarks/__Nangate/NangateOpenCellLibrary.lef", "tech") ||
+            !view.read_def(data + "/aes_scaling_" + label + ".def", "aes_scaling"))
+        {
+            std::fprintf(stderr, "failed to read design\n");
+            return 1;
+        }
+        // The DEF's design is the last one read.
+        if (!view.open_layout(view.root().get_design_ids().back()))
+        {
+            std::fprintf(stderr, "the design has no Layout\n");
+            return 1;
+        }
+        view.set_hierarchy_depth(1);
+        view.set_viewport_size(1280, 800);
+        view.fit_view(0);
     }
-    // The DEF's design is the last one read.
-    le_set_current_design_layout(handle, le_design_count(handle) - 1);
-    le_set_hierarchy_depth(handle, 1);
-    le_set_viewport_size(handle, 1280, 800);
-    le_fit_scene(handle, 0);
+    const le::Renderer renderer = session.renderer();
 
     std::printf("design aes_scaling_%s\n", label.c_str());
     const auto render_start = std::chrono::steady_clock::now();
-    le_render_pixel_buffer(handle);
+    renderer.render();
     std::printf("first_render_ms %.3f\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - render_start).count());
-    int selected = 0;
+    size_t selected = 0;
     std::printf("rss_before_first_click_mb %.1f\n", peak_rss_mb());
-    std::printf("first_click_ms %.3f\n", time_clicks(handle, 640, 400, 1, selected));
+    std::printf("first_click_ms %.3f\n", time_clicks(session, 640, 400, 1, selected));
     std::printf("rss_after_first_click_mb %.1f\n", peak_rss_mb());
-    std::printf("fit.click_ms %.3f\n", time_clicks(handle, 640, 400, repeats, selected));
-    std::printf("fit.selected %d\n", selected);
-    le_zoom(handle, 20.0, 640, 400);
-    le_render_pixel_buffer(handle);
-    std::printf("zoom.click_ms %.3f\n", time_clicks(handle, 640, 400, repeats, selected));
-    std::printf("zoom.selected %d\n", selected);
-    le_destroy(handle);
+    std::printf("fit.click_ms %.3f\n", time_clicks(session, 640, 400, repeats, selected));
+    std::printf("fit.selected %zu\n", selected);
+    session.write().zoom(20.0, 640, 400);
+    renderer.render();
+    std::printf("zoom.click_ms %.3f\n", time_clicks(session, 640, 400, repeats, selected));
+    std::printf("zoom.selected %zu\n", selected);
     return 0;
 }

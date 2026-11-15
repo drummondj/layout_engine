@@ -30,7 +30,7 @@
 #include <filesystem>
 #include <tcl.h>
 
-#include "api.hpp"
+#include "views.hpp"
 #include "le_gui.hpp"
 #include "generated/le_shell_version.hpp"
 #include "../core/resource_path.hpp"
@@ -50,6 +50,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <poll.h>
 #include <sstream>
 #include <string>
@@ -119,8 +120,13 @@ namespace
     // doesn't come through here - its close dialog already asked.
     bool confirm_exit_if_unsaved()
     {
-        const bool design = le_has_unsaved_database_changes(g_injected_handle) != 0;
-        const bool settings = le_has_unsaved_settings(g_injected_handle) != 0;
+        bool design = false;
+        bool settings = false;
+        {
+            const le::ReadView view(g_injected_handle);
+            design = view.has_unsaved_database();
+            settings = view.has_unsaved_settings();
+        }
         if (!design && !settings)
             return true;
         std::printf("Unsaved changes:\n");
@@ -144,7 +150,7 @@ namespace
             Tcl_WrongNumArgs(interp, 1, objv, "command");
             return TCL_ERROR;
         }
-        le_enqueue_tcl_command(g_injected_handle, Tcl_GetString(objv[1]));
+        le::SessionRequests(g_injected_handle).enqueue_tcl_command(Tcl_GetString(objv[1]));
         return TCL_OK;
     }
 
@@ -264,8 +270,8 @@ namespace
     le::ExtensionIndex load_extension_index(const char *cli_value)
     {
         std::vector<std::string> compiled;
-        for (int32_t i = 0; i < le_extension_count(); ++i)
-            compiled.emplace_back(le_extension_name(i));
+        for (const le::ext::ExtensionInfo &extension : le::ext::registry().extensions())
+            compiled.push_back(extension.name);
 
         std::string path;
         if (cli_value != nullptr)
@@ -397,7 +403,7 @@ namespace
     // has no userdata slot either, same constraint as
     // rl_attempted_completion_function above, so this reaches
     // g_injected_handle/g_completion_interp the same way completion_generator
-    // does. See le_enqueue_tcl_command's own doc comment (api.hpp) for
+    // does. See SessionRequests (views.hpp) for
     // why a GUI component (src/gui/components/ - no Tcl interpreter of
     // its own) needs this at all: some of its own actions (layer/purpose
     // visibility, hierarchy depth) should leave the same command-
@@ -452,16 +458,10 @@ namespace
         }
         for (;;)
         {
-            const char *command = le_take_next_pending_tcl_command(g_injected_handle);
-            if (command == nullptr)
-            {
+            const std::optional<std::string> command = le::SessionRequests(g_injected_handle).take_next_tcl_command();
+            if (!command)
                 break;
-            }
-            // le_take_next_pending_tcl_command's own return is only
-            // valid until the *next* call to it (api.hpp's own doc
-            // comment) - this loop's own next iteration is exactly
-            // that, so copy out first.
-            const std::string command_copy = command;
+            const std::string &command_copy = *command;
 
             // Readline owns the terminal's current line while this hook
             // runs (the user may be mid-edit): clear it, print, then
@@ -725,7 +725,8 @@ int main(int argc, char **argv)
     for (const le::ExtensionIndexEntry &extension : g_extensions.extensions)
         le::ext::registry().set_directory(extension.name, extension.directory.string());
 
-    g_injected_handle = le_create();
+    // Never destroyed: the GUI and render threads use it until the process exits.
+    g_injected_handle = le::Session().release();
 
     // The user's saved settings - in
     // interactive mode only: a batch script (including every ctest run of
@@ -734,8 +735,8 @@ int main(int argc, char **argv)
     if (remaining.size() == 1)
     {
         std::error_code ec;
-        if (const char *settings_path = le_default_settings_path(); settings_path[0] && std::filesystem::exists(settings_path, ec))
-            le_load_settings(g_injected_handle, settings_path);
+        if (const std::string settings_path = le::default_settings_path(); !settings_path.empty() && std::filesystem::exists(settings_path, ec))
+            (void)le::WriteView(g_injected_handle).load_settings(settings_path); // a failure is logged
     }
 
     // A batch script runs right here and never opens a window.
