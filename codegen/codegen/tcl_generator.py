@@ -21,6 +21,10 @@ from codegen.templates.tcl import (
     api_view_edit_defs_inc_j2,
     api_view_current_decls_inc_j2,
     api_view_current_defs_inc_j2,
+    api_search_decls_inc_j2,
+    api_search_defs_inc_j2,
+    api_view_search_decls_inc_j2,
+    api_view_search_defs_inc_j2,
     api_extension_current_defs_inc_j2,
     api_filter_tables_inc_j2,
     api_handle_fields_inc_j2,
@@ -42,6 +46,7 @@ from codegen.tcl_scope import (
     compute_search_scope,
     render_default_scope_cpp,
     render_of_check_cpp,
+    render_of_check_cpp_query,
 )
 from codegen import edit_op_tests
 from codegen.validation import SchemaRuleSet
@@ -137,6 +142,10 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
         ),
         (api_dir / "filter_tables.inc", api_filter_tables_inc_j2.TEMPLATE),
         (api_dir / "search.inc", api_search_inc_j2.TEMPLATE),
+        (api_dir / "search_decls.inc", api_search_decls_inc_j2.TEMPLATE, True),
+        (api_dir / "search_defs.inc", api_search_defs_inc_j2.TEMPLATE, True),
+        (api_dir / "view_search_decls.inc", api_view_search_decls_inc_j2.TEMPLATE, True),
+        (api_dir / "view_search_defs.inc", api_view_search_defs_inc_j2.TEMPLATE, True),
         (api_dir / "snapshot_appliers.hpp", api_snapshot_appliers_hpp_j2.TEMPLATE),
         (api_dir / "object_kinds.inc", api_object_kinds_inc_j2.TEMPLATE, True),
         (api_dir / "object_dispatch.inc", api_object_dispatch_inc_j2.TEMPLATE, True),
@@ -165,13 +174,14 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
             current_access_classes=current_access_classes,
             search_scopes=search_scopes,
             render_of_check_cpp=render_of_check_cpp,
+            render_of_check_cpp_query=render_of_check_cpp_query,
             render_default_scope_cpp=render_default_scope_cpp,
             emit=emitters,
         )
         with open(path, "w") as f:
             f.write(content)
 
-    for name, source in edit_op_tests.test_files(classes).items():
+    for name, source in edit_op_tests.test_files(classes, search_scopes).items():
         (api_dir / name).write_text(source)
 
     return 0

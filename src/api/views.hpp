@@ -202,6 +202,18 @@ namespace le
         const std::string &db_path() const;
         /// @brief Whether the database holds no objects (read_db needs an empty one).
         bool database_is_empty() const;
+
+        // Reading the database by class, only when valid().
+
+#include "generated/api/view_search_decls.inc"
+        /// @brief `id`'s property table, as the Property Viewer and Tcl
+        /// show it (lengths in microns); empty if it doesn't exist.
+        std::vector<PropertyValue> properties(const ObjectId &id) const;
+        /// @brief `id`'s owner; nullopt for a class with none or an id that doesn't exist.
+        std::optional<ObjectId> parent(const ObjectId &id) const;
+        /// @brief What the Property Viewer lists under `id` (never a
+        /// Layout's placements or routes, which can number millions).
+        std::vector<ObjectId> children(const ObjectId &id) const;
         // Only when valid().
 #include "generated/api/view_current_decls.inc"
 
@@ -531,6 +543,9 @@ namespace le
 
     /// @brief $HOME/.layout_engine/settings.json; empty if HOME isn't set.
     std::string default_settings_path();
+
+    /// @brief The snake_case name of `id`'s class ("terminal_port"), as Tcl's friendly ids use it.
+    std::string_view object_kind_name(const ObjectId &id);
 
     /// @brief Describes a native database (.led) file without loading it:
     /// its versions, extensions, the migrations it needs and its object

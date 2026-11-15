@@ -321,35 +321,33 @@ namespace
         return std::nullopt;
     }
 
-    // Shared parse+validate+log sequence every le_get_* function below
-    // needs for its `-filter` axis - std::nullopt with `ok` left true
-    // means "no -filter given" (skip that axis entirely); std::nullopt
-    // with `ok` set false means a parse or validation error already
-    // logged via spdlog::error (caller returns -1). `handle` is unused
-    // now (spdlog needs no LeHandle) but kept in the signature - every
-    // generated le_get_<type> call site (search_inc_j2.py) passes it
-    // positionally, and there's no reason to touch that codegen template
-    // just to drop one now-decorative parameter.
+    // The C searches' -filter parse: std::nullopt with `ok` true means no
+    // filter; with `ok` false, an error already logged as `caller`'s.
     std::optional<le::FilterExpr> parse_and_validate_filter(LeHandle *, const char *caller, const std::string &root_class, const char *filter_expression, bool &ok)
     {
-        ok = true;
-        if (!filter_expression || filter_expression[0] == '\0')
-            return std::nullopt;
-
-        auto parsed = le::parse_filter_expression(filter_expression);
+        std::expected<std::optional<le::FilterExpr>, std::string> parsed = le::api_detail::parse_search_filter(root_class, filter_expression ? filter_expression : "");
+        ok = parsed.has_value();
         if (!parsed)
         {
             spdlog::error("{}: {}", caller, parsed.error());
-            ok = false;
-            return std::nullopt;
-        }
-        if (auto error = validate_filter_expr(root_class, *parsed))
-        {
-            spdlog::error("{}: {}", caller, *error);
-            ok = false;
             return std::nullopt;
         }
         return std::move(*parsed);
+    }
+}
+
+namespace le::api_detail
+{
+    std::expected<std::optional<le::FilterExpr>, std::string> parse_search_filter(const std::string &root_class, const std::string &filter)
+    {
+        if (filter.empty())
+            return std::nullopt;
+        std::expected<le::FilterExpr, std::string> parsed = le::parse_filter_expression(filter);
+        if (!parsed)
+            return std::unexpected(parsed.error());
+        if (std::optional<std::string> error = validate_filter_expr(root_class, *parsed))
+            return std::unexpected(*error);
+        return std::optional<le::FilterExpr>(std::move(*parsed));
     }
 }
 
@@ -973,6 +971,68 @@ namespace le::edit
         h->db_path = path;
         return {};
     }
+}
+
+namespace le::edit
+{
+#include "generated/api/search_defs.inc"
+
+    std::vector<PropertyValue> object_properties(const LeHandle &handle, const ObjectId &id) { return build_object_id_properties(handle.root, id); }
+
+    std::optional<ObjectId> object_parent(const LeHandle &handle, const ObjectId &id) { return object_id_parent(handle.root, id); }
+
+    std::vector<ObjectId> object_children(const LeHandle &handle, const ObjectId &id)
+    {
+        const Root &root = handle.root;
+        std::vector<ObjectId> children;
+        const auto add = [&](const auto &ids)
+        {
+            for (const auto child : ids)
+                children.emplace_back(child);
+        };
+        std::visit([&](auto typed)
+                   {
+                       using T = decltype(typed);
+                       if constexpr (std::is_same_v<T, LibraryId>)
+                           add(root.get_library_designs(typed));
+                       else if constexpr (std::is_same_v<T, DesignId>)
+                       {
+                           if (const AbstractId abstract = root.get_design_abstract(typed); root.get_abstract(abstract))
+                               children.emplace_back(abstract);
+                       }
+                       else if constexpr (std::is_same_v<T, AbstractId>)
+                       {
+                           add(root.get_abstract_terminals(typed));
+                           add(root.get_abstract_obstructions(typed));
+                           add(root.get_abstract_free_shapes(typed));
+                       }
+                       else if constexpr (std::is_same_v<T, LayoutId>)
+                           add(root.get_layout_free_shapes(typed));
+                       else if constexpr (std::is_same_v<T, TerminalId>)
+                           add(root.get_terminal_ports(typed));
+                       else if constexpr (std::is_same_v<T, TerminalPortId>)
+                           add(root.get_terminal_port_shapes(typed));
+                       else if constexpr (std::is_same_v<T, ObstructionId>)
+                           add(root.get_obstruction_shapes(typed));
+                       else if constexpr (std::is_same_v<T, BlockageId>)
+                           add(root.get_blockage_shapes(typed));
+                       else if constexpr (std::is_same_v<T, RouteId>)
+                       {
+                           add(root.get_route_wires(typed));
+                           add(root.get_route_shapes(typed));
+                       }
+                       else if constexpr (std::is_same_v<T, PhysicalPortSegmentId>)
+                           add(root.get_physical_port_segment_shapes(typed));
+                       else if constexpr (std::is_same_v<T, PhysicalPortId>)
+                           add(root.get_physical_port_segments(typed)); },
+                   id);
+        return children;
+    }
+}
+
+namespace le
+{
+    std::string_view object_kind_name(const ObjectId &id) { return kObjectKinds[id.index()].name; }
 }
 
 namespace le

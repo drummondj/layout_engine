@@ -298,11 +298,15 @@ def render_default_scope_cpp(scope: SearchScope) -> str:
     return f"candidates = handle->root.get_{y_snake}_ids();"
 
 
-def render_of_check_cpp(scope: SearchScope) -> str:
+def render_of_check_cpp(scope: SearchScope, of_value=None) -> str:
     """The C++ block that checks every `-of` parameter (0, 1, or more -
     e.g. Shape has two), unioning whichever are valid, then falls back to
     render_default_scope_cpp() if none were given. Declares and fills
-    `candidates` (a `std::vector<le::{Klass}Id>`)."""
+    `candidates` (a `std::vector<le::{Klass}Id>`). `of_value(op)` is the
+    C++ expression for an `-of` parameter's database id (default: the C
+    argument `of_<field>` through from_c)."""
+    if of_value is None:
+        of_value = lambda op: f"from_c(of_{op.parent_field.name})"
     y = scope.klass
     lines = [f"std::vector<le::{y.name}Id> candidates;"]
     if scope.of_params:
@@ -310,7 +314,7 @@ def render_of_check_cpp(scope: SearchScope) -> str:
         for op in scope.of_params:
             parent_snake = op.parent_klass.to_snake_case()
             lines.append("{")
-            lines.append(f"    const le::{op.parent_klass.name}Id of_id = from_c(of_{op.parent_field.name});")
+            lines.append(f"    const le::{op.parent_klass.name}Id of_id = {of_value(op)};")
             lines.append(f"    if (handle->root.get_{parent_snake}(of_id))")
             lines.append("    {")
             lines.append("        of_given = true;")
@@ -331,3 +335,9 @@ def render_of_check_cpp(scope: SearchScope) -> str:
     else:
         lines.append(render_default_scope_cpp(scope))
     return "\n".join(lines)
+
+
+def render_of_check_cpp_query(scope: SearchScope) -> str:
+    """render_of_check_cpp for the C++ search, whose `-of` ids are the
+    members of a `<Klass>Query` named `query`."""
+    return render_of_check_cpp(scope, of_value=lambda op: f"query.of_{op.parent_field.name}")

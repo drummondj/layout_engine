@@ -316,6 +316,22 @@ namespace le::edit
     /// @brief Whether the database holds no objects (read_db needs an empty one).
     bool database_is_empty(const LeHandle &handle);
 
+    // --- Reading: search, properties, parents and children ---
+
+#include "generated/api/search_decls.inc"
+
+    /// @brief `id`'s property table, as the Property Viewer and Tcl show it
+    /// (lengths in microns); empty if it doesn't exist.
+    std::vector<PropertyValue> object_properties(const LeHandle &handle, const ObjectId &id);
+    /// @brief `id`'s owner; nullopt for a class with none or an id that doesn't exist.
+    std::optional<ObjectId> object_parent(const LeHandle &handle, const ObjectId &id);
+    /// @brief What the Property Viewer lists under `id`: a Library's
+    /// Designs, a Design's Abstract, the shapes and sub-objects of
+    /// Abstracts, Terminals and their ports, Obstructions, Blockages,
+    /// Routes and PhysicalPorts, and a Layout's free shapes. Nothing for
+    /// other classes, and never a Layout's placements or routes.
+    std::vector<ObjectId> object_children(const LeHandle &handle, const ObjectId &id);
+
     // --- Files ---
     // Each logs what it reports, as the C API always has (the readers and
     // writers log as they go), and returns the error text too: the reader's

@@ -911,6 +911,11 @@ The first version.
   (`command_history_size`/`_at`), `has_unsaved_database`, `db_path`,
   `database_is_empty`; `le::db_info`, `le::migrate_db` and
   `le::SessionRequests` (`Session::requests()`).
+- Reading by class on `ReadView` (added in 0.3, without a version bump):
+  `get_<type>(<Type>Query)` for every class, your own included (`of_`
+  parents, a name glob and a `-filter`, under the shared lock; a bad
+  filter is an error), `properties`, `parent` and `children` of an
+  `le::ObjectId` (any class's id), and `le::object_kind_name`.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

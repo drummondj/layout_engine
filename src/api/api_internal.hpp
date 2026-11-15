@@ -9,6 +9,7 @@
 #include "le_handle.hpp"
 
 #include "../database/database.hpp"
+#include "../database/filter.hpp"
 #include "../pipelines/pipeline_options.hpp"
 
 #include <array>
@@ -48,6 +49,10 @@ namespace le::api_detail
     /// @brief An undo's or redo's result: whether it replayed anything, or
     /// (logged) how many of its steps couldn't be applied.
     std::expected<bool, std::string> replay_outcome(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb);
+
+    /// @brief Parses and validates a -filter expression for `root_class`;
+    /// nullopt for an empty one.
+    std::expected<std::optional<le::FilterExpr>, std::string> parse_search_filter(const std::string &root_class, const std::string &filter);
 
     /// @brief replay_outcome as 1 (replayed), 0 (nothing to replay) or -1 (steps failed).
     int32_t report_replay(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb);
