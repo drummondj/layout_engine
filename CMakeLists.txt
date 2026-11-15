@@ -704,17 +704,17 @@ target_link_libraries(io
     PRIVATE fmt::fmt lef_static def_static libzstd_static TBB::tbb
 )
 
-# --- api: the C API every front end calls (the GUI, the Tcl shim).
-# Compiled (not header-only): the opaque LeHandle's real definition must
-# stay out of api.hpp, which is a plain-C header - see api.hpp's own
-# comment. ---
+# --- api: the C++ API (views.hpp: Session and its locked views) and the C
+# API (api.hpp) every front end calls. Compiled: LeHandle's real definition
+# (le_handle.hpp) stays out of both public headers. ---
 add_library(api STATIC src/api/api.cpp src/api/input.cpp src/api/selection.cpp src/api/session.cpp src/api/settings.cpp
-    src/api/view_options.cpp src/api/edit_ops.cpp src/api/extension.cpp)
-# api.hpp includes "generated/api/..." itself, so its consumers need the
-# build tree's root on their include path (and the codegen step) too.
+    src/api/view_options.cpp src/api/edit_ops.cpp src/api/extension.cpp src/api/views.cpp)
+# Both headers include "generated/api/..." themselves, so their consumers
+# need the build tree's root on their include path (and the codegen step)
+# too; views.hpp's types are the database's and geometry's.
 target_include_directories(api PUBLIC src/api ${PROJECT_BINARY_DIR})
 add_dependencies(api le_codegen)
-target_link_libraries(api PRIVATE database geometry editing pipelines io)
+target_link_libraries(api PUBLIC database geometry PRIVATE editing pipelines io)
 # extension.cpp implements the extension SDK (src/extension/le/extension.hpp).
 target_include_directories(api PRIVATE src/extension)
 target_compile_definitions(api PRIVATE LE_EXTENSION_API_VERSION=${LE_EXTENSION_API_VERSION})
@@ -1327,6 +1327,7 @@ add_executable(backend_tests
     src/api/tests/api_test.cpp
     src/api/tests/le_handle_test.cpp
     src/api/tests/extension_test.cpp
+    src/api/tests/views_test.cpp
     src/api/tests/native_db_api_test.cpp
     src/api/tests/read_rollback_test.cpp
     src/api/tests/read_undo_test.cpp

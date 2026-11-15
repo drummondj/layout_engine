@@ -1,6 +1,6 @@
 TEMPLATE = """// GENERATED - do not edit by hand. The build regenerates it
-// (codegen --target tcl). #include'd inside the body of le::ext::WriteView
-// (<le/extension.hpp>): each class's create/update/delete, recorded into
+// (codegen --target tcl). #include'd inside the body of le::WriteView
+// (api/views.hpp): each class's create/update/delete, recorded into
 // the open undo step. Lengths are in dbu; errors come back as values.
 {% for klass in classes %}
 {% set snake = klass.to_snake_case() %}

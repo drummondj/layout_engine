@@ -145,8 +145,12 @@ fails on a temp path that isn't unique to its process.
   slot kept off the free list) and undo/redo `restore` it at the same id
   and child-list position; a transaction leaving the history releases
   its slots.
-- `src/api/` — `api.hpp`, the plain-C API every front end calls,
-  implemented by concern: `api.cpp` (I/O, design/library access,
+- `src/api/` — `views.hpp`, the C++ API (`views.cpp`): `le::Session` owns
+  a `LeHandle`; `ReadView`/`WriteView` hold its lock shared/exclusive and
+  their members are the operations (over `le::edit`); `Transaction` groups
+  edits into one undo step; `Renderer` is the render thread's wait/render/
+  cancel, never opening a view. Front ends are moving onto it from
+  `api.hpp`, the plain-C API, implemented by concern: `api.cpp` (I/O, design/library access,
   properties and search, undo, shape ops, rendering), `input.cpp` (the
   mouse/key state machine, modes, rulers, Move, Resize, Delete),
   `selection.cpp` (hit candidates, click/drag select), `view_options.cpp`
@@ -222,9 +226,10 @@ fails on a temp path that isn't unique to its process.
 - `src/extension/` — the extension SDK header, `le/extension.hpp`
   (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
   `write(label)`/`transaction()`/`data<T>()`/`current_<type>()`, generated
-  `to_c`/`from_c` id conversions; `WriteView`'s undoable
+  `to_c`/`from_c` id conversions; the views are `api/views.hpp`'s, aliased
+  into `le::ext`: `WriteView`'s undoable
   `create_/update_/delete_<type>`, the views' `shape_*` ops, selection,
-  view, ruler and file members over `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp`),
+  view, ruler and file members over `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp` and `views.cpp`),
   versioned by `LE_EXTENSION_API_VERSION`. Mutation listeners
   (`Registry::add_mutation_listener`) get Root's change-log entries from
   `dispatch_mutation_listeners` (`extension.cpp`), which `HandleWriteLock`

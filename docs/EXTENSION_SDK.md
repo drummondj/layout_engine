@@ -221,7 +221,7 @@ le::ext::ExtensionContext ctx(handle, "my_ext");
 | `read()` | A `ReadView`: `view.root()` is a `const le::Root &`, held under a shared lock for the view's lifetime. |
 | `write(label)` | A `WriteView` whose edits are one undo step named `label` (below). Call `view.fail()` if the operation failed. Inside a typed Tcl command, which is already a step, it joins that one. |
 | `write()` | A `WriteView` that opens no undo step, held under an exclusive lock. `view.root()` is a `const le::Root &`; `view.unrecorded_root()` is the writable `le::Root &`, for bulk work such as importing: edits through it aren't validated or recorded for undo. When the view ends, it wakes the renderer, and bumps the database's mutation version if `unrecorded_root()` was used. |
-| `transaction(label)` | A `Transaction`: the C API edits made while it lives become one undo step named `label`. Call `fail()` if the operation failed. It does nothing if a transaction is already open. |
+| `transaction(label)` | A `Transaction`: the edits made while it lives, through views or the C API, become one undo step named `label`, rendered once when it ends. Call `fail()` if the operation failed. It does nothing if a step is already open. |
 | `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. Unsynchronized. |
 | `with_data<T>(fn)` | Calls `fn(T &)` on that state with it locked against every other `with_data<T>()` on any thread, and returns what `fn` returns. Use it for state another thread also touches (below). Don't nest it for the same `T`. |
 | `current_layout()`, `current_schematic()`, `current_abstract()`, `current_technology()` | The session's current object (what Tcl's `current_layout` etc. set), as an `le::LayoutId` etc.; invalid if none. `ReadView` and `WriteView` have the same accessors. |
@@ -806,7 +806,10 @@ release without notice.
 - the C API (`api.hpp`) and the database classes (`le::Root`, the
   `<Type>Data` structs, `<Type>Changes` and `<Type>Id` handles, generated
   from `schema.py`), and `le::ext::to_c`/`from_c` between their ids
-- `le::ext::Units`, `PointUm`, `RectUm` and `ShapeBuilder`
+- the core's C++ API, `views.hpp` (included by `<le/extension.hpp>`):
+  `le::ReadView`, `WriteView`, `Transaction`, `Units`, `PointUm`, `RectUm`,
+  `ShapeBuilder`, `Session`, `Renderer` and `RenderedFrame`; the SDK's
+  `le::ext::` names for the first seven are the same classes
 - the shape operations' types: `le::shape_ops::LayerOrPurpose`,
   `le::shape_ops::ShapeParent`, `le::BooleanOp`, `le::FractureDirection`
 - the session state types: `le::SelectedObject`, `le::ShapePiece`,
@@ -882,6 +885,11 @@ The first version.
   which `<name>_generated_tests` is built.
 - C API: `le_extension_count`, `le_extension_name`, `le_extension_version`.
 - `extensions.json` format 1.
+- The views, `Transaction`, `Units`, `PointUm`, `RectUm` and
+  `ShapeBuilder` are the core's C++ API (`views.hpp`, namespace `le`), with
+  `le::Session` (owns a session) and `le::Renderer`; `le::ext::` names them
+  too (changed in 0.3, without a version bump: the `le::ext::` names still
+  work). `Transaction` now groups `WriteView` edits as well as C API ones.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

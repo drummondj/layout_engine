@@ -33,12 +33,15 @@ class TestExtensionIds(unittest.TestCase):
 
     def test_accessors_only_for_classes_with_a_current_instance(self):
         snake = self.current.to_snake_case()
-        decls = self.read("extension_current_decls.inc")
+        decls = self.read("view_current_decls.inc")
         self.assertIn(f"{self.current.name}Id current_{snake}() const;", decls)
         self.assertEqual(decls.count(" const;"), 1)
-        defs = self.read("extension_current_defs.inc")
-        for owner in ("ReadView", "WriteView", "ExtensionContext"):
-            self.assertIn(f"{self.current.name}Id {owner}::current_{snake}() const", defs)
+        views = self.read("view_current_defs.inc")
+        for owner in ("ReadView", "WriteView"):
+            self.assertIn(f"{self.current.name}Id {owner}::current_{snake}() const", views)
+        context = self.read("extension_current_defs.inc")
+        self.assertIn(f"{self.current.name}Id ExtensionContext::current_{snake}() const", context)
+        self.assertNotIn("ReadView", context)
 
 
 if __name__ == "__main__":

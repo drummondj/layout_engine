@@ -1,7 +1,7 @@
 TEMPLATE = """#pragma once
 // GENERATED - do not edit by hand. The build regenerates it
 // (codegen --target tcl). One <Klass>Changes per class: what
-// update_<type> changes (le::ext::WriteView, le::edit). A set member is
+// update_<type> changes (le::WriteView, le::edit). A set member is
 // applied, an unset one left as it is; lengths are in dbu.
 #include "database.hpp"
 
