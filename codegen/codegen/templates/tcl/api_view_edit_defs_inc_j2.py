@@ -19,14 +19,4 @@ std::expected<void, std::string> WriteView::set_current_{{snake}}({{klass.name}}
     return {};
 }
 {% endfor %}
-{% for klass in current_access_classes %}
-{% set snake = klass.to_snake_case() %}
-std::expected<void, std::string> WriteView::set_current_{{snake}}({{klass.name}}Id id)
-{
-    if (!root_->get_{{snake}}(id))
-        return std::unexpected("no such {{klass.name}}");
-    handle_->current_{{snake}}_id = id;
-    return {};
-}
-{% endfor %}
 """
