@@ -11,4 +11,8 @@ std::expected<void, std::string> update_{{snake}}({{klass.name}}Id id, {{klass.n
 /// @brief Deletes {{klass.name}} `id` and everything it owns.
 std::expected<void, std::string> delete_{{snake}}({{klass.name}}Id id);
 {% endfor %}
+{% for klass in current_access_classes %}
+/// @brief Makes {{klass.name}} `id` the current one (`current_{{klass.to_snake_case()}}` in Tcl); an error if it doesn't exist.
+std::expected<void, std::string> set_current_{{klass.to_snake_case()}}({{klass.name}}Id id);
+{% endfor %}
 """

@@ -56,7 +56,7 @@ class TestNewExtension(unittest.TestCase):
         schema = written["schema_ext.py"]
         for expected in ('name="AcmeRouterPin"', 'name="ACME_ROUTER_PIN"', 'label="acmeRouterPin"', 'parent="acme_router_pins"'):
             self.assertIn(expected, schema)
-        self.assertIn("le_create_acme_router_note", written["tests/acme_router_test.cpp"])
+        self.assertIn(".create_acme_router_note({", written["tests/acme_router_test.cpp"])
         self.assertIn("namespace acme_router", written["include/acme_router/acme_router.hpp"])
 
     def test_codegen_accepts_the_compiled_scaffold(self):

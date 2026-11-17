@@ -1,5 +1,5 @@
-#include "../../api/api.hpp"
 #include "../../api/le_handle.hpp"
+#include "../../api/views.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -8,9 +8,9 @@
 #include <vector>
 
 // Dev-only per-stage benchmarking tool (not a GoogleBenchmark target -
-// see the pipeline_benchmarks target for that suite): drives the real
-// LeHandle/api.hpp surface (le_read_lef/le_read_def/le_fit_scene/le_zoom/
-// le_render_pixel_buffer) through 3 phases - Cold Start Zoom-Fit, Zoom-In,
+// see the pipeline_benchmarks target for that suite): drives a real
+// le::Session (read_lef/read_def/fit_view/zoom, Renderer::render) through
+// 3 phases - Cold Start Zoom-Fit, Zoom-In,
 // Final Zoom-Fit - for exactly ONE (design, hierarchy_depth) combination
 // per process invocation, printing one CSV row per (phase, stage) to
 // stdout. scripts/pipeline_stage_benchmark.py is the outer driver
@@ -54,7 +54,7 @@ namespace
         int32_t hierarchy_depth = 0;
         int32_t viewport_width_px = 1000;
         int32_t viewport_height_px = 1000;
-        double zoom_factor = 2.0; // new scale = fit scale * zoom_factor - see the Zoom-In phase's own comment for why this isn't le_zoom's own `factor` parameter directly
+        double zoom_factor = 2.0; // new scale = fit scale * zoom_factor (the Zoom-In phase passes zoom_factor - 1 to zoom)
         int32_t fit_padding_px = 20;
     };
 
@@ -141,8 +141,6 @@ namespace
         return DesignId{};
     }
 
-    LeDesignId to_c(DesignId id) { return LeDesignId{.index = id.index, .generation = id.generation}; }
-
     /// @brief Prints one CSV row for one stage's own current
     /// instrumentation (tbb_core.hpp) - a template so it works uniformly
     /// across the 5 stage classes despite their different InputData/
@@ -182,67 +180,63 @@ int main(int argc, char **argv)
 {
     const Args args = parse_args(argc, argv);
 
-    LeHandle *handle = le_create();
-
-    if (le_read_lef(handle, args.lef_path.c_str(), "test_lib") != 0)
+    le::Session session;
     {
-        std::fprintf(stderr, "pipeline_stage_benchmark: failed to read LEF '%s' - see spdlog output above for details\n", args.lef_path.c_str());
-        return 1;
-    }
-
-    for (const std::string &def_path : args.def_paths)
-    {
-        if (le_read_def(handle, def_path.c_str(), "test_lib") != 0)
+        le::WriteView view = session.write();
+        if (!view.read_lef(args.lef_path, "test_lib"))
         {
-            std::fprintf(stderr, "pipeline_stage_benchmark: failed to read DEF '%s' - see spdlog output above for details\n", def_path.c_str());
+            std::fprintf(stderr, "pipeline_stage_benchmark: failed to read LEF '%s' - see spdlog output above for details\n", args.lef_path.c_str());
             return 1;
         }
-    }
+        for (const std::string &def_path : args.def_paths)
+            if (!view.read_def(def_path, "test_lib"))
+            {
+                std::fprintf(stderr, "pipeline_stage_benchmark: failed to read DEF '%s' - see spdlog output above for details\n", def_path.c_str());
+                return 1;
+            }
 
-    const DesignId top_design = find_design_by_name(handle->root, args.top_design);
-    if (!top_design.valid())
-    {
-        std::fprintf(stderr, "pipeline_stage_benchmark: no Design named '%s' found after reading --def input(s)\n",
-                     args.top_design.c_str());
-        return 1;
+        const DesignId top_design = find_design_by_name(view.root(), args.top_design);
+        if (!top_design.valid())
+        {
+            std::fprintf(stderr, "pipeline_stage_benchmark: no Design named '%s' found after reading --def input(s)\n",
+                         args.top_design.c_str());
+            return 1;
+        }
+        if (!view.open_layout(top_design))
+        {
+            std::fprintf(stderr, "pipeline_stage_benchmark: Design '%s' has no Layout\n", args.top_design.c_str());
+            return 1;
+        }
+        view.set_hierarchy_depth(args.hierarchy_depth);
+        view.set_viewport_size(args.viewport_width_px, args.viewport_height_px);
     }
-
-    if (le_set_current_design_layout_by_id(handle, to_c(top_design)) != 0)
-    {
-        std::fprintf(stderr, "pipeline_stage_benchmark: Design '%s' has no Layout\n", args.top_design.c_str());
-        return 1;
-    }
-
-    handle->view_render_pipeline.set_stage_sampling(true);
-    le_set_hierarchy_depth(handle, args.hierarchy_depth);
-    le_set_viewport_size(handle, args.viewport_width_px, args.viewport_height_px);
+    // Stage sampling is a benchmark hook on the session's own pipeline.
+    le::ViewRenderPipeline &pipeline = session.handle()->view_render_pipeline;
+    pipeline.set_stage_sampling(true);
+    const le::Renderer renderer = session.renderer();
 
     // Phase 1: Cold Start Zoom-Fit - the true first render, every stage
     // recomputes (nothing cached yet).
-    le_fit_scene(handle, args.fit_padding_px);
-    le_render_pixel_buffer(handle);
-    print_phase_rows(args.label, args.hierarchy_depth, "ColdStartZoomFit", handle->view_render_pipeline);
+    session.write().fit_view(args.fit_padding_px);
+    renderer.render();
+    print_phase_rows(args.label, args.hierarchy_depth, "ColdStartZoomFit", pipeline);
 
     // Phase 2: Zoom-In - anchored at the viewport center; root/top_level/
     // hierarchy_depth are unchanged, so LayerGeneration/HierarchyResolver
     // should cache-hit, only the Warm-tier stages (ViewportCull/
     // Rasterize/Compose) recompute (viewport/scale changed).
     //
-    // le_zoom's own `factor` isn't a scale multiplier - its doc comment
-    // (api.hpp) defines new_scale = scale * (1 + factor), so passing
-    // args.zoom_factor directly would make --zoom-factor 2.0 actually
-    // zoom to 3x, not 2x. Subtracting 1 here makes --zoom-factor mean
-    // what it says: new_scale = scale * (1 + (zoom_factor - 1)) = scale * zoom_factor.
-    le_zoom(handle, args.zoom_factor - 1.0, args.viewport_width_px / 2, args.viewport_height_px / 2);
-    le_render_pixel_buffer(handle);
-    print_phase_rows(args.label, args.hierarchy_depth, "ZoomIn", handle->view_render_pipeline);
+    // zoom's `factor` sets new_scale = scale * (1 + factor), so
+    // --zoom-factor F passes F - 1 to mean new_scale = scale * F.
+    session.write().zoom(args.zoom_factor - 1.0, args.viewport_width_px / 2, args.viewport_height_px / 2);
+    renderer.render();
+    print_phase_rows(args.label, args.hierarchy_depth, "ZoomIn", pipeline);
 
     // Phase 3: Final Zoom-Fit - same expected cache-hit/miss split as
     // phase 2, from the opposite direction (scale/pan reset via fit).
-    le_fit_scene(handle, args.fit_padding_px);
-    le_render_pixel_buffer(handle);
-    print_phase_rows(args.label, args.hierarchy_depth, "FinalZoomFit", handle->view_render_pipeline);
+    session.write().fit_view(args.fit_padding_px);
+    renderer.render();
+    print_phase_rows(args.label, args.hierarchy_depth, "FinalZoomFit", pipeline);
 
-    le_destroy(handle);
     return 0;
 }

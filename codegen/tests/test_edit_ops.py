@@ -61,6 +61,9 @@ class TestEditOps(unittest.TestCase):
             for op in ("create", "update", "delete"):
                 self.assertIn(f" {op}_{snake}(", decls)
                 self.assertIn(f"WriteView::{op}_{snake}(", defs)
+        for klass in self.schema.classes:
+            if klass.has_current_access:
+                self.assertIn(f"WriteView::set_current_{klass.to_snake_case()}({klass.name}Id id)", defs)
 
     def test_delete_cascades_deepest_first(self):
         # eda: Design -> Module (list) -> Instance (list).
