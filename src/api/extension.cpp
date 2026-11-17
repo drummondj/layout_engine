@@ -4,6 +4,7 @@
 #include "le/extension.hpp"
 #include "le/extension_overlay.hpp"
 #include "le_handle.hpp"
+#include "lock_check.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -124,6 +125,7 @@ void dispatch_mutation_listeners(LeHandle *handle)
             le::ext::MutationEvent event;
             std::vector<le::ChangeLogEntry> changes;
             {
+                const le::lock_check::Scope check(handle, "mutation listener dispatch");
                 std::shared_lock<std::shared_mutex> lock(handle->mutex_);
                 const le::ChangeLog &log = handle->root.change_log();
                 const uint64_t end = log.end_sequence();

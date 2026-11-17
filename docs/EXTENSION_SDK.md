@@ -266,7 +266,8 @@ isn't wanted. An object keeps its id through undo and redo, so ids your
 extension holds stay valid.
 
 **Locks.** A view holds the session's lock, so don't open another one on
-the same thread while you hold a `ReadView` or `WriteView`; that deadlocks.
+the same thread while you hold a `ReadView` or `WriteView`; that deadlocks
+(a debug build of Layout Engine aborts instead, naming both).
 The same goes for `ExtensionContext`'s `current_*()` and for
 `write(label)`/`transaction()` while a view is open: inside a view, use the
 view's own members. Keep views short,

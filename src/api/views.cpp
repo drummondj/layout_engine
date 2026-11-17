@@ -4,11 +4,60 @@
 #include "api_internal.hpp"
 #include "edit_ops.hpp"
 #include "le_handle.hpp"
+#include "lock_check.hpp"
 #include "shape_ops.hpp"
 
 #include <spdlog/spdlog.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <utility>
+#include <vector>
+
+#ifndef NDEBUG
+namespace le::lock_check
+{
+    namespace
+    {
+        struct Held
+        {
+            const LeHandle *handle;
+            const char *what;
+        };
+
+        std::vector<Held> &held()
+        {
+            thread_local std::vector<Held> locks;
+            return locks;
+        }
+    }
+
+    void enter(const LeHandle *handle, const char *what)
+    {
+        for (const Held &lock : held())
+            if (lock.handle == handle)
+            {
+                std::fprintf(stderr,
+                             "layout_engine: opening %s on a session while this thread already holds %s on it; that deadlocks. "
+                             "Close the first before opening the second, or use the open view's own members.\n",
+                             what, lock.what);
+                std::abort();
+            }
+        held().push_back(Held{handle, what});
+    }
+
+    void leave(const LeHandle *handle)
+    {
+        std::vector<Held> &locks = held();
+        for (auto it = locks.rbegin(); it != locks.rend(); ++it)
+            if (it->handle == handle)
+            {
+                locks.erase(std::next(it).base());
+                return;
+            }
+    }
+}
+#endif
 
 namespace le
 {
@@ -19,12 +68,29 @@ namespace le
         constexpr const char *kRenderFrameName = "render";
     }
 
-    ReadView::ReadView(LeHandle *handle) : handle_(handle), lock_(handle->mutex_), root_(&handle->root) {}
+    // Each view checks with lock_check before it locks (the comma
+    // expressions), and lets go of the check as it unlocks.
+    ReadView::ReadView(LeHandle *handle)
+        : handle_(handle), lock_((lock_check::enter(handle, "a ReadView"), handle->mutex_)), root_(&handle->root)
+    {
+    }
 
-    ReadView::ReadView(LeHandle *handle, std::try_to_lock_t) : handle_(handle), lock_(handle->mutex_, std::try_to_lock), root_(&handle->root) {}
+    ReadView::ReadView(LeHandle *handle, std::try_to_lock_t)
+        : handle_(handle), lock_((lock_check::enter(handle, "a ReadView"), handle->mutex_), std::try_to_lock), root_(&handle->root)
+    {
+        if (!lock_.owns_lock())
+            lock_check::leave(handle_);
+    }
+
+    ReadView::~ReadView()
+    {
+        if (lock_.owns_lock())
+            lock_check::leave(handle_);
+    }
 
     WriteView::WriteView(LeHandle *handle)
-        : handle_(handle), lock_(handle->mutex_), root_(&handle->root), begin_(handle->root.change_log().end_sequence())
+        : handle_(handle), lock_((lock_check::enter(handle, "a WriteView"), handle->mutex_)), root_(&handle->root),
+          begin_(handle->root.change_log().end_sequence())
     {
     }
 
@@ -51,6 +117,7 @@ namespace le
             root_->bump_mutation_version();
         handle_->note_write_finished(begin_);
         const bool deliver = !handle_->renders_held();
+        lock_check::leave(handle_);
         lock_.unlock();
         handle_->notify_render_needed();
         if (deliver)
@@ -59,6 +126,36 @@ namespace le
 
     namespace
     {
+        // A Transaction's exclusive lock while it opens or closes its step,
+        // waking the renderer and telling listeners once it's released.
+        class HandleWriteLock
+        {
+        public:
+            HandleWriteLock(LeHandle *handle, const char *what)
+                : handle_(handle), lock_((lock_check::enter(handle, what), handle->mutex_)), begin_(handle->root.change_log().end_sequence())
+            {
+            }
+
+            ~HandleWriteLock()
+            {
+                handle_->note_write_finished(begin_);
+                const bool deliver = !handle_->renders_held();
+                lock_check::leave(handle_);
+                lock_.unlock();
+                handle_->notify_render_needed();
+                if (deliver)
+                    dispatch_mutation_listeners(handle_);
+            }
+
+            HandleWriteLock(const HandleWriteLock &) = delete;
+            HandleWriteLock &operator=(const HandleWriteLock &) = delete;
+
+        private:
+            LeHandle *handle_;
+            std::unique_lock<std::shared_mutex> lock_;
+            uint64_t begin_;
+        };
+
         std::expected<Units, std::string> units_of(const Root &root)
         {
             const std::optional<double> scale = edit::dbu_per_um(root);
@@ -382,7 +479,7 @@ namespace le
 
     Transaction::Transaction(LeHandle *handle, const std::string &label) : handle_(handle)
     {
-        HandleWriteLock lock(handle_);
+        HandleWriteLock lock(handle_, "a Transaction");
         if (!handle_->command_history.is_recording())
         {
             handle_->command_history.begin(label);
@@ -395,7 +492,7 @@ namespace le
     {
         if (!owns_)
             return;
-        HandleWriteLock lock(handle_);
+        HandleWriteLock lock(handle_, "the end of a Transaction");
         handle_->command_history.end(succeeded_);
         handle_->release_renders();
     }
@@ -418,6 +515,7 @@ namespace le
         // shared, so panel reads stay live during a render: the render
         // mutates nothing but view_render_pipeline (and the flightline
         // cache, which has its own mutex).
+        const lock_check::Scope check(handle_, "a render");
         std::lock_guard<std::mutex> render_lock(handle_->render_mutex_);
         std::shared_lock<std::shared_mutex> lock(handle_->mutex_);
 

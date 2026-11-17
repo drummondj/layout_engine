@@ -149,7 +149,9 @@ fails on a temp path that isn't unique to its process.
   calls: `le::Session` owns a `LeHandle`; `ReadView`/`WriteView` hold its
   lock shared/exclusive and their members are the operations (over
   `le::edit`); `Transaction` groups edits into one undo step; `Renderer` is
-  the render thread's wait/render/cancel, never opening a view;
+  the render thread's wait/render/cancel, never opening a view. Taking
+  the lock on a thread that already holds it deadlocks; debug builds abort
+  instead (`lock_check.hpp`, called wherever `LeHandle::mutex_` is taken).
   `SessionRequests` passes show/close-GUI requests and queued Tcl commands
   between threads. `interaction_types.hpp` holds the design view's modes,
   keys and snap/orientation enums the views take. The operations are
