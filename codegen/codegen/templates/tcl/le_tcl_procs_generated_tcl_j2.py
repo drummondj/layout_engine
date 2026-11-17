@@ -85,7 +85,7 @@ proc current_{{snake}} {args} {
     }
     if {[llength $args] == 1} {
         if {[set_current_{{snake}}_cmd [lindex $args 0]] != 0} {
-            error "current_{{snake}}: failed to select \\"[lindex $args 0]\\""
+            error "current_{{snake}}: failed to select \\"[lindex $args 0]\\": [last_error_cmd]"
         }
     }
     return [current_{{snake}}_cmd]
@@ -132,7 +132,7 @@ proc get_{{plural}} {args} {
         foreach name_expr [default_to_unset [dict get $parsed name_exprs]] {
             set count [get_{{plural}}_cmd {% for op in scope.of_params %}$of_{{op.parent_field.name}} {% endfor %}$name_expr $filter]
             if {$count < 0} {
-                error "get_{{plural}}: invalid -filter expression - see the error above"
+                error [last_error_cmd]
             }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_{{plural}}_at $i]
@@ -141,7 +141,7 @@ proc get_{{plural}} {args} {
         {%- else %}
         set count [get_{{plural}}_cmd {% for op in scope.of_params %}$of_{{op.parent_field.name}} {% endfor %}$filter]
         if {$count < 0} {
-            error "get_{{plural}}: invalid -filter expression - see the error above"
+            error [last_error_cmd]
         }
         for {set i 0} {$i < $count} {incr i} {
             lappend result [get_{{plural}}_at $i]
@@ -217,7 +217,7 @@ proc create_{{snake}} {args} {
 {{emit.tcl_procs.cmd_tcl_preamble(klass, 'create')}}
     set new_id [create_{{snake}}_cmd {{emit.tcl_procs.create_tcl_call_args(klass)}}]
     if {$new_id eq {}} {
-        error "create_{{snake}}: failed - see the error above"
+        error [last_error_cmd]
     }
     return $new_id
 }
@@ -260,7 +260,7 @@ proc update_{{snake}} {id args} {
 {{emit.tcl_procs.cmd_tcl_preamble(klass, 'update')}}
     set new_id [update_{{snake}}_cmd $id {{emit.tcl_procs.update_tcl_call_args(klass)}}]
     if {$new_id eq {}} {
-        error "update_{{snake}}: failed to update \\"$id\\""
+        error [last_error_cmd]
     }
     return $new_id
 }
@@ -283,7 +283,7 @@ proc delete_{{snake}} {args} {
         error "delete_{{snake}}: exactly one argument (a {{klass.name}} id, or a list of them) is required"
     }
     if {[delete_{{snake}}_cmd [join [lindex $args 0]]] != 0} {
-        error "delete_{{snake}}: failed to delete \\"[lindex $args 0]\\""
+        error [last_error_cmd]
     }
     return 0
 }

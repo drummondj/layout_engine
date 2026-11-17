@@ -137,9 +137,9 @@ check_error "unknown option" {shape_to_rects $a -bogus 1} "shape_to_rects: unkno
 check_error "bad -direction" {shape_to_rects $a -direction diagonal} "shape_to_rects: -direction must be*"
 check_error "no shapes" {shape_bbox} "shape_bbox: expected at least one shape token"
 check_error "boolean needs -with" {shape_and $a} "shape_and: -with requires*"
-check_error "unknown shape" {shape_to_polygon shape:999999} "shape_to_polygon: failed*"
+check_error "unknown shape" {shape_to_polygon shape:999999} "shape_to_polygon: unknown shape in shapes"
 set triangle [create_shape -in_abstract $abstract -layer layer:M1 -polygons {{{0 0} {10 0} {0 10}}}]
-check_error "asymmetric size of a diagonal shape" {shape_size $triangle -x 1 -y 2} "shape_size: failed*"
+check_error "asymmetric size of a diagonal shape" {shape_size $triangle -x 1 -y 2} "shape_size: different X and Y sizes are only supported for rectilinear (axis-aligned) shapes"
 check_true "-help returns usage" [string match "shape_or *" [shape_or -help]]
 
 # --- shape_bbox returns the same {{llx lly} {urx ury}} Rect form -rects and zoom_area take ---
@@ -186,7 +186,7 @@ le_repl_eval undo
 check "undo of a layer change restores the layer" M2 [layer_of $mv]
 check "...and clears the purpose again" {} [get_properties $mv .purpose]
 check_error "shape_change_layer unknown -layer" {shape_change_layer $a -layer layer:NOPE} "shape_change_layer: unknown -layer token"
-check_error "shape_change_layer unknown shape" {shape_change_layer shape:999999 -layer layer:M1} "shape_change_layer: failed*"
+check_error "shape_change_layer unknown shape" {shape_change_layer shape:999999 -layer layer:M1} "shape_change_layer: unknown shape in shapes"
 
 # --- free-standing shapes aren't written by write_def ---
 check "read def" 0 [read_def -library shape_ops $cell_def]
@@ -225,7 +225,7 @@ set diearea [get_shapes -of $layout -filter {.purpose == BOUNDARY}]
 check "the layout has one diearea" 1 [llength $diearea]
 check_error "a second diearea for one layout" \
     {create_shape -layout $layout -purpose BOUNDARY -rects {{{0 0} {50 50}}}} \
-    "create_shape: failed*"
+    "create_shape: the layout already has a diearea*"
 check "the first diearea is still the layout's" $diearea [get_shapes -of $layout -filter {.purpose == BOUNDARY}]
 
 # --- a DEF route's wiring is a Wire, which the shape commands take ---
@@ -250,9 +250,17 @@ check "...and make Shapes of it" 1 [llength [shape_or [get_selection] -with [get
 deselect_all
 check "shape_change_layer moves a wire" $wire [shape_change_layer $wire -layer layer:M3]
 check "...onto M3" M3 [get_properties $wire .layer.name]
-check_error "a wire can't go onto a purpose" {shape_change_layer $wire -layer debug} "shape_change_layer: failed*"
+check_error "a wire can't go onto a purpose" {shape_change_layer $wire -layer debug} "shape_change_layer: a wire can only move to another layer"
 check "remove_shape_path on a wire" 0 [remove_shape_path $wire 0]
 check "...leaves its other path" {{29.5 -0.5} {40.5 0.5}} [shape_bbox $wire]
 check_true "...out of range" [expr {[remove_shape_path $wire 1] != 0}]
+check_true "...and says why" [expr {[last_error_cmd] ne ""}]
+
+# --- a failed select or write says why, not "see the log" ---
+check_error "select of a missing shape" {select shape:999999} "select: failed to select \"shape:999999\": *"
+check_error "an unknown select token" {select bogus:1} "select: unrecognized token*"
+set unwritable [file join [file dirname [info script]] no_such_dir [pid] out.lef]
+check_error "write_lef where it can't" [list write_lef $unwritable] "write_lef: failed to write LEF to \"$unwritable\": ?*"
+check_error "write_db where it can't" [list write_db -no_session [file rootname $unwritable].led] "write_db: failed to write *: ?*"
 
 puts "all shape_ops checks passed"

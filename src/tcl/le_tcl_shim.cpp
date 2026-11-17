@@ -2,18 +2,28 @@
 #include "le/extension_tcl.hpp"
 
 #include "api.hpp"
+#include "views.hpp"
+#include "../core/themes.hpp"
+#include "../database/hierarchical_resolver.hpp"
+#include "../database/library_helpers.hpp"
 
 #include <blend2d/blend2d.h>
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cmath>
+#include <expected>
+#include <format>
+#include <span>
+#include <variant>
 #include <cstdint>
 #include <cstdio>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace
@@ -33,7 +43,8 @@ namespace
         {
             return injected_handle();
         }
-        static LeHandle *handle = le_create();
+        // Lives as long as the process (le_tcl loaded into a plain tclsh).
+        static LeHandle *handle = le::Session().release();
         return handle;
     }
 
@@ -81,363 +92,99 @@ namespace
         return scratch().c_str();
     }
 
-    // --- Friendly id formatting/parsing (see le_tcl_shim.hpp's own "IDs"
-    // comment for the full contract) ---
+    le::ReadView read_view() { return le::ReadView(session()); }
+    le::WriteView write_view() { return le::WriteView(session()); }
 
-    // design:NAME, or design:LIB/NAME when several Libraries have a Design
-    // of that name - le_design_by_name accepts either.
-    constexpr std::string_view kDesignPrefix = "design:";
-
-    std::string format_design_id(LeDesignId id)
+    // The reason the last failing command gave, for last_error_cmd.
+    std::string &last_error()
     {
-        const char *name = le_design_name_by_id(session(), id);
-        if (!name)
-            return std::string(kDesignPrefix);
-        const LeDesignId by_name = le_design_by_name(session(), name);
-        if (by_name.index == id.index && by_name.generation == id.generation)
-            return std::string(kDesignPrefix) + name;
-        const char *library = le_library_name_by_id(session(), le_design_library_by_id(session(), id));
-        return std::string(kDesignPrefix) + (library ? library : "") + "/" + name;
+        static thread_local std::string message;
+        return message;
     }
 
-    LeDesignId resolve_design_id(const char *s)
+    // 0, or 1 with the reason kept for last_error_cmd.
+    int status(const std::expected<void, std::string> &result)
     {
-        const LeDesignId invalid{.index = UINT32_MAX, .generation = 0};
+        if (result)
+            return 0;
+        last_error() = result.error();
+        return 1;
+    }
+
+    // 1, keeping `reason` for last_error_cmd.
+    int fail(std::string reason)
+    {
+        last_error() = std::move(reason);
+        return 1;
+    }
+
+    // "", keeping `reason` for last_error_cmd: a command returning a
+    // token failed.
+    const char *fail_text(std::string reason)
+    {
+        last_error() = std::move(reason);
+        return return_string("");
+    }
+
+    // Microns to dbu at the Technology's scale, or 1:1 without one, as the
+    // C API's micron arguments always were.
+    template <typename View>
+    double dbu_per_um(const View &view)
+    {
+        const std::expected<le::Units, std::string> units = view.units();
+        return units ? units->dbu_per_um() : 1.0;
+    }
+
+    int64_t to_dbu(double um, double scale) { return static_cast<int64_t>(std::llround(um * scale)); }
+
+    // --- Friendly ids (see le_tcl_shim.hpp's "IDs" comment) ---
+
+    // What a friendly id resolves against: the database, and the current
+    // objects that scope per-parent names (a Terminal's within the current
+    // Abstract, a Row's within the current Layout, a Net's from the
+    // current Schematic).
+    struct Lookup
+    {
+        const le::Root &root;
+        le::AbstractId abstract;
+        le::LayoutId layout;
+        le::SchematicId schematic;
+    };
+
+    template <typename View>
+    Lookup lookup(const View &view)
+    {
+        return Lookup{view.root(), view.current_abstract(), view.current_layout(), view.current_schematic()};
+    }
+
+    // The text after `prefix`, if `s` starts with it. A fixed-prefix
+    // compare, so a name containing ':' still parses; an empty or null `s`
+    // (no -of token given, meaning the default scope) fails it like a
+    // malformed one does.
+    std::optional<std::string> strip_prefix(const char *s, std::string_view prefix)
+    {
         if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kDesignPrefix.size()) != kDesignPrefix)
-            return invalid;
-        return le_design_by_name(session(), std::string(sv.substr(kDesignPrefix.size())).c_str());
+            return std::nullopt;
+        const std::string_view sv(s);
+        if (!sv.starts_with(prefix))
+            return std::nullopt;
+        return std::string(sv.substr(prefix.size()));
     }
 
-    constexpr std::string_view kTerminalPrefix = "terminal:";
-
-    std::string format_terminal_id(const char *name)
-    {
-        return std::string(kTerminalPrefix) + (name ? name : "");
-    }
-
-    // Overload taking the Id directly - needed by generated is_child
-    // enumeration (e.g. Abstract.terminals), same reasoning as every
-    // generated format_X_id(Id) overload (le_tcl_shim_generated.inc's own
-    // comment), hand-written here since Terminal's own resolve/format
-    // pair isn't generated (see that file's own comment on why).
-    std::string format_terminal_id(LeTerminalId id)
-    {
-        return format_terminal_id(le_terminal_name(session(), id));
-    }
-
-    // Fixed-prefix compare (not "find first colon") so a LEF-legal name
-    // containing ':' itself can't misparse - the prefix always matches
-    // the whole leading literal, everything after is the raw name
-    // verbatim. An empty/null `s` (no -of token given at all) fails the
-    // prefix check the same way a malformed one does, resolving to the
-    // same invalid sentinel - exactly what "use the default scope" needs
-    // (see le_tcl_shim.hpp's own "IDs" comment).
-    //
-    // le_terminal_by_name is itself already scoped to the current view,
-    // same as le_get_terminals - see resolve_library_id's own comment for
-    // the general fixed-prefix/empty-means-default-scope reasoning.
-    LeTerminalId resolve_terminal_id(const char *s)
-    {
-        const LeTerminalId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kTerminalPrefix.size()) != kTerminalPrefix)
-            return invalid;
-        return le_terminal_by_name(session(), std::string(sv.substr(kTerminalPrefix.size())).c_str());
-    }
-
-    // Row/Placement/PhysicalPort/Route/Region/LayoutVia - same unique_per_parent
-    // shape as Terminal above (each name is scoped to its own Layout,
-    // not global), so each gets the same hand-written prefix/format/
-    // resolve triple, scoped through le_X_by_name/le_X_name
-    // (handle->current_layout_id-scoped, see api.cpp's own comment).
-
-    constexpr std::string_view kRowPrefix = "row:";
-
-    std::string format_row_id(const char *name)
-    {
-        return std::string(kRowPrefix) + (name ? name : "");
-    }
-
-    std::string format_row_id(LeRowId id)
-    {
-        return format_row_id(le_row_name(session(), id));
-    }
-
-    LeRowId resolve_row_id(const char *s)
-    {
-        const LeRowId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kRowPrefix.size()) != kRowPrefix)
-            return invalid;
-        return le_row_by_name(session(), std::string(sv.substr(kRowPrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kPlacementPrefix = "placement:";
-
-    std::string format_placement_id(const char *name)
-    {
-        return std::string(kPlacementPrefix) + (name ? name : "");
-    }
-
-    std::string format_placement_id(LePlacementId id)
-    {
-        return format_placement_id(le_placement_name(session(), id));
-    }
-
-    LePlacementId resolve_placement_id(const char *s)
-    {
-        const LePlacementId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kPlacementPrefix.size()) != kPlacementPrefix)
-            return invalid;
-        return le_placement_by_name(session(), std::string(sv.substr(kPlacementPrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kPhysicalPortPrefix = "physical_port:";
-
-    std::string format_physical_port_id(const char *name)
-    {
-        return std::string(kPhysicalPortPrefix) + (name ? name : "");
-    }
-
-    std::string format_physical_port_id(LePhysicalPortId id)
-    {
-        return format_physical_port_id(le_physical_port_name(session(), id));
-    }
-
-    LePhysicalPortId resolve_physical_port_id(const char *s)
-    {
-        const LePhysicalPortId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kPhysicalPortPrefix.size()) != kPhysicalPortPrefix)
-            return invalid;
-        return le_physical_port_by_name(session(), std::string(sv.substr(kPhysicalPortPrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kRoutePrefix = "route:";
-
-    std::string format_route_id(const char *name)
-    {
-        return std::string(kRoutePrefix) + (name ? name : "");
-    }
-
-    std::string format_route_id(LeRouteId id)
-    {
-        return format_route_id(le_route_name(session(), id));
-    }
-
-    LeRouteId resolve_route_id(const char *s)
-    {
-        const LeRouteId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kRoutePrefix.size()) != kRoutePrefix)
-            return invalid;
-        return le_route_by_name(session(), std::string(sv.substr(kRoutePrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kRegionPrefix = "region:";
-
-    std::string format_region_id(const char *name)
-    {
-        return std::string(kRegionPrefix) + (name ? name : "");
-    }
-
-    std::string format_region_id(LeRegionId id)
-    {
-        return format_region_id(le_region_name(session(), id));
-    }
-
-    LeRegionId resolve_region_id(const char *s)
-    {
-        const LeRegionId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kRegionPrefix.size()) != kRegionPrefix)
-            return invalid;
-        return le_region_by_name(session(), std::string(sv.substr(kRegionPrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kLayoutViaPrefix = "layout_via:";
-
-    std::string format_layout_via_id(const char *name)
-    {
-        return std::string(kLayoutViaPrefix) + (name ? name : "");
-    }
-
-    std::string format_layout_via_id(LeLayoutViaId id)
-    {
-        return format_layout_via_id(le_layout_via_name(session(), id));
-    }
-
-    LeLayoutViaId resolve_layout_via_id(const char *s)
-    {
-        const LeLayoutViaId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kLayoutViaPrefix.size()) != kLayoutViaPrefix)
-            return invalid;
-        return le_layout_via_by_name(session(), std::string(sv.substr(kLayoutViaPrefix.size())).c_str());
-    }
-
-    // Port/Net/Instance/PortBus/NetBus - same unique_per_parent shape as
-    // Row/Placement/etc. above (each name is scoped to its own Schematic,
-    // not global), so the same hand-written prefix/format/resolve triple,
-    // relative to the current Schematic: an object below it carries its
-    // Instance path (`instance:u_mid/u_leaf`, le_<type>_token_name).
-
-    constexpr std::string_view kPortPrefix = "port:";
-
-    std::string format_port_id(const char *name)
-    {
-        return std::string(kPortPrefix) + (name ? name : "");
-    }
-
-    std::string format_port_id(LePortId id)
-    {
-        return format_port_id(le_port_token_name(session(), id));
-    }
-
-    LePortId resolve_port_id(const char *s)
-    {
-        const LePortId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kPortPrefix.size()) != kPortPrefix)
-            return invalid;
-        return le_port_by_name(session(), std::string(sv.substr(kPortPrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kNetPrefix = "net:";
-
-    std::string format_net_id(const char *name)
-    {
-        return std::string(kNetPrefix) + (name ? name : "");
-    }
-
-    std::string format_net_id(LeNetId id)
-    {
-        return format_net_id(le_net_token_name(session(), id));
-    }
-
-    LeNetId resolve_net_id(const char *s)
-    {
-        const LeNetId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kNetPrefix.size()) != kNetPrefix)
-            return invalid;
-        return le_net_by_name(session(), std::string(sv.substr(kNetPrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kInstancePrefix = "instance:";
-
-    std::string format_instance_id(const char *name)
-    {
-        return std::string(kInstancePrefix) + (name ? name : "");
-    }
-
-    std::string format_instance_id(LeInstanceId id)
-    {
-        return format_instance_id(le_instance_token_name(session(), id));
-    }
-
-    LeInstanceId resolve_instance_id(const char *s)
-    {
-        const LeInstanceId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kInstancePrefix.size()) != kInstancePrefix)
-            return invalid;
-        return le_instance_by_name(session(), std::string(sv.substr(kInstancePrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kPortBusPrefix = "port_bus:";
-
-    std::string format_port_bus_id(const char *name)
-    {
-        return std::string(kPortBusPrefix) + (name ? name : "");
-    }
-
-    std::string format_port_bus_id(LePortBusId id)
-    {
-        return format_port_bus_id(le_port_bus_token_name(session(), id));
-    }
-
-    LePortBusId resolve_port_bus_id(const char *s)
-    {
-        const LePortBusId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kPortBusPrefix.size()) != kPortBusPrefix)
-            return invalid;
-        return le_port_bus_by_name(session(), std::string(sv.substr(kPortBusPrefix.size())).c_str());
-    }
-
-    constexpr std::string_view kNetBusPrefix = "net_bus:";
-
-    std::string format_net_bus_id(const char *name)
-    {
-        return std::string(kNetBusPrefix) + (name ? name : "");
-    }
-
-    std::string format_net_bus_id(LeNetBusId id)
-    {
-        return format_net_bus_id(le_net_bus_token_name(session(), id));
-    }
-
-    LeNetBusId resolve_net_bus_id(const char *s)
-    {
-        const LeNetBusId invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, kNetBusPrefix.size()) != kNetBusPrefix)
-            return invalid;
-        return le_net_bus_by_name(session(), std::string(sv.substr(kNetBusPrefix.size())).c_str());
-    }
-
-    // Obstruction/TerminalPort/Shape have no name field - their friendly
-    // id is just their existing packed integer, type-prefixed for
-    // self-description. A malformed string or wrong-type prefix (e.g. a
-    // "terminal_port:..." id passed where "shape:..." is expected) parses to the
-    // same invalid sentinel as an unknown id - api.hpp's own not-found
-    // paths already degrade gracefully for that, so no separate error
-    // path is needed here.
+    // Obstruction/TerminalPort/Shape and every other class without a
+    // name: the friendly id is its packed index and generation,
+    // type-prefixed. A malformed token or wrong prefix gives an invalid id,
+    // which every lookup treats as "no such object".
     template <typename IdT>
     IdT resolve_numeric_friendly_id(const char *s, std::string_view prefix)
     {
-        const IdT invalid{.index = UINT32_MAX, .generation = 0};
-        if (!s)
-            return invalid;
-        std::string_view sv(s);
-        if (sv.substr(0, prefix.size()) != prefix)
-            return invalid;
-        std::string_view digits = sv.substr(prefix.size());
-        if (digits.empty())
-            return invalid;
+        const std::optional<std::string> digits = strip_prefix(s, prefix);
+        if (!digits || digits->empty())
+            return IdT{};
         int64_t packed = 0;
-        const auto result = std::from_chars(digits.data(), digits.data() + digits.size(), packed);
-        if (result.ec != std::errc{} || result.ptr != digits.data() + digits.size())
-            return invalid;
+        const auto result = std::from_chars(digits->data(), digits->data() + digits->size(), packed);
+        if (result.ec != std::errc{} || result.ptr != digits->data() + digits->size())
+            return IdT{};
         return unpack<IdT>(packed);
     }
 
@@ -447,46 +194,242 @@ namespace
         return std::string(prefix) + std::to_string(pack(id));
     }
 
-    // Tcl is "everything is a string" by design (`expr {$v + 1}` works on
-    // a numeric string exactly like a native int) - see le_tcl_shim.hpp's
-    // "property tables and search results" comment for why every
-    // property value crossing this shim is pre-stringified rather than
-    // exposed with its LePropertyType tag.
-    std::string format_property_value(const LeProperty &prop)
+    // design:NAME, or design:LIB/NAME when several Libraries have a Design
+    // of that name - resolve_design_reference accepts either.
+    constexpr std::string_view kDesignPrefix = "design:";
+
+    std::string format_design_id(const Lookup &lk, le::DesignId id)
+    {
+        const le::DesignData *design = lk.root.get_design(id);
+        if (!design)
+            return std::string(kDesignPrefix);
+        if (le::resolve_design_reference(lk.root, design->name) == id)
+            return std::string(kDesignPrefix) + design->name;
+        const le::LibraryData *library = lk.root.get_library(design->library);
+        return std::string(kDesignPrefix) + (library ? library->name : "") + "/" + design->name;
+    }
+
+    le::DesignId resolve_design_id(const Lookup &lk, const char *s)
+    {
+        const std::optional<std::string> name = strip_prefix(s, kDesignPrefix);
+        return name ? le::resolve_design_reference(lk.root, *name) : le::DesignId{};
+    }
+
+    // Classes named uniquely within one parent: the name is looked up in
+    // the current Abstract (Terminal) or Layout (Row, Placement, ...).
+#define LE_TCL_PARENT_NAMED_ID(Klass, snake, scope)                                                \
+    constexpr std::string_view k##Klass##Prefix = #snake ":";                                     \
+    std::string format_##snake##_id(const Lookup &lk, le::Klass##Id id)                           \
+    {                                                                                              \
+        const le::Klass##Data *data = lk.root.get_##snake(id);                                    \
+        return std::string(k##Klass##Prefix) + (data ? data->name : "");                          \
+    }                                                                                              \
+    le::Klass##Id resolve_##snake##_id(const Lookup &lk, const char *s)                           \
+    {                                                                                              \
+        const std::optional<std::string> name = strip_prefix(s, k##Klass##Prefix);                \
+        return name ? lk.root.get_##snake##_by_name(lk.scope, *name) : le::Klass##Id{};           \
+    }
+
+    LE_TCL_PARENT_NAMED_ID(Terminal, terminal, abstract)
+    LE_TCL_PARENT_NAMED_ID(Row, row, layout)
+    LE_TCL_PARENT_NAMED_ID(Placement, placement, layout)
+    LE_TCL_PARENT_NAMED_ID(PhysicalPort, physical_port, layout)
+    LE_TCL_PARENT_NAMED_ID(Route, route, layout)
+    LE_TCL_PARENT_NAMED_ID(Region, region, layout)
+    LE_TCL_PARENT_NAMED_ID(LayoutVia, layout_via, layout)
+#undef LE_TCL_PARENT_NAMED_ID
+
+    // Schematic objects (Port, Net, Instance, PortBus, NetBus) are named
+    // from the current Schematic: their own name when it owns them, else
+    // their escaped Instance path from it (`instance:u_mid/u_leaf`).
+
+    // Each Schematic the current one reaches, with its Instance path; kept
+    // until the database or the current Schematic changes.
+    const std::unordered_map<le::SchematicId, std::string> &schematic_paths(const Lookup &lk)
+    {
+        struct Cache
+        {
+            const le::Root *root = nullptr;
+            uint64_t version = 0;
+            le::SchematicId from;
+            std::unordered_map<le::SchematicId, std::string> paths;
+        };
+        static thread_local Cache cache;
+        if (cache.root != &lk.root || cache.version != lk.root.mutation_version() || cache.from != lk.schematic)
+            cache = Cache{&lk.root, lk.root.mutation_version(), lk.schematic, le::hierarchy::schematic_paths(lk.root, lk.schematic)};
+        return cache.paths;
+    }
+
+    std::string schematic_token_name(const Lookup &lk, le::SchematicId owner, const std::string &name)
+    {
+        if (owner == lk.schematic)
+            return name;
+        const auto &paths = schematic_paths(lk);
+        const auto it = paths.find(owner);
+        return it == paths.end() ? name : it->second + le::hierarchy::escape_segment(name);
+    }
+
+    // An exact name in the current Schematic first, so a name that itself
+    // contains "/" still resolves, else an exact Instance path from there.
+    template <typename IdT, typename ByNameFn>
+    IdT schematic_object_by_token_name(const Lookup &lk, const std::string &name, ByNameFn &&by_name)
+    {
+        if (const IdT id = by_name(lk.root, lk.schematic, name); id.valid())
+            return id;
+        const std::vector<std::string> segments = le::hierarchy::split_path(name);
+        if (segments.size() < 2)
+            return IdT{};
+        const le::SchematicId owner = le::hierarchy::descend_exact(lk.root, lk.schematic, std::span(segments).first(segments.size() - 1));
+        return owner.valid() ? by_name(lk.root, owner, segments.back()) : IdT{};
+    }
+
+#define LE_TCL_SCHEMATIC_NAMED_ID(Klass, snake)                                                                  \
+    constexpr std::string_view k##Klass##Prefix = #snake ":";                                                   \
+    std::string format_##snake##_id(const Lookup &lk, le::Klass##Id id)                                         \
+    {                                                                                                            \
+        const le::Klass##Data *data = lk.root.get_##snake(id);                                                  \
+        return std::string(k##Klass##Prefix) + (data ? schematic_token_name(lk, data->schematic, data->name) : ""); \
+    }                                                                                                            \
+    le::Klass##Id resolve_##snake##_id(const Lookup &lk, const char *s)                                         \
+    {                                                                                                            \
+        const std::optional<std::string> name = strip_prefix(s, k##Klass##Prefix);                              \
+        if (!name)                                                                                               \
+            return le::Klass##Id{};                                                                              \
+        return schematic_object_by_token_name<le::Klass##Id>(lk, *name, [](const le::Root &root, le::SchematicId schematic, const std::string &n) \
+                                                             { return root.get_##snake##_by_name(schematic, n); }); \
+    }
+
+    LE_TCL_SCHEMATIC_NAMED_ID(Port, port)
+    LE_TCL_SCHEMATIC_NAMED_ID(Net, net)
+    LE_TCL_SCHEMATIC_NAMED_ID(Instance, instance)
+    LE_TCL_SCHEMATIC_NAMED_ID(PortBus, port_bus)
+    LE_TCL_SCHEMATIC_NAMED_ID(NetBus, net_bus)
+#undef LE_TCL_SCHEMATIC_NAMED_ID
+
+    // Tcl is "everything is a string" (`expr {$v + 1}` works on a numeric
+    // string), so every property value crosses as text.
+    std::string format_property_value(const le::PropertyValue &prop)
     {
         switch (prop.type)
         {
-        case LE_PROPERTY_TYPE_STRING:
-            return prop.string_value ? prop.string_value : "";
-        case LE_PROPERTY_TYPE_INT:
+        case le::PropertyValue::Type::STRING:
+            return prop.string_value;
+        case le::PropertyValue::Type::INT:
             return std::to_string(prop.int_value);
-        case LE_PROPERTY_TYPE_DOUBLE:
+        case le::PropertyValue::Type::DOUBLE:
             return std::to_string(prop.double_value);
-        default:
-            return "";
         }
+        return "";
     }
 
-    // Friendly-numeric-id-list-as-space-separated-string, shared by
-    // get_terminal_ports/get_obstructions/terminal_port_shapes/
-    // obstruction_shapes below - every token is purely numeric
-    // ("terminal_port:N"/"obstruction:N"/"shape:N"), never LEF-authored text, so
-    // this is provably a well-formed Tcl list with no escaping needed -
-    // see le_tcl_shim.hpp's own comment on why get_terminals_cmd/_at is
-    // shaped differently.
-    template <typename IdT>
-    std::string join_friendly_ids(int32_t count, IdT (*at)(LeHandle *, int32_t), std::string_view prefix)
+    // `failure`, keeping `reason` for last_error_cmd.
+    template <typename T>
+    T fail(std::string reason, T failure)
     {
-        std::ostringstream out;
-        for (int32_t i = 0; i < count; ++i)
+        last_error() = std::move(reason);
+        return failure;
+    }
+
+    // The Technology's dbu per micron; nullopt before one is read.
+    template <typename View>
+    std::optional<double> units_dbu_per_um(const View &view)
+    {
+        const std::expected<le::Units, std::string> units = view.units();
+        return units ? std::optional<double>(units->dbu_per_um()) : std::nullopt;
+    }
+
+    // Square microns to dbu squared.
+    int64_t to_dbu2(double um2, double scale) { return static_cast<int64_t>(std::llround(um2 * scale * scale)); }
+
+    // `ids` as a space-separated list of friendly ids. Every token is a
+    // valid Tcl list element: no token contains whitespace.
+    template <typename Ids, typename Format>
+    std::string join_ids(const Ids &ids, Format &&format)
+    {
+        std::string out;
+        for (const auto &id : ids)
         {
-            if (i > 0)
-            {
-                out << ' ';
-            }
-            out << format_numeric_friendly_id(at(session(), i), prefix);
+            if (!out.empty())
+                out += ' ';
+            out += format(id);
         }
-        return out.str();
+        return out;
+    }
+
+    // The last get_<type> search's results as friendly ids, read back one
+    // at a time by get_<type>_at.
+    std::vector<std::string> &search_results()
+    {
+        static thread_local std::vector<std::string> results;
+        return results;
+    }
+
+    template <typename Ids, typename Format>
+    int keep_search_results(const Ids &ids, Format &&format)
+    {
+        std::vector<std::string> &results = search_results();
+        results.clear();
+        results.reserve(ids.size());
+        for (const auto &id : ids)
+            results.push_back(format(id));
+        return static_cast<int>(results.size());
+    }
+
+    const char *search_result_at(int index)
+    {
+        const std::vector<std::string> &results = search_results();
+        if (index < 0 || static_cast<size_t>(index) >= results.size())
+            return return_string("");
+        return results[static_cast<size_t>(index)].c_str();
+    }
+
+    // `id`'s property table, kept while Tcl reads it row by row (count,
+    // then each name and value) and the database doesn't change.
+    const std::vector<le::PropertyValue> &properties_of(const le::ReadView &view, const le::ObjectId &id)
+    {
+        struct Cache
+        {
+            const le::Root *root = nullptr;
+            uint64_t version = 0;
+            std::optional<le::ObjectId> id;
+            std::vector<le::PropertyValue> rows;
+        };
+        static thread_local Cache cache;
+        if (cache.root != &view.root() || cache.version != view.root().mutation_version() || cache.id != id)
+            cache = Cache{&view.root(), view.root().mutation_version(), id, view.properties(id)};
+        return cache.rows;
+    }
+
+    const char *property_name_at(const std::vector<le::PropertyValue> &rows, int index)
+    {
+        if (index < 0 || static_cast<size_t>(index) >= rows.size())
+            return return_string("");
+        return return_string(rows[static_cast<size_t>(index)].name);
+    }
+
+    const char *property_value_at(const std::vector<le::PropertyValue> &rows, int index)
+    {
+        if (index < 0 || static_cast<size_t>(index) >= rows.size())
+            return return_string("");
+        return return_string(format_property_value(rows[static_cast<size_t>(index)]));
+    }
+
+    // Whether the last *_property_path call had a path that didn't parse
+    // or named no field (its reason in last_error_cmd), as opposed to one
+    // that simply led to no value.
+    bool &property_path_failed_flag()
+    {
+        static thread_local bool failed = false;
+        return failed;
+    }
+
+    const char *property_at_path(const le::ReadView &view, const le::ObjectId &id, const char *path)
+    {
+        const std::expected<std::optional<le::PropertyValue>, std::string> value = view.property(id, path ? path : "");
+        property_path_failed_flag() = !value;
+        if (!value)
+            return fail_text(value.error());
+        return return_string(*value ? format_property_value(**value) : std::string());
     }
 }
 
@@ -495,26 +438,31 @@ LeHandle *le::ext::tcl_session()
     return session();
 }
 
-// Generated TCL property-reading surface - friendly-id resolve/format,
-// property-table accessors, and is_child-field enumeration, for every
-// TCL-readable class not already covered by hand-written code above.
-// Placed here (after the anonymous namespace above, before every bare
-// function below) so session()/pack/unpack/return_string/
-// format_property_value/resolve_numeric_friendly_id/
-// format_numeric_friendly_id are all already in scope, and so
-// technology_id() below can use the generated format_technology_id().
-// Never edit generated/tcl/le_tcl_shim_generated.inc directly - regenerate
-// by rebuilding.
+// The generated commands for every readable class: friendly ids,
+// property tables, child lists, current_<type>, get_<type> and
+// create_/update_/delete_<type>. They use the helpers above.
 #include "generated/tcl/le_tcl_shim_generated.inc"
+
+namespace
+{
+    // Shared by both "open a view" commands: the same padding the GUI's
+    // open actions fit with, so a script lands on a framed view.
+    constexpr int kOpenDesignFitPaddingPx = 10;
+}
+
+const char *last_error_cmd()
+{
+    return last_error().c_str();
+}
 
 int read_lef(const char *path, const char *library_name)
 {
-    return le_read_lef(session(), path, library_name);
+    return status(write_view().read_lef(path ? path : "", library_name ? library_name : ""));
 }
 
 int read_def(const char *path, const char *library_name)
 {
-    return le_read_def(session(), path, library_name);
+    return status(write_view().read_def(path ? path : "", library_name ? library_name : ""));
 }
 
 // paths is a space-separated list of one or more filenames - same
@@ -530,181 +478,199 @@ int read_def(const char *path, const char *library_name)
 // netlist's own leaf-cell instantiations.
 int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name)
 {
-    std::vector<std::string> path_strings;
+    std::vector<std::string> files;
     std::istringstream stream(paths ? paths : "");
     std::string token;
     while (stream >> token)
-        path_strings.push_back(token);
-
-    std::vector<const char *> path_ptrs;
-    path_ptrs.reserve(path_strings.size());
-    for (const std::string &s : path_strings)
-        path_ptrs.push_back(s.c_str());
-
-    return le_read_verilog(session(), path_ptrs.empty() ? nullptr : path_ptrs.data(), static_cast<int32_t>(path_ptrs.size()), is_netlist, library_name);
+        files.push_back(token);
+    return status(write_view().read_verilog(files, is_netlist != 0, library_name ? library_name : ""));
 }
 
 int write_verilog_stubs_cmd(const char *path, const char *library_token)
 {
-    const LeLibraryId library_id = (library_token && library_token[0])
-                                        ? resolve_library_id(library_token)
-                                        : LeLibraryId{.index = UINT32_MAX, .generation = 0};
-    return le_write_verilog_stubs(session(), path, library_id);
+    le::WriteView view = write_view();
+    const le::LibraryId library = resolve_library_id(lookup(view), library_token);
+    return status(view.write_verilog_stubs(path ? path : "", library));
 }
 
 int link_unresolved_instances_cmd()
 {
-    return le_link_unresolved_instances(session());
+    const std::expected<size_t, std::string> resolved = write_view().link_unresolved_instances();
+    return resolved ? static_cast<int>(*resolved) : fail(resolved.error(), -1);
 }
+
+// Hierarchical path searches: the count found (-1 for a bad -filter),
+// each read back by get_<type>_at like a flat search.
 
 int get_instances_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression)
 {
-    return le_get_instances_by_path(session(), resolve_schematic_id(of_schematic), path, filter_expression);
+    const le::ReadView view = read_view();
+    const Lookup lk = lookup(view);
+    const auto found = view.get_instances_by_path(resolve_schematic_id(lk, of_schematic), path ? path : "", filter_expression ? filter_expression : "");
+    if (!found)
+        return fail("get_instances: invalid -filter expression: " + found.error(), -1);
+    return keep_search_results(*found, [&](le::InstanceId id) { return format_instance_id(lk, id); });
 }
 
 int get_nets_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression)
 {
-    return le_get_nets_by_path(session(), resolve_schematic_id(of_schematic), path, filter_expression);
+    const le::ReadView view = read_view();
+    const Lookup lk = lookup(view);
+    const auto found = view.get_nets_by_path(resolve_schematic_id(lk, of_schematic), path ? path : "", filter_expression ? filter_expression : "");
+    if (!found)
+        return fail("get_nets: invalid -filter expression: " + found.error(), -1);
+    return keep_search_results(*found, [&](le::NetId id) { return format_net_id(lk, id); });
 }
 
 int get_ports_by_path_cmd(const char *of_schematic, const char *path, const char *filter_expression)
 {
-    return le_get_ports_by_path(session(), resolve_schematic_id(of_schematic), path, filter_expression);
+    const le::ReadView view = read_view();
+    const Lookup lk = lookup(view);
+    const auto found = view.get_ports_by_path(resolve_schematic_id(lk, of_schematic), path ? path : "", filter_expression ? filter_expression : "");
+    if (!found)
+        return fail("get_ports: invalid -filter expression: " + found.error(), -1);
+    return keep_search_results(*found, [&](le::PortId id) { return format_port_id(lk, id); });
 }
 
-// --- Schematic<->Layout link mutation side-effects - le_tcl_procs.tcl's
-// own delete_net/update_net/
-// update_instance overrides route to these instead of the generated
-// delete_net_cmd/update_net_cmd/update_instance_cmd (still used as the
-// fallback for an update_net/update_instance call that doesn't touch
-// -name at all, since only a rename has anything to propagate).
+// Netlist edits that keep the Layout linked: le_tcl_procs.tcl's
+// delete_net, and update_net/update_instance when they rename, call these
+// instead of the generated commands.
 
 int delete_net_cascade_cmd(const char *id)
 {
-    return le_delete_net_cascade(session(), resolve_net_id(id));
+    le::WriteView view = write_view();
+    const std::expected<void, std::string> deleted = view.delete_net_cascade(resolve_net_id(lookup(view), id));
+    return deleted ? 0 : fail("delete_net: " + deleted.error());
 }
 
 const char *rename_net_cmd(const char *id, const char *new_name)
 {
-    const LeNetId typed_id = resolve_net_id(id);
-    if (le_rename_net_propagate(session(), typed_id, new_name) != 0)
-        return return_string("");
-    return return_string(format_net_id(typed_id));
+    le::WriteView view = write_view();
+    const le::NetId net = resolve_net_id(lookup(view), id);
+    const std::expected<void, std::string> renamed = view.rename_net(net, new_name ? new_name : "");
+    if (!renamed)
+        return fail_text("update_net: " + renamed.error());
+    return return_string(format_net_id(lookup(view), net));
 }
 
 const char *rename_instance_cmd(const char *id, const char *new_name)
 {
-    const LeInstanceId typed_id = resolve_instance_id(id);
-    if (le_rename_instance_propagate(session(), typed_id, new_name) != 0)
-        return return_string("");
-    return return_string(format_instance_id(typed_id));
+    le::WriteView view = write_view();
+    const le::InstanceId instance = resolve_instance_id(lookup(view), id);
+    const std::expected<void, std::string> renamed = view.rename_instance(instance, new_name ? new_name : "");
+    if (!renamed)
+        return fail_text("update_instance: " + renamed.error());
+    return return_string(format_instance_id(lookup(view), instance));
 }
 
 int design_count()
 {
-    return le_design_count(session());
+    return static_cast<int>(read_view().root().get_design_size());
 }
 
 const char *design_name(int index)
 {
-    return le_design_name(session(), index);
+    const le::ReadView view = read_view();
+    const auto ids = view.root().get_design_ids();
+    if (index < 0 || static_cast<size_t>(index) >= ids.size())
+        return nullptr;
+    const le::DesignData *design = view.root().get_design(ids[static_cast<size_t>(index)]);
+    return design ? return_string(design->name) : nullptr;
 }
 
 int property_path_failed()
 {
-    return le_property_path_failed(session());
+    return property_path_failed_flag() ? 1 : 0;
 }
 
 void set_viewport_size_cmd(int width_px, int height_px)
 {
-    le_set_viewport_size(session(), width_px, height_px);
+    write_view().set_viewport_size(width_px, height_px);
 }
 
 int viewport_width()
 {
-    return le_viewport_width_px(session());
+    return read_view().view().width_px;
 }
 
 int viewport_height()
 {
-    return le_viewport_height_px(session());
+    return read_view().view().height_px;
 }
 
 long long design_abstract_id(int design_index)
 {
-    return pack(le_library_design_at(session(), 0, design_index).abstract_id);
+    const le::ReadView view = read_view();
+    const auto libraries = view.root().get_library_ids();
+    if (libraries.empty() || design_index < 0)
+        return pack(le::AbstractId{});
+    const auto &designs = view.root().get_library_designs(libraries.front());
+    if (static_cast<size_t>(design_index) >= designs.size())
+        return pack(le::AbstractId{});
+    return pack(view.root().get_design_abstract(designs[static_cast<size_t>(design_index)]));
 }
 
 long long design_by_name(const char *name)
 {
-    return pack(le_design_by_name(session(), name));
+    const le::ReadView view = read_view();
+    return pack(le::resolve_design_reference(view.root(), name ? name : ""));
 }
 
 const char *technology_id()
 {
-    LeTechnologyId id = le_technology_id(session());
-    if (id.index == UINT32_MAX)
+    const le::ReadView view = read_view();
+    const auto technologies = view.root().get_technology_ids();
+    if (technologies.empty())
         return return_string("");
-    return return_string(format_technology_id(id));
-}
-
-namespace
-{
-    // Matches input.cpp's kKeyFitPaddingPx and GuiProvider's open
-    // actions - the same padding every "just opened a view" fit uses,
-    // duplicated here since le_tcl_shim.cpp is a separate TU.
-    constexpr int32_t kOpenDesignFitPaddingPx = 10;
+    return return_string(format_technology_id(lookup(view), technologies.front()));
 }
 
 int set_current_design_abstract_cmd(long long design_id)
 {
-    const int result = le_set_current_design_abstract_by_id(session(), unpack<LeDesignId>(design_id));
-    // Frames the newly-opened Abstract's own content the same way the
-    // GUI's own Library Browser open action does - a script-driven
-    // open_design should land on a sensible view, not whatever scale/pan
-    // happened to be left over from a previous one. Safe even with no
-    // viewport set yet (e.g. a headless le_shell run) -
-    // LeHandle::fit_to_content degrades to scale=1/pan={0,0} in that case.
+    le::WriteView view = write_view();
+    const int result = status(view.open_abstract(unpack<le::DesignId>(design_id)));
+    // A script-driven open lands framed, as the GUI's does.
     if (result == 0)
-        le_fit_scene(session(), kOpenDesignFitPaddingPx);
+        view.fit_view(kOpenDesignFitPaddingPx);
     return result;
 }
 
 int set_current_design_layout_cmd(long long design_id)
 {
-    const int result = le_set_current_design_layout_by_id(session(), unpack<LeDesignId>(design_id));
-    // Same reasoning as set_current_design_abstract_cmd above - a Layout
-    // view didn't get this at all before (the actual bug report this
-    // fixes: opening a layout view left the scene at its previous/default
-    // scale and pan instead of framing the Layout's own diearea, unlike
-    // an Abstract view opened through the GUI).
+    le::WriteView view = write_view();
+    const int result = status(view.open_layout(unpack<le::DesignId>(design_id)));
     if (result == 0)
-        le_fit_scene(session(), kOpenDesignFitPaddingPx);
+        view.fit_view(kOpenDesignFitPaddingPx);
     return result;
 }
 
 void zoom_cmd(double factor)
 {
-    le_zoom(session(), factor, viewport_width() / 2, viewport_height() / 2);
+    le::WriteView view = write_view();
+    const le::ViewState state = view.view();
+    view.zoom(factor, state.width_px / 2, state.height_px / 2);
 }
 
 void zoom_area_cmd(double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int padding_px)
 {
-    le_fit_rect(session(), ll_x_um, ll_y_um, ur_x_um, ur_y_um, padding_px);
+    le::WriteView view = write_view();
+    const double scale = dbu_per_um(view);
+    view.fit_rect(le::Rect{.ll = {to_dbu(ll_x_um, scale), to_dbu(ll_y_um, scale)}, .ur = {to_dbu(ur_x_um, scale), to_dbu(ur_y_um, scale)}}, padding_px);
 }
 
 void set_layer_visible_cmd(const char *layer_name, bool visible)
 {
-    le_set_layer_name_visible(session(), layer_name, visible);
+    if (layer_name)
+        write_view().set_layer_visible(layer_name, visible);
 }
 
 int dump_png_cmd(const char *path)
 {
-    const LePixelBuffer buffer = le_render_pixel_buffer(session());
-    if (!buffer.data || buffer.width <= 0 || buffer.height <= 0)
+    const le::RenderedFrame frame = le::Renderer(session()).render();
+    if (frame.empty() || frame.width <= 0 || frame.height <= 0)
         return 1;
 
-    BLImage image(buffer.width, buffer.height, BL_FORMAT_PRGB32);
+    BLImage image(frame.width, frame.height, BL_FORMAT_PRGB32);
     if (image.is_empty())
         return 1;
 
@@ -712,18 +678,14 @@ int dump_png_cmd(const char *path)
     if (image.get_data(&image_data) != BL_SUCCESS)
         return 1;
 
-    // LePixelBuffer is literal RGBA byte order (api.hpp's own contract -
-    // ComposeStage's own BGRA-to-RGBA swap, compose_stage.hpp, exists
-    // specifically to produce this for consumers like this one), while
-    // BL_FORMAT_PRGB32 is premultiplied BGRA in memory on this little-
-    // endian target (same finding that swap's own comment documents) -
-    // this is the mirror-image conversion, swapping back on the way in.
+    // The frame is RGBA in byte order; BL_FORMAT_PRGB32 is premultiplied
+    // BGRA in memory on this little-endian target, so R and B swap back.
     auto *dst_base = static_cast<uint8_t *>(image_data.pixel_data);
-    for (int y = 0; y < buffer.height; ++y)
+    for (int y = 0; y < frame.height; ++y)
     {
-        const uint8_t *src_row = buffer.data + static_cast<std::ptrdiff_t>(y) * buffer.row_bytes;
+        const uint8_t *src_row = frame.data + static_cast<std::ptrdiff_t>(y) * static_cast<std::ptrdiff_t>(frame.row_bytes);
         uint8_t *dst_row = dst_base + static_cast<std::ptrdiff_t>(y) * image_data.stride;
-        for (int x = 0; x < buffer.width; ++x)
+        for (int x = 0; x < frame.width; ++x)
         {
             const uint8_t *src_px = src_row + static_cast<std::ptrdiff_t>(x) * 4;
             uint8_t *dst_px = dst_row + static_cast<std::ptrdiff_t>(x) * 4;
@@ -739,7 +701,7 @@ int dump_png_cmd(const char *path)
 
 bool get_layer_visible_cmd(const char *layer_name)
 {
-    return le_is_layer_name_visible(session(), layer_name);
+    return !layer_name || read_view().layer_visible(layer_name);
 }
 
 // abstract_token/layout_token empty means "use le_write_lef/le_write_def's
@@ -757,34 +719,43 @@ bool get_layer_visible_cmd(const char *layer_name)
 // own -abstracts flag's Tcl list value via [join ...] on the way in.
 int write_lef_cmd(const char *path, const char *abstract_tokens, const char *library_token, int32_t layer_write_mode)
 {
-    std::vector<LeAbstractId> abstract_ids;
-    if (abstract_tokens)
-    {
-        std::istringstream stream(abstract_tokens);
-        std::string token;
-        while (stream >> token)
-            abstract_ids.push_back(resolve_abstract_id(token.c_str()));
-    }
-    const LeLibraryId library_id = (library_token && library_token[0])
-                                        ? resolve_library_id(library_token)
-                                        : LeLibraryId{.index = UINT32_MAX, .generation = 0};
-    return le_write_lef(session(), path, abstract_ids.empty() ? nullptr : abstract_ids.data(), static_cast<int32_t>(abstract_ids.size()), library_id, layer_write_mode);
+    le::WriteView view = write_view();
+    const Lookup lk = lookup(view);
+    std::vector<le::AbstractId> abstracts;
+    std::istringstream stream(abstract_tokens ? abstract_tokens : "");
+    std::string token;
+    while (stream >> token)
+        abstracts.push_back(resolve_abstract_id(lk, token.c_str()));
+    const le::LibraryId library = resolve_library_id(lk, library_token);
+    le::LefLayerWriteMode layers = le::LefLayerWriteMode::NONE;
+    if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT)
+        layers = le::LefLayerWriteMode::INCLUDE_WITH_ABSTRACT;
+    else if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY)
+        layers = le::LefLayerWriteMode::TECHNOLOGY_ONLY;
+    return status(view.write_lef(path ? path : "", abstracts, library, layers));
 }
 
 int write_def_cmd(const char *path, const char *layout_token)
 {
-    const LeLayoutId layout_id = (layout_token && layout_token[0])
-                                      ? resolve_layout_id(layout_token)
-                                      : LeLayoutId{.index = UINT32_MAX, .generation = 0};
-    return le_write_def(session(), path, layout_id);
+    le::WriteView view = write_view();
+    const le::LayoutId layout = resolve_layout_id(lookup(view), layout_token);
+    return status(view.write_def(path ? path : "", layout));
 }
 
-int write_db_cmd(const char *path, int with_session) { return le_write_db(session(), path, with_session); }
+int write_db_cmd(const char *path, int with_session) { return status(write_view().write_db(path ? path : "", with_session != 0)); }
 
-int read_db_cmd(const char *path, int with_session) { return le_read_db(session(), path, with_session); }
+int read_db_cmd(const char *path, int with_session) { return status(write_view().read_db(path ? path : "", with_session != 0)); }
 
-const char *db_info_cmd(const char *path) { return return_string(le_db_info(path)); }
-const char *migrate_db_cmd(const char *in_path, const char *out_path) { return return_string(le_migrate_db(in_path, out_path)); }
+const char *db_info_cmd(const char *path)
+{
+    const std::expected<std::string, std::string> info = le::db_info(path ? path : "");
+    return return_string(info ? *info : "error: " + info.error());
+}
+const char *migrate_db_cmd(const char *in_path, const char *out_path)
+{
+    const std::expected<std::string, std::string> report = le::migrate_db(in_path ? in_path : "", out_path ? out_path : "");
+    return return_string(report ? *report : "error: " + report.error());
+}
 
 // get_selection/select. Only Shape/Wire/Row/Placement/Region friendly ids are
 // meaningful here (the kinds LeHandle::SelectedObject covers - see le_select_object_ref's
@@ -794,247 +765,256 @@ const char *migrate_db_cmd(const char *in_path, const char *out_path) { return r
 // here is simpler than reaching for them.
 int selection_count_cmd()
 {
-    return le_selection_count(session());
+    return static_cast<int>(read_view().selection().size());
 }
 
 const char *get_selection_at_cmd(int index)
 {
-    const LeObjectRef ref = le_selected_object_ref(session(), index);
-    switch (ref.kind)
-    {
-    case LE_OBJECT_KIND_SHAPE:
-        return return_string(format_shape_id(LeShapeId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_WIRE:
-        return return_string(format_wire_id(LeWireId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_ROW:
-        return return_string(format_row_id(LeRowId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_PLACEMENT:
-        return return_string(format_placement_id(LePlacementId{.index = ref.index, .generation = ref.generation}));
-    case LE_OBJECT_KIND_REGION:
-        return return_string(format_region_id(LeRegionId{.index = ref.index, .generation = ref.generation}));
-    default:
+    const le::ReadView view = read_view();
+    const std::span<const le::SelectedObject> selection = view.selection();
+    if (index < 0 || static_cast<size_t>(index) >= selection.size())
         return return_string(std::string{});
-    }
+    // A piece names its Shape or Wire.
+    const Lookup lk = lookup(view);
+    return return_string(std::visit([&](const auto &entry) -> std::string
+                                    {
+                                        using T = std::decay_t<decltype(entry)>;
+                                        if constexpr (std::is_same_v<T, le::ShapePiece>)
+                                            return entry.wire_id.valid() ? format_wire_id(lk, entry.wire_id) : format_shape_id(lk, entry.shape_id);
+                                        else if constexpr (std::is_same_v<T, le::RowId>)
+                                            return format_row_id(lk, entry);
+                                        else if constexpr (std::is_same_v<T, le::PlacementId>)
+                                            return format_placement_id(lk, entry);
+                                        else
+                                            return format_region_id(lk, entry); },
+                                    selection[static_cast<size_t>(index)]));
 }
 
 int select_cmd(const char *token)
 {
     if (!token)
-        return 1;
+        return fail("no token");
     const std::string_view sv(token);
-    LeObjectRef ref{};
-    if (sv.substr(0, 6) == "shape:")
-    {
-        const LeShapeId id = resolve_shape_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 5) == "wire:")
-    {
-        const LeWireId id = resolve_wire_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_WIRE, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 4) == "row:")
-    {
-        const LeRowId id = resolve_row_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_ROW, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 10) == "placement:")
-    {
-        const LePlacementId id = resolve_placement_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_PLACEMENT, .index = id.index, .generation = id.generation};
-    }
-    else if (sv.substr(0, 7) == "region:")
-    {
-        const LeRegionId id = resolve_region_id(token);
-        ref = LeObjectRef{.kind = LE_OBJECT_KIND_REGION, .index = id.index, .generation = id.generation};
-    }
+    le::WriteView view = write_view();
+    const Lookup lk = lookup(view);
+    le::SelectableObject object;
+    if (sv.starts_with("shape:"))
+        object = resolve_shape_id(lk, token);
+    else if (sv.starts_with("wire:"))
+        object = resolve_wire_id(lk, token);
+    else if (sv.starts_with("row:"))
+        object = resolve_row_id(lk, token);
+    else if (sv.starts_with("placement:"))
+        object = resolve_placement_id(lk, token);
+    else if (sv.starts_with("region:"))
+        object = resolve_region_id(lk, token);
     else
-    {
-        // Unlike le_select_object_ref's own ERROR messages below (logged
-        // via spdlog::error, api.cpp has real access to spdlog there) -
-        // this shim has no compelling reason to log here too, so an
-        // unrecognized prefix is surfaced by the caller instead: select
-        // (le_tcl_procs.tcl) checks this return value and raises its own
-        // clear Tcl error with the token text it already has.
-        return 2; // distinct from 1 (a real, resolved-but-invalid/unsupported ref)
-    }
-    return le_select_object_ref(session(), ref);
+        return 2; // an unrecognized prefix: select names the token itself
+    return status(view.select(object));
 }
 
 void set_layer_selectable_cmd(const char *layer_name, bool selectable)
 {
-    le_set_layer_name_selectable(session(), layer_name, selectable);
+    if (layer_name)
+        write_view().set_layer_selectable(layer_name, selectable);
 }
 
 bool get_layer_selectable_cmd(const char *layer_name)
 {
-    return le_is_layer_name_selectable(session(), layer_name);
+    return !layer_name || read_view().layer_selectable(layer_name);
 }
 
 void set_purpose_visible_cmd(int32_t purpose, bool visible)
 {
-    le_set_purpose_visible(session(), purpose, visible);
+    write_view().set_purpose_visible(static_cast<le::ViewLayerPurpose>(purpose), visible);
 }
 
 bool get_purpose_visible_cmd(int32_t purpose)
 {
-    return le_is_purpose_visible(session(), purpose);
+    return read_view().purpose_visible(static_cast<le::ViewLayerPurpose>(purpose));
 }
 
 void set_purpose_selectable_cmd(int32_t purpose, bool selectable)
 {
-    le_set_purpose_selectable(session(), purpose, selectable);
+    write_view().set_purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose), selectable);
 }
 
 bool get_purpose_selectable_cmd(int32_t purpose)
 {
-    return le_is_purpose_selectable(session(), purpose);
+    return read_view().purpose_selectable(static_cast<le::ViewLayerPurpose>(purpose));
 }
 
 int purpose_kind_count_cmd()
 {
-    return le_purpose_kind_count();
+    return static_cast<int>(le::kViewLayerPurposeCount);
 }
 
 const char *purpose_name_cmd(int32_t purpose)
 {
-    const char *name = le_purpose_name(purpose);
-    return name ? name : "";
+    if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
+        return "";
+    return le::kViewLayerPurposes[static_cast<size_t>(purpose)].label.data(); // a literal: null-terminated
 }
 
 bool purpose_visible_by_default_cmd(int32_t purpose)
 {
-    return le_purpose_visible_by_default(purpose) != 0;
+    return purpose >= 0 && static_cast<size_t>(purpose) < le::kViewLayerPurposeCount && le::kViewLayerPurposes[static_cast<size_t>(purpose)].visible_by_default;
 }
 
 void set_object_filter_visible_cmd(int32_t filter, const char *value, bool visible)
 {
-    le_set_object_filter_value_visible(session(), filter, value, visible);
+    if (value)
+        write_view().set_object_filter_visible(static_cast<le::ObjectFilter>(filter), value, visible);
 }
 
 bool get_object_filter_visible_cmd(int32_t filter, const char *value)
 {
-    return le_is_object_filter_value_visible(session(), filter, value);
+    return !value || read_view().object_filter_visible(static_cast<le::ObjectFilter>(filter), value);
 }
 
 void set_object_filter_selectable_cmd(int32_t filter, const char *value, bool selectable)
 {
-    le_set_object_filter_value_selectable(session(), filter, value, selectable);
+    if (value)
+        write_view().set_object_filter_selectable(static_cast<le::ObjectFilter>(filter), value, selectable);
 }
 
 bool get_object_filter_selectable_cmd(int32_t filter, const char *value)
 {
-    return le_is_object_filter_value_selectable(session(), filter, value);
+    return !value || read_view().object_filter_selectable(static_cast<le::ObjectFilter>(filter), value);
 }
 
 void set_mode_cmd(int32_t mode)
 {
-    le_set_mode(session(), mode);
+    if (mode >= LE_MODE_SELECT && mode <= LE_MODE_RULER)
+        write_view().set_mode(static_cast<le::InteractionMode>(mode));
 }
 
 int32_t get_mode_cmd()
 {
-    return le_get_mode(session());
+    return static_cast<int32_t>(read_view().mode());
 }
 
 void clear_rulers_cmd()
 {
-    le_clear_rulers(session());
+    write_view().clear_rulers();
 }
 
 void deselect_all_cmd()
 {
-    le_deselect_all(session());
+    write_view().clear_selection();
 }
 
 void arm_move_cmd()
 {
-    le_arm_move(session());
+    write_view().arm_move();
 }
 
 int selected_locked_placement_count_cmd()
 {
-    return le_selected_locked_placement_count(session());
+    return static_cast<int>(read_view().selected_locked_placement_count());
 }
 
 bool is_move_anchored_cmd()
 {
-    return le_is_move_anchored(session()) != 0;
+    return read_view().move_anchored();
 }
 
 int delete_selected_pieces_cmd()
 {
-    return le_delete_selected_pieces(session());
+    return static_cast<int>(write_view().delete_selected_pieces());
 }
 
 void set_placement_snap_mode_cmd(int mode)
 {
-    le_set_placement_snap_mode(session(), mode);
+    if (mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID)
+        write_view().set_placement_snap_mode(static_cast<le::PlacementSnapMode>(mode));
 }
 
 int get_placement_snap_mode_cmd()
 {
-    return le_get_placement_snap_mode(session());
+    return static_cast<int>(read_view().placement_snap_mode());
 }
 
 int set_view_flip_cmd(int flip)
 {
-    return le_set_view_flip(session(), flip);
+    if (flip < LE_VIEW_FLIP_NONE || flip > LE_VIEW_FLIP_VERTICAL)
+        return 1;
+    write_view().set_view_flip(static_cast<le::ViewFlip>(flip));
+    return 0;
 }
 
 int get_view_flip_cmd()
 {
-    return le_view_flip(session());
+    return static_cast<int>(read_view().view().flip);
 }
 
 bool is_placement_snap_mode_available_cmd(int mode)
 {
-    return le_is_placement_snap_mode_available(session(), mode) != 0;
+    return mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID &&
+           read_view().placement_snap_mode_available(static_cast<le::PlacementSnapMode>(mode));
 }
 
 int apply_placement_orientation_op_cmd(int op)
 {
-    return le_apply_placement_orientation_op(session(), op);
+    if (op < LE_ORIENTATION_OP_ROTATE_CCW || op > LE_ORIENTATION_OP_FLIP_VERTICAL)
+        return -1;
+    const std::expected<void, le::OrientationOpError> applied = write_view().apply_placement_orientation_op(static_cast<le::OrientationOp>(op));
+    if (applied)
+        return 0;
+    switch (applied.error())
+    {
+    case le::OrientationOpError::NOTHING_SELECTED:
+        return 1;
+    case le::OrientationOpError::NOT_AVAILABLE:
+        return 2;
+    case le::OrientationOpError::LOCKED:
+        return 3;
+    }
+    return -1;
 }
 
 void arm_resize_cmd()
 {
-    le_arm_resize(session());
+    write_view().arm_resize();
 }
 
 void set_shape_snap_mode_cmd(int kind, int mode)
 {
-    le_set_shape_snap_mode(session(), kind, mode);
+    if (kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE && mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS)
+        write_view().set_shape_snap_mode(static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
 }
 
 int get_shape_snap_mode_cmd(int kind)
 {
-    return le_get_shape_snap_mode(session(), kind);
+    if (kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE)
+        return LE_SHAPE_SNAP_USER_GRID;
+    return static_cast<int>(read_view().shape_snap_mode(static_cast<le::PieceKind>(kind)));
 }
 
 bool is_shape_snap_mode_available_cmd(int kind, int mode)
 {
-    return le_is_shape_snap_mode_available(session(), kind, mode) != 0;
+    return kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE && mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS &&
+           read_view().shape_snap_mode_available(static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
 }
 
 void request_show_gui_cmd()
 {
-    le_request_show_gui(session());
+    le::SessionRequests(session()).request_show_gui();
 }
 
 void request_close_gui_cmd()
 {
-    le_request_close_gui(session());
+    le::SessionRequests(session()).request_close_gui();
 }
 
 int has_unsaved_database_changes_cmd()
 {
-    return le_has_unsaved_database_changes(session());
+    return read_view().has_unsaved_database() ? 1 : 0;
 }
 
 int has_unsaved_settings_cmd()
 {
-    return le_has_unsaved_settings(session());
+    return read_view().has_unsaved_settings() ? 1 : 0;
 }
 
 void set_session_handle(long long handle_address)
@@ -1051,83 +1031,146 @@ void set_session_handle(long long handle_address)
 // one function taking both parent tokens, exactly one of which must
 // resolve) ---
 
+namespace
+{
+    // The geometry of the Shape `id` names, read under one shared lock,
+    // and its scale in microns (nullopt before a Technology is read).
+    struct ShapeRead
+    {
+        le::ReadView view = read_view();
+        const le::ShapeData *shape = nullptr;
+        std::optional<double> scale;
+
+        explicit ShapeRead(const char *id)
+            : shape(view.root().get_shape(resolve_shape_id(lookup(view), id))), scale(units_dbu_per_um(view)) {}
+
+        // `points[index]` in microns, "x y"; "0 0" if out of range or unscaled.
+        std::string point_at(const std::vector<le::Point> &points, int index) const
+        {
+            double x = 0;
+            double y = 0;
+            if (scale && index >= 0 && static_cast<size_t>(index) < points.size())
+            {
+                x = static_cast<double>(points[static_cast<size_t>(index)].x) / *scale;
+                y = static_cast<double>(points[static_cast<size_t>(index)].y) / *scale;
+            }
+            std::ostringstream out;
+            out << x << ' ' << y;
+            return out.str();
+        }
+
+        const le::Polygon *polygon(int index) const
+        {
+            return shape && index >= 0 && static_cast<size_t>(index) < shape->polygons.size() ? &shape->polygons[static_cast<size_t>(index)] : nullptr;
+        }
+
+        const le::Path *path(int index) const
+        {
+            return shape && index >= 0 && static_cast<size_t>(index) < shape->paths.size() ? &shape->paths[static_cast<size_t>(index)] : nullptr;
+        }
+    };
+
+    // The Shape or Wire a "shape:"/"wire:" token names.
+    le::GeometryId resolve_geometry_id(const Lookup &lk, const char *id)
+    {
+        if (std::string_view(id ? id : "").starts_with("wire:"))
+            return le::GeometryId(resolve_wire_id(lk, id));
+        return le::GeometryId(resolve_shape_id(lk, id));
+    }
+
+    int remove_piece(const char *id, le::PieceKind kind, int index, const char *what)
+    {
+        if (index < 0)
+            return fail(std::string("a ") + what + " index can't be negative");
+        le::WriteView view = write_view();
+        return status(view.remove_shape_piece(resolve_geometry_id(lookup(view), id), kind, static_cast<size_t>(index)));
+    }
+}
+
 const char *shape_layer_name(const char *id)
 {
-    return le_shape_layer_name(session(), resolve_shape_id(id));
+    const ShapeRead read(id);
+    const le::LayerData *layer = read.shape ? read.view.root().get_layer(read.shape->layer) : nullptr;
+    return layer ? return_string(layer->name) : nullptr;
 }
 
 int shape_rect_count(const char *id)
 {
-    return le_shape_rect_count(session(), resolve_shape_id(id));
+    const ShapeRead read(id);
+    return read.shape ? static_cast<int>(read.shape->rects.size()) : 0;
 }
 
 const char *shape_rect_at(const char *id, int index)
 {
-    // Brace-nested {{ll_x ll_y} {ur_x ur_y}}, matching every other
-    // Rect-shaped value's own convention (create_shape's own -rects flag,
-    // get_properties' rects display).
-    LeRectUm rect = le_shape_rect_at(session(), resolve_shape_id(id), index);
-    std::ostringstream out;
-    out << '{' << rect.ll_x_um << ' ' << rect.ll_y_um << "} {" << rect.ur_x_um << ' ' << rect.ur_y_um << '}';
-    return return_string(out.str());
+    // Brace-nested {{ll_x ll_y} {ur_x ur_y}}, as create_shape's -rects
+    // flag and get_properties' rects take and show them.
+    const ShapeRead read(id);
+    std::vector<le::Point> corners;
+    if (read.shape && index >= 0 && static_cast<size_t>(index) < read.shape->rects.size())
+        corners = {read.shape->rects[static_cast<size_t>(index)].ll, read.shape->rects[static_cast<size_t>(index)].ur};
+    return return_string('{' + read.point_at(corners, 0) + "} {" + read.point_at(corners, 1) + '}');
 }
 
 int remove_shape_rect(const char *id, int index)
 {
-    return le_remove_shape_rect(session(), resolve_shape_id(id), index);
+    return remove_piece(id, le::PieceKind::RECT, index, "rect");
 }
 
 int shape_polygon_count(const char *id)
 {
-    return le_shape_polygon_count(session(), resolve_shape_id(id));
+    const ShapeRead read(id);
+    return read.shape ? static_cast<int>(read.shape->polygons.size()) : 0;
 }
 
 int shape_polygon_point_count(const char *id, int polygon_index)
 {
-    return le_shape_polygon_point_count(session(), resolve_shape_id(id), polygon_index);
+    const ShapeRead read(id);
+    const le::Polygon *polygon = read.polygon(polygon_index);
+    return polygon ? static_cast<int>(polygon->points.size()) : 0;
 }
 
 const char *shape_polygon_point_at(const char *id, int polygon_index, int point_index)
 {
-    LePointUm pt = le_shape_polygon_point_at(session(), resolve_shape_id(id), polygon_index, point_index);
-    std::ostringstream out;
-    out << pt.x_um << ' ' << pt.y_um;
-    return return_string(out.str());
+    const ShapeRead read(id);
+    const le::Polygon *polygon = read.polygon(polygon_index);
+    return return_string(read.point_at(polygon ? polygon->points : std::vector<le::Point>{}, point_index));
 }
 
 int remove_shape_polygon(const char *id, int polygon_index)
 {
-    return le_remove_shape_polygon(session(), resolve_shape_id(id), polygon_index);
+    return remove_piece(id, le::PieceKind::POLYGON, polygon_index, "polygon");
 }
 
 int shape_path_count(const char *id)
 {
-    return le_shape_path_count(session(), resolve_shape_id(id));
+    const ShapeRead read(id);
+    return read.shape ? static_cast<int>(read.shape->paths.size()) : 0;
 }
 
 double shape_path_width_um(const char *id, int path_index)
 {
-    return le_shape_path_width_um(session(), resolve_shape_id(id), path_index);
+    const ShapeRead read(id);
+    const le::Path *path = read.path(path_index);
+    return path && read.scale ? static_cast<double>(path->width) / *read.scale : 0.0;
 }
 
 int shape_path_point_count(const char *id, int path_index)
 {
-    return le_shape_path_point_count(session(), resolve_shape_id(id), path_index);
+    const ShapeRead read(id);
+    const le::Path *path = read.path(path_index);
+    return path ? static_cast<int>(path->polygon.points.size()) : 0;
 }
 
 const char *shape_path_point_at(const char *id, int path_index, int point_index)
 {
-    LePointUm pt = le_shape_path_point_at(session(), resolve_shape_id(id), path_index, point_index);
-    std::ostringstream out;
-    out << pt.x_um << ' ' << pt.y_um;
-    return return_string(out.str());
+    const ShapeRead read(id);
+    const le::Path *path = read.path(path_index);
+    return return_string(read.point_at(path ? path->polygon.points : std::vector<le::Point>{}, point_index));
 }
 
 int remove_shape_path(const char *id, int path_index)
 {
-    if (std::string_view(id ? id : "").starts_with("wire:"))
-        return le_remove_wire_path(session(), resolve_wire_id(id), path_index);
-    return le_remove_shape_path(session(), resolve_shape_id(id), path_index);
+    return remove_piece(id, le::PieceKind::PATH, path_index, "path");
 }
 
 // --- shape_* operations ---
@@ -1135,50 +1178,33 @@ int remove_shape_path(const char *id, int path_index)
 // Shape token lists cross as one space-separated string (le_tcl_procs.tcl
 // builds it with [join ...]) - the same plain word split write_lef_cmd's
 // own abstract_tokens uses. An unknown shape token resolves to the invalid
-// id, which le_shape_* then reports as an unknown shape; an unknown
-// -layer/-parent token can't be told apart from an omitted one that way,
-// so it's caught here instead and returned as its own status
-// (kShapeOpBadLayer/kShapeOpBadParent) for the Tcl proc to report.
+// id, which the shape op then reports as unknown; an unknown -layer/
+// -parent token can't be told apart from an omitted one that way, so it's
+// caught here instead and returned as its own status (kShapeOpBadLayer/
+// kShapeOpBadParent) for the Tcl proc to report. Any other failure is -1,
+// its reason kept for last_error_cmd.
 
 namespace
 {
+    constexpr int kShapeOpFailed = -1;
     constexpr int kShapeOpBadLayer = -2;
     constexpr int kShapeOpBadParent = -3;
 
     // shape: and wire: tokens.
-    std::vector<LeObjectRef> resolve_shape_tokens(const char *tokens)
+    std::vector<le::GeometryId> resolve_shape_tokens(const Lookup &lk, const char *tokens)
     {
-        std::vector<LeObjectRef> refs;
+        std::vector<le::GeometryId> shapes;
         std::istringstream stream(tokens ? tokens : "");
         std::string token;
         while (stream >> token)
-        {
-            if (token.starts_with("wire:"))
-            {
-                const LeWireId id = resolve_wire_id(token.c_str());
-                refs.push_back(LeObjectRef{.kind = LE_OBJECT_KIND_WIRE, .index = id.index, .generation = id.generation});
-            }
-            else
-            {
-                const LeShapeId id = resolve_shape_id(token.c_str());
-                refs.push_back(LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation});
-            }
-        }
-        return refs;
+            shapes.push_back(resolve_geometry_id(lk, token.c_str()));
+        return shapes;
     }
 
     bool token_given(const char *token)
     {
         return token && token[0];
     }
-
-    // A -layer value: a real layer token, or `debug` (any case) for the
-    // layer-less DEBUG purpose.
-    struct LayerTarget
-    {
-        LeLayerId layer{.index = UINT32_MAX, .generation = 0};
-        const char *purpose = nullptr;
-    };
 
     bool is_debug_layer(const char *token)
     {
@@ -1188,264 +1214,308 @@ namespace
         return lower == "debug";
     }
 
-    // nullopt = a layer token was given but doesn't resolve.
-    std::optional<LayerTarget> resolve_optional_layer(const char *token)
+    // A -layer value: a real layer token, or `debug` (any case) for the
+    // layer-less DEBUG purpose; nothing for no token. nullopt = a layer
+    // token was given but doesn't resolve.
+    std::optional<std::optional<le::shape_ops::LayerOrPurpose>> resolve_optional_layer(const Lookup &lk, const char *token)
     {
         if (!token_given(token))
-            return LayerTarget{};
+            return std::optional<le::shape_ops::LayerOrPurpose>{};
         if (is_debug_layer(token))
-            return LayerTarget{.purpose = "DEBUG"};
-        const LeLayerId id = resolve_layer_id(token);
-        if (id.index == UINT32_MAX)
+            return std::optional(le::shape_ops::LayerOrPurpose{.purpose = le::ShapePurpose::DEBUG});
+        const le::LayerId id = resolve_layer_id(lk, token);
+        if (!id.valid())
             return std::nullopt;
-        return LayerTarget{.layer = id};
+        return std::optional(le::shape_ops::LayerOrPurpose{.layer = id});
     }
 
-    template <typename IdT>
-    LeObjectRef object_ref(int32_t kind, IdT id)
-    {
-        return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation};
-    }
-
-    // nullopt = a parent token was given but isn't a supported, existing kind.
-    std::optional<LeObjectRef> resolve_optional_parent(const char *token)
+    // nothing for no token; nullopt = a parent token was given but isn't
+    // a supported, existing kind.
+    std::optional<std::optional<le::shape_ops::ShapeParent>> resolve_optional_parent(const Lookup &lk, const char *token)
     {
         if (!token_given(token))
-            return le_object_invalid_ref();
+            return std::optional<le::shape_ops::ShapeParent>{};
         const std::string_view sv(token);
-        LeObjectRef ref = le_object_invalid_ref();
+        const auto valid = [](auto id) -> std::optional<std::optional<le::shape_ops::ShapeParent>>
+        {
+            if (!id.valid())
+                return std::nullopt;
+            return std::optional<le::shape_ops::ShapeParent>(id);
+        };
         if (sv.starts_with("abstract:"))
-            ref = object_ref(LE_OBJECT_KIND_ABSTRACT, resolve_abstract_id(token));
-        else if (sv.starts_with("layout:"))
-            ref = object_ref(LE_OBJECT_KIND_LAYOUT, resolve_layout_id(token));
-        else if (sv.starts_with("obstruction:"))
-            ref = object_ref(LE_OBJECT_KIND_OBSTRUCTION, resolve_obstruction_id(token));
-        else if (sv.starts_with("terminal_port:"))
-            ref = object_ref(LE_OBJECT_KIND_TERMINAL_PORT, resolve_terminal_port_id(token));
-        else if (sv.starts_with("route:"))
-            ref = object_ref(LE_OBJECT_KIND_ROUTE, resolve_route_id(token));
-        else if (sv.starts_with("blockage:"))
-            ref = object_ref(LE_OBJECT_KIND_BLOCKAGE, resolve_blockage_id(token));
-        else if (sv.starts_with("physical_port_segment:"))
-            ref = object_ref(LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT, resolve_physical_port_segment_id(token));
-        if (ref.index == UINT32_MAX)
-            return std::nullopt;
-        return ref;
+            return valid(resolve_abstract_id(lk, token));
+        if (sv.starts_with("layout:"))
+            return valid(resolve_layout_id(lk, token));
+        if (sv.starts_with("obstruction:"))
+            return valid(resolve_obstruction_id(lk, token));
+        if (sv.starts_with("terminal_port:"))
+            return valid(resolve_terminal_port_id(lk, token));
+        if (sv.starts_with("route:"))
+            return valid(resolve_route_id(lk, token));
+        if (sv.starts_with("blockage:"))
+            return valid(resolve_blockage_id(lk, token));
+        if (sv.starts_with("physical_port_segment:"))
+            return valid(resolve_physical_port_segment_id(lk, token));
+        return std::nullopt;
+    }
+
+    // The last shape op's new Shapes, for shape_op_results_cmd.
+    std::vector<le::ShapeId> &shape_op_results()
+    {
+        static thread_local std::vector<le::ShapeId> results;
+        return results;
     }
 
     // Shared by every creating shape_*_cmd: resolves -layer/-parent, then
-    // hands the resolved shape ids to `call` (the matching le_shape_*).
+    // runs `call(view, lk, layer, parent)` - the matching WriteView shape
+    // op. How many Shapes it made, or a negative status.
     template <typename Call>
     int run_shape_op_cmd(const char *layer_token, const char *parent_token, Call &&call)
     {
-        const std::optional<LayerTarget> target = resolve_optional_layer(layer_token);
-        if (!target)
+        le::WriteView view = write_view();
+        const Lookup lk = lookup(view);
+        const auto layer = resolve_optional_layer(lk, layer_token);
+        if (!layer)
             return kShapeOpBadLayer;
-        const std::optional<LeObjectRef> parent = resolve_optional_parent(parent_token);
+        const auto parent = resolve_optional_parent(lk, parent_token);
         if (!parent)
             return kShapeOpBadParent;
-        return call(target->layer, target->purpose, *parent);
-    }
-
-    const LeObjectRef *data_or_null(const std::vector<LeObjectRef> &refs)
-    {
-        return refs.empty() ? nullptr : refs.data();
+        const le::ShapeOpResult result = call(view, lk, *layer, *parent);
+        if (!result)
+        {
+            fail(result.error());
+            return kShapeOpFailed;
+        }
+        shape_op_results() = *result;
+        return static_cast<int>(result->size());
     }
 }
 
 int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_copy(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const Lookup &lk, const auto &layer, const auto &parent)
+                            {
+                                const std::vector<le::GeometryId> shapes = resolve_shape_tokens(lk, shape_tokens);
+                                return layer ? view.shape_copy(shapes, *layer, parent) : le::ShapeOpResult(std::unexpected(std::string("-layer is required"))); });
 }
 
 int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> a = resolve_shape_tokens(shape_tokens_a);
-    const std::vector<LeObjectRef> b = resolve_shape_tokens(shape_tokens_b);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_boolean(session(), data_or_null(a), static_cast<int32_t>(a.size()), data_or_null(b),
-                                                      static_cast<int32_t>(b.size()), op, layer, purpose, parent); });
+    const le::BooleanOp boolean_op = op == LE_SHAPE_BOOLEAN_AND ? le::BooleanOp::And : op == LE_SHAPE_BOOLEAN_NOT ? le::BooleanOp::Not : le::BooleanOp::Or;
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const Lookup &lk, const auto &layer, const auto &parent)
+                            {
+                                const std::vector<le::GeometryId> a = resolve_shape_tokens(lk, shape_tokens_a);
+                                const std::vector<le::GeometryId> b = resolve_shape_tokens(lk, shape_tokens_b);
+                                return view.shape_boolean(a, b, boolean_op, layer, parent); });
 }
 
 int shape_to_polygon_cmd(const char *shape_tokens, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_to_polygon(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), layer, purpose, parent); });
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const Lookup &lk, const auto &layer, const auto &parent)
+                            {
+                                const std::vector<le::GeometryId> shapes = resolve_shape_tokens(lk, shape_tokens);
+                                return view.shape_to_polygons(shapes, layer, parent); });
 }
 
 int shape_to_rects_cmd(const char *shape_tokens, int vertical, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_to_rects(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), vertical, layer, purpose, parent); });
+    const le::FractureDirection direction = vertical ? le::FractureDirection::Vertical : le::FractureDirection::Horizontal;
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const Lookup &lk, const auto &layer, const auto &parent)
+                            {
+                                const std::vector<le::GeometryId> shapes = resolve_shape_tokens(lk, shape_tokens);
+                                return view.shape_to_rects(shapes, direction, layer, parent); });
 }
 
 int shape_size_cmd(const char *shape_tokens, double dx_um, double dy_um, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_size(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), dx_um, dy_um, layer, purpose, parent); });
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const Lookup &lk, const auto &layer, const auto &parent)
+                            {
+                                const std::vector<le::GeometryId> shapes = resolve_shape_tokens(lk, shape_tokens);
+                                const double scale = dbu_per_um(view);
+                                return view.shape_size(shapes, to_dbu(dx_um, scale), to_dbu(dy_um, scale), layer, parent); });
 }
 
 int shape_path_cmd(const char *shape_tokens, double width_um, const char *layer_token, const char *parent_token)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return run_shape_op_cmd(layer_token, parent_token, [&](LeLayerId layer, const char *purpose, LeObjectRef parent)
-                            { return le_shape_path(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), width_um, layer, purpose, parent); });
+    return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const Lookup &lk, const auto &layer, const auto &parent)
+                            {
+                                const std::vector<le::GeometryId> shapes = resolve_shape_tokens(lk, shape_tokens);
+                                return view.shape_outline_paths(shapes, to_dbu(width_um, dbu_per_um(view)), layer, parent); });
 }
 
 int shape_change_layer_cmd(const char *shape_tokens, const char *layer_token)
 {
-    const std::optional<LayerTarget> target = resolve_optional_layer(layer_token);
-    if (!target || (target->layer.index == UINT32_MAX && !target->purpose))
+    le::WriteView view = write_view();
+    const Lookup lk = lookup(view);
+    const auto layer = resolve_optional_layer(lk, layer_token);
+    if (!layer || !*layer)
         return kShapeOpBadLayer;
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    return le_shape_change_layer(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()), target->layer, target->purpose);
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(lk, shape_tokens);
+    if (const std::expected<void, std::string> changed = view.shape_change_layer(shapes, **layer); !changed)
+    {
+        fail(changed.error());
+        return kShapeOpFailed;
+    }
+    return static_cast<int>(shapes.size());
 }
 
 const char *shape_op_results_cmd(int count)
 {
+    const le::ReadView view = read_view();
+    const Lookup lk = lookup(view);
+    const std::vector<le::ShapeId> &results = shape_op_results();
     std::ostringstream out;
-    for (int i = 0; i < count; ++i)
+    for (int i = 0; i < count && static_cast<size_t>(i) < results.size(); ++i)
     {
         if (i > 0)
             out << ' ';
-        out << format_shape_id(le_shape_op_result_at(session(), i));
+        out << format_shape_id(lk, results[static_cast<size_t>(i)]);
     }
     return return_string(out.str());
 }
 
 const char *shape_bbox_cmd(const char *shape_tokens)
 {
-    const std::vector<LeObjectRef> shapes = resolve_shape_tokens(shape_tokens);
-    const LeShapeBbox box = le_shape_bbox(session(), data_or_null(shapes), static_cast<int32_t>(shapes.size()));
-    if (!box.valid)
+    const le::ReadView view = read_view();
+    const std::vector<le::GeometryId> shapes = resolve_shape_tokens(lookup(view), shape_tokens);
+    const std::expected<le::Rect, std::string> box = view.shape_bbox(shapes);
+    if (!box)
+    {
+        fail(box.error());
         return return_string("");
+    }
+    const double scale = dbu_per_um(view);
     // The {{llx lly} {urx ury}} Rect form every -bbox/-rects flag and
     // zoom_area take. std::to_chars gives the shortest exact round-trip
     // form (ostream's default 6 significant digits would truncate a large
     // micron coordinate).
-    auto number = [](double value)
+    auto number = [&](int64_t dbu)
     {
         char buf[32];
-        const auto [end, ec] = std::to_chars(buf, buf + sizeof(buf), value);
+        const auto [end, ec] = std::to_chars(buf, buf + sizeof(buf), static_cast<double>(dbu) / scale);
         return std::string(buf, end);
     };
-    return return_string("{" + number(box.ll_x_um) + " " + number(box.ll_y_um) + "} {" + number(box.ur_x_um) + " " + number(box.ur_y_um) + "}");
+    return return_string("{" + number(box->ll.x) + " " + number(box->ll.y) + "} {" + number(box->ur.x) + " " + number(box->ur.y) + "}");
 }
 
 // --- Editing / undo-redo ---
 
 void begin_command(const char *label)
 {
-    le_begin_command(session(), label);
+    if (label)
+        write_view().begin_command(label);
 }
 
 int end_command(int succeeded)
 {
-    le_end_command(session(), succeeded);
+    write_view().end_command(succeeded != 0);
     return 0;
 }
 
 int undo_command()
 {
-    return le_undo(session());
+    const std::expected<bool, std::string> undone = write_view().undo();
+    return undone ? (*undone ? 1 : 0) : -1;
 }
 
 int redo_command()
 {
-    return le_redo(session());
+    const std::expected<bool, std::string> redone = write_view().redo();
+    return redone ? (*redone ? 1 : 0) : -1;
 }
 
 int command_history_count()
 {
-    return le_command_history_count(session());
+    return static_cast<int>(read_view().command_history_size());
 }
 
 const char *command_history_at(int index)
 {
-    const char *value = le_command_history_at(session(), index);
-    return value ? value : "";
+    const le::ReadView view = read_view();
+    if (index < 0 || static_cast<size_t>(index) >= view.command_history_size())
+        return "";
+    return return_string(view.command_history_at(static_cast<size_t>(index)));
 }
 
 int get_hierarchy_depth_command()
 {
-    return le_hierarchy_depth(session());
+    return read_view().hierarchy_depth();
 }
 
 void set_hierarchy_depth_command(int depth)
 {
-    le_set_hierarchy_depth(session(), depth);
+    write_view().set_hierarchy_depth(depth);
 }
 
 int get_flightline_max_fanout_command()
 {
-    return le_flightline_max_fanout(session());
+    return read_view().flightline_max_fanout();
 }
 
 void set_flightline_max_fanout_command(int max_fanout)
 {
-    le_set_flightline_max_fanout(session(), max_fanout);
+    write_view().set_flightline_max_fanout(max_fanout);
 }
 
 int get_undo_limit_command()
 {
-    return le_undo_limit(session());
+    return static_cast<int>(std::min<size_t>(read_view().undo_limit(), INT32_MAX));
 }
 
 void set_undo_limit_command(int limit)
 {
-    le_set_undo_limit(session(), limit);
+    if (limit >= 0)
+        write_view().set_undo_limit(static_cast<size_t>(limit));
 }
 
 double get_grid_spacing_um_command(int major)
 {
-    return le_grid_spacing_um(session(), major);
+    return read_view().grid_spacing_um(major != 0);
 }
 
 void set_grid_spacing_um_command(double minor_um, double major_um)
 {
-    le_set_grid_spacing_um(session(), minor_um, major_um);
+    write_view().set_grid_spacing_um(minor_um, major_um);
 }
 
-int get_confirm_overwrite_command() { return le_confirm_overwrite(session()); }
-void set_confirm_overwrite_command(int confirm) { le_set_confirm_overwrite(session(), confirm); }
-const char *get_theme_command() { return le_theme(session()); }
-int set_theme_command(const char *name) { return le_set_theme(session(), name); }
-int theme_count_command() { return le_theme_count(); }
-const char *theme_name_command(int index) { return le_theme_name(index); }
+int get_confirm_overwrite_command() { return read_view().confirm_overwrite() ? 1 : 0; }
+void set_confirm_overwrite_command(int confirm) { write_view().set_confirm_overwrite(confirm != 0); }
+const char *get_theme_command() { return le::kThemes[read_view().theme()].name.data(); }
+int set_theme_command(const char *name) { return name && write_view().set_theme(name) ? 0 : -1; }
+int theme_count_command() { return static_cast<int>(le::kThemes.size()); }
+const char *theme_name_command(int index)
+{
+    return index >= 0 && static_cast<size_t>(index) < le::kThemes.size() ? le::kThemes[static_cast<size_t>(index)].name.data() : "";
+}
 
 double get_ruler_label_size_command()
 {
-    return le_ruler_label_size(session());
+    return read_view().ruler_label_size();
 }
 
 void set_ruler_label_size_command(double px)
 {
-    le_set_ruler_label_size(session(), px);
+    write_view().set_ruler_label_size(px);
 }
 
 double get_label_min_size_command()
 {
-    return le_label_min_size(session());
+    return read_view().label_min_size();
 }
 
 void set_label_min_size_command(double px)
 {
-    le_set_label_min_size(session(), px);
+    write_view().set_label_min_size(px);
 }
 
 double get_label_max_size_command()
 {
-    return le_label_max_size(session());
+    return read_view().label_max_size();
 }
 
 void set_label_max_size_command(double px)
 {
-    le_set_label_max_size(session(), px);
+    write_view().set_label_max_size(px);
 }
 
 // Layer colors as "#rrggbb" (the "#" is
@@ -1459,39 +1529,42 @@ int set_layer_color_command(const char *layer, const char *color)
                                          { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }))
         return 1;
     const unsigned long value = std::stoul(std::string(text), nullptr, 16);
-    return le_set_layer_color(session(), layer, static_cast<int32_t>((value >> 16) & 0xff), static_cast<int32_t>((value >> 8) & 0xff),
-                              static_cast<int32_t>(value & 0xff));
+    if (!layer)
+        return 1;
+    write_view().set_layer_color(layer, le::Color{static_cast<uint8_t>((value >> 16) & 0xff), static_cast<uint8_t>((value >> 8) & 0xff), static_cast<uint8_t>(value & 0xff)});
+    return 0;
 }
 
 void reset_layer_color_command(const char *layer)
 {
-    le_reset_layer_color(session(), layer);
+    if (layer)
+        write_view().reset_layer_color(layer);
 }
 
 // "#rrggbb", or "" for a layer with no row.
 const char *get_layer_color_command(const char *layer)
 {
-    const int32_t rgb = le_layer_color_rgb(session(), layer);
-    if (rgb < 0)
+    const std::optional<le::Color> color = layer ? read_view().layer_color(layer) : std::nullopt;
+    if (!color)
         return return_string("");
     char text[8];
-    std::snprintf(text, sizeof(text), "#%06x", static_cast<unsigned>(rgb));
+    std::snprintf(text, sizeof(text), "#%02x%02x%02x", color->r, color->g, color->b);
     return return_string(text);
 }
 
 int save_settings_command(const char *path)
 {
-    return le_save_settings(session(), path);
+    return status(write_view().save_settings(path ? path : ""));
 }
 
 int load_settings_command(const char *path)
 {
-    return le_load_settings(session(), path);
+    return status(write_view().load_settings(path ? path : ""));
 }
 
 const char *default_settings_path_command()
 {
-    return le_default_settings_path();
+    return return_string(le::default_settings_path());
 }
 
 const char *generated_procs_default_path_command()
@@ -1505,10 +1578,10 @@ const char *generated_procs_default_path_command()
 
 int get_max_concurrency_command()
 {
-    return le_max_concurrency(session());
+    return read_view().max_concurrency();
 }
 
 void set_max_concurrency_command(int max_concurrency)
 {
-    le_set_max_concurrency(session(), max_concurrency);
+    write_view().set_max_concurrency(max_concurrency);
 }

@@ -924,6 +924,8 @@ The first version.
   (keeping the linked Layout objects in step, as one undo step or part of
   the open one), `link_unresolved_instances`, and `begin_command`/
   `end_command` for a step that spans several views.
+- `WriteView::delete_<type>_batch` (added in 0.3, without a version bump):
+  deletes several objects of a class as one all-or-nothing edit.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

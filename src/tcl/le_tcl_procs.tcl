@@ -916,11 +916,11 @@ proc open_design {name args} {
     # as a side effect - see their own api.cpp comments.
     if {$opts(-view) eq "abstract"} {
         if {[set_current_design_abstract_cmd $design_id] != 0} {
-            error "open_design: failed to select design \"$name\""
+            error "open_design: failed to select design \"$name\": [last_error_cmd]"
         }
     } else {
         if {[set_current_design_layout_cmd $design_id] != 0} {
-            error "open_design: failed to select design \"$name\""
+            error "open_design: failed to select design \"$name\": [last_error_cmd]"
         }
     }
     #
@@ -1329,7 +1329,7 @@ proc select {args} {
         if {$status == 2} {
             error "select: unrecognized token \"$token\" (expected a shape:/wire:/row:/placement:/region: token)"
         } elseif {$status != 0} {
-            error "select: failed to select \"$token\" - see the terminal log for the specific reason"
+            error "select: failed to select \"$token\": [last_error_cmd]"
         }
     }
     return ""
@@ -1765,7 +1765,7 @@ proc write_verilog_stubs {args} {
     }
     set filename [_expand_path [lindex $positional 0]]
     if {[write_verilog_stubs_cmd $filename $opts(-library)] != 0} {
-        error "write_verilog_stubs: failed to write \"$filename\" - see the terminal log for the specific reason"
+        error "write_verilog_stubs: failed to write \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -1831,7 +1831,7 @@ proc write_lef {args} {
     # folds into the same "tokens" argument as a one-element list.
     set abstract_tokens [expr {$opts(-abstract) ne "" ? $opts(-abstract) : [join $opts(-abstracts)]}]
     if {[write_lef_cmd $filename $abstract_tokens $opts(-library) $mode] != 0} {
-        error "write_lef: failed to write LEF to \"$filename\" - see the terminal log for the specific reason"
+        error "write_lef: failed to write LEF to \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -1856,7 +1856,7 @@ proc write_def {args} {
     }
     set filename [_expand_path [lindex $positional 0]]
     if {[write_def_cmd $filename $opts(-layout)] != 0} {
-        error "write_def: failed to write DEF to \"$filename\" - see the terminal log for the specific reason"
+        error "write_def: failed to write DEF to \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -1895,7 +1895,7 @@ proc write_db {args} {
     _return_usage_if_help write_db $args
     lassign [::db_command_args write_db $args] filename with_session
     if {[write_db_cmd $filename $with_session] != 0} {
-        error "write_db: failed to write \"$filename\" - see the terminal log for the specific reason"
+        error "write_db: failed to write \"$filename\": [last_error_cmd]"
     }
     return ""
 }
@@ -2157,13 +2157,10 @@ proc properties_for_token {token {command get_properties}} {
 # token's own *_property_path shim function - always through this path
 # mechanism, even for a plain single-segment name, rather than a separate
 # dict-lookup fast path, so chained and unchained lookups behave
-# identically. A path that fails to parse or references an unrecognized
-# field/hop logs an ERROR via spdlog::error and resolves to "" - the same
-# "" a structurally valid path that simply has no data for this object
-# (e.g. a list hop with zero elements) resolves to. property_path_failed
-# (backed by LeHandle::last_property_path_failed, api.hpp) is what still
-# tells the two apart from Tcl, now that the message text itself only
-# goes to the terminal log, not a queryable queue.
+# identically. A path that fails to parse or names an unrecognized
+# field/hop resolves to "", as does a valid path with no data for this
+# object (e.g. a list hop with no elements); property_path_failed tells
+# the two apart, and last_error_cmd gives the reason.
 proc get_properties {tokens {property_names {}}} {
     set single_token [expr {[llength $tokens] == 1}]
     set token_list [expr {$single_token ? [list $tokens] : $tokens}]
@@ -2178,7 +2175,7 @@ proc get_properties {tokens {property_names {}}} {
             foreach path $property_names {
                 set value [$path_cmd $token $path]
                 if {[property_path_failed]} {
-                    error "get_properties: invalid property path \"$path\" for \"$token\" - see the terminal log for the specific reason"
+                    error "get_properties: invalid property path \"$path\" for \"$token\": [last_error_cmd]"
                 }
                 lappend values $value
             }
@@ -2410,7 +2407,7 @@ proc _finish_shape_op {name count} {
         }
     }
     if {$count < 0} {
-        error "$name: failed - see the terminal log for the specific reason"
+        error "$name: [last_error_cmd]"
     }
     return [shape_op_results_cmd $count]
 }
@@ -2447,7 +2444,7 @@ proc shape_change_layer {args} {
         error "shape_change_layer: unknown -layer token"
     }
     if {$count < 0} {
-        error "shape_change_layer: failed - see the terminal log for the specific reason"
+        error "shape_change_layer: [last_error_cmd]"
     }
     return [dict get $opts shapes]
 }
@@ -2544,7 +2541,7 @@ proc shape_bbox {args} {
     _require_shapes shape_bbox $opts
     set box [shape_bbox_cmd [join [dict get $opts shapes]]]
     if {$box eq ""} {
-        error "shape_bbox: failed - see the terminal log for the specific reason"
+        error "shape_bbox: [last_error_cmd]"
     }
     return $box
 }
@@ -3024,7 +3021,7 @@ proc save_settings {args} {
     }
     set path [_expand_path [lindex $args 0]]
     if {[save_settings_command $path] != 0} {
-        error "save_settings: couldn't write [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+        error "save_settings: [last_error_cmd]"
     }
     return ""
 }
@@ -3045,7 +3042,7 @@ proc load_settings {args} {
     }
     set path [_expand_path [lindex $args 0]]
     if {[load_settings_command $path] != 0} {
-        error "load_settings: couldn't read [expr {$path eq "" ? [default_settings_path_command] : $path}] - see the terminal log"
+        error "load_settings: [last_error_cmd]"
     }
     return ""
 }
@@ -3144,7 +3141,7 @@ proc get_instances {args} {
                 set count [get_instances_cmd $of_schematic $name_expr $filter]
             }
             if {$count < 0} {
-                error "get_instances: invalid -filter expression - see the error above"
+                error [last_error_cmd]
             }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_instances_at $i]
@@ -3179,7 +3176,7 @@ proc get_nets {args} {
                 set count [get_nets_cmd $of_schematic $name_expr $filter]
             }
             if {$count < 0} {
-                error "get_nets: invalid -filter expression - see the error above"
+                error [last_error_cmd]
             }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_nets_at $i]
@@ -3214,7 +3211,7 @@ proc get_ports {args} {
                 set count [get_ports_cmd $of_schematic $name_expr $filter]
             }
             if {$count < 0} {
-                error "get_ports: invalid -filter expression - see the error above"
+                error [last_error_cmd]
             }
             for {set i 0} {$i < $count} {incr i} {
                 lappend result [get_ports_at $i]
@@ -3253,7 +3250,7 @@ proc delete_net {args} {
         error "delete_net: exactly one argument (a Net id) is required"
     }
     if {[delete_net_cascade_cmd [lindex $args 0]] != 0} {
-        error "delete_net: failed to delete \"[lindex $args 0]\""
+        error [last_error_cmd]
     }
     return 0
 }
@@ -3269,14 +3266,14 @@ proc update_net {id args} {
     if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-bus) eq {} && $opts(-bit_index) eq {}} {
         set new_id [rename_net_cmd $id $opts(-name)]
         if {$new_id eq {}} {
-            error "update_net: failed to update \"$id\""
+            error [last_error_cmd]
         }
         return $new_id
     }
 
     set new_id [update_net_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-bus) ne {} ? 1 : 0}] $opts(-bus) $opts(-name) [expr {$opts(-bit_index) ne {} ? 1 : 0}] [expr {$opts(-bit_index) ne {} ? $opts(-bit_index) : 0}]]
     if {$new_id eq {}} {
-        error "update_net: failed to update \"$id\""
+        error [last_error_cmd]
     }
     return $new_id
 }
@@ -3294,7 +3291,7 @@ proc update_instance {id args} {
             && $opts(-rtl_text) eq {} && $opts(-source_file) eq {} && $opts(-diagnostic_summary) eq {}} {
         set new_id [rename_instance_cmd $id $opts(-name)]
         if {$new_id eq {}} {
-            error "update_instance: failed to update \"$id\""
+            error [last_error_cmd]
         }
         return $new_id
     }
@@ -3308,7 +3305,7 @@ proc update_instance {id args} {
     lassign $location_vals location_x_um location_y_um
     set new_id [update_instance_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-reference_design) ne {} ? 1 : 0}] $opts(-reference_design) $opts(-name) $opts(-reference_name) $has_location $location_x_um $location_y_um $opts(-rtl_text) $opts(-source_file) $opts(-diagnostic_summary)]
     if {$new_id eq {}} {
-        error "update_instance: failed to update \"$id\""
+        error [last_error_cmd]
     }
     return $new_id
 }

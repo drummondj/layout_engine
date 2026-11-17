@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Callable, Any, Dict, List, Optional, Tuple
 
 """
 Define the type map for C++ types: https://en.cppreference.com/w/cpp/language/types
@@ -795,19 +795,26 @@ class Klass:
         parts += self._create_field_param_parts("create")
         return ", ".join(parts)
 
+    def create_native_params(self) -> str:
+        """
+        create_api_params() with native ids (le::<Parent>Id, the owner as
+        le::<OwnerType>): the parameters of the Tcl shim's
+        create_<type>_native(le::WriteView &view, ...), which
+        create_<type>_cmd forwards to (create_shim_forward_args()).
+        """
+        parts = [f"le::{pf.type}Id {pf.name}_id" for pf in self.non_owner_parent_fields()]
+        if self.get_owner_fields():
+            parts.append(f"le::{self.owner_type_name()} owner")
+        parts += [f"le::{rf.type}Id {rf.name}_id" for rf in self.get_reference_create_fields()]
+        parts += self._create_field_param_parts("create")
+        return ", ".join(parts)
+
     def create_shim_params(self) -> str:
         """
-        Same shape as create_api_params(), but each parent field is a
-        `const char *` friendly-id token instead of its real Le<Parent>Id
-        - this is the signature create_<type>_cmd (the SWIG/Tcl-facing
-        shim) actually takes, resolving each token via
-        resolve_<parent_klass>_id() in its own body before forwarding to
-        le_create_<type> (mirrors create_terminal_port_cmd's existing
-        `const char *terminal_id` precedent, not the older packed-longlong
-        convention create_terminal_cmd/create_obstruction_cmd used before
-        Root-level friendly-id resolution existed for every class - see
-        the create_<type> generation round's own notes for why those two
-        are being replaced, not extended).
+        The parameters of create_<type>_cmd, the SWIG/Tcl-facing shim:
+        create_api_params()'s shape with each parent (and reference) as a
+        `const char *` friendly-id token, and the owner as its option's
+        name and token.
         """
         parts = [f"const char *{pf.name}_id" for pf in self.non_owner_parent_fields()]
         if self.get_owner_fields():
@@ -818,17 +825,17 @@ class Klass:
 
     def create_shim_forward_args(self) -> str:
         """
-        Comma-joined argument list forwarding a create_<type>_cmd call
-        (create_shim_params()'s own parameter names) to le_create_<type>
-        (create_api_params()) - each parent token resolved via
-        resolve_<parent_klass>_id(), each create field forwarded via its
-        own Field.cmd_forward_exprs() (identity for numeric/compound-leaf
-        slots, empty-to-nullptr for an optional str/enum field).
+        Comma-joined arguments forwarding create_<type>_cmd's own
+        parameters (create_shim_params()) to create_<type>_native
+        (create_native_params()): each token resolved with
+        resolve_<klass>_id(lk, ...) against the open view's Lookup `lk`,
+        each create field through Field.cmd_forward_exprs() (identity for
+        numeric slots, empty-to-nullptr for an optional str/enum field).
         """
-        parts = [f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)" for pf in self.non_owner_parent_fields()]
+        parts = [f"resolve_{pf._parent_klass.to_snake_case()}_id(lk, {pf.name}_id)" for pf in self.non_owner_parent_fields()]
         if self.get_owner_fields():
-            parts.append(f"resolve_{self.to_snake_case()}_owner(owner_kind, owner_id)")
-        parts += [f"resolve_{rf._type_klass.to_snake_case()}_id({rf.name}_id)" for rf in self.get_reference_create_fields()]
+            parts.append(f"resolve_{self.to_snake_case()}_owner(lk, owner_kind, owner_id)")
+        parts += [f"resolve_{rf._type_klass.to_snake_case()}_id(lk, {rf.name}_id)" for rf in self.get_reference_create_fields()]
         parts += self._create_field_forward_parts("create")
         return ", ".join(parts)
 
@@ -898,15 +905,28 @@ class Klass:
         parts += self._create_field_param_parts("update")
         return ", ".join(parts)
 
+    def update_native_params(self) -> str:
+        """
+        update_api_params() with native ids: the parameters of the Tcl
+        shim's update_<type>_native(le::WriteView &view, ...).
+        """
+        parts = [f"le::{self.name}Id id"]
+        parent_fields = self.get_parent_fields()
+        if len(parent_fields) == 1:
+            pf = parent_fields[0]
+            parts.append(f"int32_t has_{pf.name}")
+            parts.append(f"le::{pf.type}Id {pf.name}_id")
+        for rf in self.get_reference_create_fields():
+            parts.append(f"int32_t has_{rf.name}")
+            parts.append(f"le::{rf.type}Id {rf.name}_id")
+        parts += self._create_field_param_parts("update")
+        return ", ".join(parts)
+
     def update_shim_params(self) -> str:
         """
-        Same shape as update_api_params(), but `id` and (for a single-
-        parent class) the parent are `const char *` friendly-id tokens
-        instead of real Ids - the signature update_<type>_cmd (the
-        SWIG/Tcl-facing shim) actually takes, resolving each token via
-        resolve_<klass>_id()/resolve_<parent_klass>_id() in its own body
-        before forwarding to le_update_<type> (mirrors
-        create_shim_params() vs. create_api_params()'s existing split).
+        The parameters of update_<type>_cmd: update_api_params()'s shape
+        with `id`, a single parent and each reference as friendly-id
+        tokens.
         """
         parts = ["const char *id"]
         parent_fields = self.get_parent_fields()
@@ -922,31 +942,22 @@ class Klass:
 
     def update_shim_forward_args(self) -> str:
         """
-        Comma-joined argument list forwarding an update_<type>_cmd call's
-        own parameters (update_shim_params(), *excluding* `id` - the
-        caller resolves that once into its own `typed_id` local, since
-        it's needed twice: as le_update_<type>'s own first argument
-        *and*, unlike create_<type>_cmd (which formats the id le_create_
-        <type> itself returns), to format the *return* value too, from
-        the id resolved *before* the update call ran - re-resolving the
-        caller's original friendly-id string afterward would break for
-        a class whose friendly id can change as a result of the update
-        itself, e.g. Terminal's own name-based one after a rename) to
-        le_update_<type> (update_api_params(), also id-less from this
-        method's point of view) - the parent token (if single-parent)
-        forwarded alongside its own has-flag unchanged and resolved via
-        resolve_<parent_klass>_id(), each create field forwarded via its
-        own Field.cmd_forward_exprs("update").
+        Comma-joined arguments forwarding update_<type>_cmd's parameters,
+        after `id` (resolved once by the caller, which also formats its
+        return value from it - a rename can change a name-based token), to
+        update_<type>_native (update_native_params()): the single parent
+        and each reference with its has-flag, resolved against `lk`, and
+        each create field through Field.cmd_forward_exprs("update").
         """
         parts = []
         parent_fields = self.get_parent_fields()
         if len(parent_fields) == 1:
             pf = parent_fields[0]
             parts.append(f"has_{pf.name}")
-            parts.append(f"resolve_{pf._parent_klass.to_snake_case()}_id({pf.name}_id)")
+            parts.append(f"resolve_{pf._parent_klass.to_snake_case()}_id(lk, {pf.name}_id)")
         for rf in self.get_reference_create_fields():
             parts.append(f"has_{rf.name}")
-            parts.append(f"resolve_{rf._type_klass.to_snake_case()}_id({rf.name}_id)")
+            parts.append(f"resolve_{rf._type_klass.to_snake_case()}_id(lk, {rf.name}_id)")
         parts += self._create_field_forward_parts("update")
         return ", ".join(parts)
 
@@ -1828,7 +1839,7 @@ class Field:
         """The flat-array C parameter name for this list-compound create field - `<field>_flat_um`."""
         return f"{self.name}_flat_um"
 
-    def list_compound_parse_lines(self, mode: str, invalid_return: str, cmd_name: str) -> List[str]:
+    def list_compound_parse_lines(self, mode: str, fail: Callable[[str], List[str]]) -> List[str]:
         """
         api.cpp-layer statements (8-space indented, matching c_api.create_api_body()/
         c_api.update_api_body()'s own base indent) that parse this list-compound
@@ -1850,7 +1861,8 @@ class Field:
         the time this runs). Every arity/malformed-encoding check here is
         defense in depth against a caller reaching *_cmd directly with a
         hand-built flat array - the generated Tcl preamble already
-        guarantees a well-formed one.
+        guarantees a well-formed one. `fail(message)` gives the
+        statements that report a malformed entry and leave the function.
         """
         kind = self.list_compound_kind()
         element_klass = self._type_klass
@@ -1873,12 +1885,8 @@ class Field:
             leaf_count = len(element_klass.embedded_scalar_leaves())
             add(f"if ({count_param} % {leaf_count} != 0)", d)
             add("{", d)
-            add(
-                f'    spdlog::error("{cmd_name}: -{name}: each entry needs '
-                f'{leaf_count} coordinates");',
-                d,
-            )
-            add(f"    {invalid_return}", d)
+            for fail_line in fail(f"-{name}: each entry needs {leaf_count} coordinates"):
+                add(f"    {fail_line}", d)
             add("}", d)
             ctor_expr, _ = Field._compound_ctor_expr_indexed(element_klass, param, "i")
             add(f"for (int32_t i = 0; i < {count_param}; i += {leaf_count})", d)
@@ -1901,18 +1909,14 @@ class Field:
             add("    {", d)
             add(f"        if (i >= {count_param})", d)
             add("        {", d)
-            add(f'            spdlog::error("{cmd_name}: -{name}: malformed entry");', d)
-            add(f"            {invalid_return}", d)
+            for fail_line in fail(f"-{name}: malformed entry"):
+                add(f"            {fail_line}", d)
             add("        }", d)
             add(f"        const int32_t {name}_point_count = static_cast<int32_t>({param}[i++]);", d)
             add(f"        if ({name}_point_count < 2 || i + {name}_point_count * 2 > {count_param})", d)
             add("        {", d)
-            add(
-                f'            spdlog::error("{cmd_name}: -{name}: each entry '
-                f'needs at least 2 points");',
-                d,
-            )
-            add(f"            {invalid_return}", d)
+            for fail_line in fail(f"-{name}: each entry needs at least 2 points"):
+                add(f"            {fail_line}", d)
             add("        }", d)
             add(f"        le::{element_klass.name} {name}_record;", d)
             add(f"        for (int32_t c = 0; c < {name}_point_count; ++c)", d)
@@ -1941,8 +1945,8 @@ class Field:
             add("    {", d)
             add(f"        if (i + {len(scalar_fields)} >= {count_param})", d)
             add("        {", d)
-            add(f'            spdlog::error("{cmd_name}: -{name}: malformed entry");', d)
-            add(f"            {invalid_return}", d)
+            for fail_line in fail(f"-{name}: malformed entry"):
+                add(f"            {fail_line}", d)
             add("        }", d)
             scalar_value_exprs = []
             for sf in scalar_fields:
@@ -1952,12 +1956,8 @@ class Field:
             add(f"        const int32_t {name}_point_count = static_cast<int32_t>({param}[i++]);", d)
             add(f"        if ({name}_point_count < 2 || i + {name}_point_count * 2 > {count_param})", d)
             add("        {", d)
-            add(
-                f'            spdlog::error("{cmd_name}: -{name}: each entry '
-                f'needs at least 2 points");',
-                d,
-            )
-            add(f"            {invalid_return}", d)
+            for fail_line in fail(f"-{name}: each entry needs at least 2 points"):
+                add(f"            {fail_line}", d)
             add("        }", d)
             add(f"        le::{point_field.type} {name}_points;", d)
             add(f"        for (int32_t c = 0; c < {name}_point_count; ++c)", d)

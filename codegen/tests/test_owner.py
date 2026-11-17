@@ -115,7 +115,8 @@ class TestOwnerApi(unittest.TestCase):
         self.assertIn("LE_ITEM_OWNER_HOLDER = 2,", declarations)
         self.assertIn("static inline LeItemOwner le_item_owner_holder(LeHolderId id)", declarations)
         self.assertIn("LeItemId le_create_item(LeHandle *handle, LeItemOwner owner, int32_t size)", declarations)
-        self.assertIn("resolve_item_owner(owner_kind, owner_id)", shim)
+        self.assertIn("resolve_item_owner(lk, owner_kind, owner_id)", shim)
+        self.assertIn("return le::ItemOwner::holder(resolve_holder_id(lk, id));", shim)
         # Tcl keeps a flag per owner and passes the given one's name and token.
         self.assertIn("foreach kind {root holder}", procs)
         self.assertIn("create_item_cmd $owner_kind $owner_id", procs)

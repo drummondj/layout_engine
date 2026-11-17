@@ -135,6 +135,7 @@ const char *migrate_db_cmd(const char *in_path, const char *out_path);
 int selection_count_cmd();
 const char *get_selection_at_cmd(int index);
 int select_cmd(const char *token);
+const char *last_error_cmd();
 bool get_layer_visible_cmd(const char *layer_name);
 void set_layer_selectable_cmd(const char *layer_name, bool selectable);
 bool get_layer_selectable_cmd(const char *layer_name);
