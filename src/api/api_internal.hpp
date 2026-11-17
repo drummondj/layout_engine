@@ -236,4 +236,31 @@ namespace le::api_detail
         bool database_clean_;
         bool settings_clean_;
     };
+
+    // An edit's own undo step - unless one is already open (a typed Tcl
+    // command, a Transaction), which it then records into and leaves open.
+    // The caller holds the exclusive lock.
+    class OwnStep
+    {
+    public:
+        OwnStep(LeHandle &handle, const char *label) : handle_(handle), owns_(!handle.command_history.is_recording())
+        {
+            if (owns_)
+                handle_.command_history.begin(label);
+        }
+        ~OwnStep()
+        {
+            if (owns_)
+                handle_.command_history.end(succeeded_);
+        }
+        OwnStep(const OwnStep &) = delete;
+        OwnStep &operator=(const OwnStep &) = delete;
+
+        void fail() { succeeded_ = false; }
+
+    private:
+        LeHandle &handle_;
+        bool owns_;
+        bool succeeded_ = true;
+    };
 }

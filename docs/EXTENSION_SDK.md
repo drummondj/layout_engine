@@ -916,6 +916,14 @@ The first version.
   parents, a name glob and a `-filter`, under the shared lock; a bad
   filter is an error), `properties` and `parent` of an
   `le::ObjectId` (any class's id), and `le::object_kind_name`.
+- Netlist edits and paths on the views (added in 0.3, without a version
+  bump): `ReadView::property(id, path)` (a dotted property path such as
+  `.net.name`) and `get_instances_by_path`/`get_nets_by_path`/
+  `get_ports_by_path` (hierarchical paths, `**` for any depth);
+  `WriteView::delete_net_cascade`, `rename_net` and `rename_instance`
+  (keeping the linked Layout objects in step, as one undo step or part of
+  the open one), `link_unresolved_instances`, and `begin_command`/
+  `end_command` for a step that spans several views.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

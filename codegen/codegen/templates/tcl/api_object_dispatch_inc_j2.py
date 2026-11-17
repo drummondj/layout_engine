@@ -91,6 +91,39 @@ std::optional<le::ObjectId> object_id_parent(const le::Root &root, const le::Obj
     return std::nullopt;
 }
 
+// `path` (parse_property_path's segments) read off `id`, in microns:
+// nullopt if `id` doesn't exist or the path leads nowhere (e.g. an unset
+// reference); an error if a segment names no field of its class.
+std::expected<std::optional<le::PropertyValue>, std::string> object_id_property_path(const le::Root &root, const le::ObjectId &id,
+                                                                                   const std::vector<std::string> &path)
+{
+    switch (id.index())
+    {
+{% for klass in classes %}
+    case {{loop.index0}}:
+    {
+        const le::{{klass.name}}Id typed_id = std::get<{{loop.index0}}>(id);
+        const le::{{klass.name}}Data *data = root.get_{{klass.to_snake_case()}}(typed_id);
+        if (!data)
+            return std::nullopt;
+        if (path.size() == 1)
+        {
+            if (std::optional<le::PropertyValue> found = find_property_by_name(build_{{klass.to_snake_case()}}_properties(root, typed_id), path[0]))
+                return found;
+            return std::unexpected("unknown field '" + path[0] + "' on {{klass.name}}");
+        }
+        if (std::optional<std::string> error = validate_filter_path("{{klass.name}}", path))
+            return std::unexpected(std::move(*error));
+        std::optional<le::PropertyValue> value = le::resolve_property_path(root, typed_id, *data, path);
+        if (!value)
+            return std::nullopt;
+        return display_path_value(root, std::move(*value));
+    }
+{% endfor %}
+    }
+    return std::nullopt;
+}
+
 LeObjectRef object_ref_parent(const le::Root &root, LeObjectRef ref)
 {
     const std::optional<le::ObjectId> id = object_id_from_ref(ref);

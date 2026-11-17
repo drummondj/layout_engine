@@ -19,32 +19,6 @@ using namespace le::api_detail;
 
 namespace
 {
-    // An edit's own undo step - unless one is already open (a typed Tcl
-    // command, a Transaction), which it then records into and leaves open.
-    class OwnStep
-    {
-    public:
-        OwnStep(LeHandle &handle, const char *label) : handle_(handle), owns_(!handle.command_history.is_recording())
-        {
-            if (owns_)
-                handle_.command_history.begin(label);
-        }
-        ~OwnStep()
-        {
-            if (owns_)
-                handle_.command_history.end(succeeded_);
-        }
-        OwnStep(const OwnStep &) = delete;
-        OwnStep &operator=(const OwnStep &) = delete;
-
-        void fail() { succeeded_ = false; }
-
-    private:
-        LeHandle &handle_;
-        bool owns_;
-        bool succeeded_ = true;
-    };
-
     // apply_shape_snapshot, plus Shape.vias/via_iterates and the DEF masks
     // (rect_/polygon_/path_masks, index-parallel to their pieces) - the
     // generated update_shape (and so the generated snapshot applier)
