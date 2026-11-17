@@ -11,60 +11,60 @@ namespace le::gui
 {
     namespace
     {
-        const char *mode_keyword(int32_t mode)
+        const char *mode_keyword(InteractionMode mode)
         {
             switch (mode)
             {
-            case LE_MODE_SELECT:
+            case InteractionMode::SELECT:
                 return "select";
-            case LE_MODE_EDIT:
+            case InteractionMode::EDIT:
                 return "edit";
-            case LE_MODE_RULER:
+            case InteractionMode::RULER:
                 return "ruler";
             default:
                 return "select";
             }
         }
 
-        const char *mode_label(int32_t mode)
+        const char *mode_label(InteractionMode mode)
         {
             switch (mode)
             {
-            case LE_MODE_SELECT:
+            case InteractionMode::SELECT:
                 return "Select";
-            case LE_MODE_EDIT:
+            case InteractionMode::EDIT:
                 return "Edit";
-            case LE_MODE_RULER:
+            case InteractionMode::RULER:
                 return "Ruler";
             default:
                 return "?";
             }
         }
 
-        Icon mode_icon(int32_t mode)
+        Icon mode_icon(InteractionMode mode)
         {
             switch (mode)
             {
-            case LE_MODE_SELECT:
+            case InteractionMode::SELECT:
                 return Icon::Select;
-            case LE_MODE_EDIT:
+            case InteractionMode::EDIT:
                 return Icon::Edit;
-            case LE_MODE_RULER:
+            case InteractionMode::RULER:
                 return Icon::Ruler;
             default:
                 return Icon::Select;
             }
         }
 
-        const char *mode_shortcut(int32_t mode)
+        const char *mode_shortcut(InteractionMode mode)
         {
             switch (mode)
             {
-            case LE_MODE_SELECT:
+            case InteractionMode::SELECT:
                 return "s";
-            case LE_MODE_EDIT:
+            case InteractionMode::EDIT:
                 return "e";
-            case LE_MODE_RULER:
+            case InteractionMode::RULER:
                 return "r";
             default:
                 return "";
@@ -79,9 +79,9 @@ namespace le::gui
         // layer_manager.cpp's own draw_optimistic_checkbox/hierarchy
         // depth field - set_mode is enqueued (evaluated on le_shell's
         // own console thread up to ~100ms later), so re-reading
-        // le_get_mode() on the very next frame would otherwise flicker
+        // the mode on the very next frame would otherwise flicker
         // the highlighted button back to the old mode until that lands.
-        void draw_mode_button(GuiProvider &provider, int32_t mode, int32_t display_mode, bool &has_pending, int32_t &pending)
+        void draw_mode_button(GuiProvider &provider, InteractionMode mode, InteractionMode display_mode, bool &has_pending, InteractionMode &pending)
         {
             const bool selected = display_mode == mode;
             // Selected keeps a permanent highlighted background (a
@@ -122,19 +122,19 @@ namespace le::gui
     void draw_mode_selector(GuiProvider &provider)
     {
         static bool has_pending_mode = false;
-        static int32_t pending_mode = LE_MODE_SELECT;
+        static InteractionMode pending_mode = InteractionMode::SELECT;
 
-        const int32_t backend_mode = provider.state().mode;
+        const InteractionMode backend_mode = provider.state().mode;
         if (has_pending_mode && backend_mode == pending_mode)
         {
             has_pending_mode = false;
         }
-        const int32_t display_mode = has_pending_mode ? pending_mode : backend_mode;
+        const InteractionMode display_mode = has_pending_mode ? pending_mode : backend_mode;
 
-        draw_mode_button(provider, LE_MODE_SELECT, display_mode, has_pending_mode, pending_mode);
+        draw_mode_button(provider, InteractionMode::SELECT, display_mode, has_pending_mode, pending_mode);
         ImGui::Spacing();
-        draw_mode_button(provider, LE_MODE_EDIT, display_mode, has_pending_mode, pending_mode);
+        draw_mode_button(provider, InteractionMode::EDIT, display_mode, has_pending_mode, pending_mode);
         ImGui::Spacing();
-        draw_mode_button(provider, LE_MODE_RULER, display_mode, has_pending_mode, pending_mode);
+        draw_mode_button(provider, InteractionMode::RULER, display_mode, has_pending_mode, pending_mode);
     }
 }

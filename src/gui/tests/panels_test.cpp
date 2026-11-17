@@ -54,8 +54,18 @@ namespace
 
     struct Session
     {
-        LeHandle *handle = le_create();
-        ~Session() { le_destroy(handle); }
+        le::Session session;
+        LeHandle *handle = session.handle();
+
+        void create_library(const std::string &name)
+        {
+            ASSERT_TRUE(session.write().create_library(le::LibraryData{.name = name}).has_value());
+        }
+        void write_db(const std::string &path)
+        {
+            ASSERT_TRUE(session.write().write_db(path, true).has_value());
+        }
+        std::string queued() { return session.requests().take_next_tcl_command().value_or(""); }
     };
 
     struct Counter
@@ -200,7 +210,7 @@ TEST(ExtensionGui, ContextSharesStateWithTheExtensionAndNeverWaitsToRead)
     EXPECT_FALSE(gui.is_busy());
     EXPECT_EQ(gui.selection_count(), 0);
 
-    le_create_library(session.handle, "lib1");
+    session.create_library("lib1");
     {
         const le::ext::ReadView view = gui.read();
         ASSERT_TRUE(view.valid());
@@ -231,7 +241,7 @@ class DesignSaverTest : public ::testing::Test
 protected:
     void SetUp() override
     {
-        le_create_library(session.handle, "lib");
+        session.create_library("lib");
         path = le::test::scratch_path("design_saver.led");
         std::filesystem::remove(path);
     }
@@ -247,8 +257,8 @@ protected:
 
 TEST_F(DesignSaverTest, SaveAsksBeforeOverwritingAnExistingFile)
 {
-    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0); // the design's file now exists
-    le_create_library(session.handle, "edited");
+    session.write_db(path); // the design's file now exists
+    session.create_library("edited");
     refresh();
     le::gui::DesignSaver saver(true);
     imgui.frame([&] {
@@ -262,9 +272,9 @@ TEST_F(DesignSaverTest, SaveAsksBeforeOverwritingAnExistingFile)
 
 TEST_F(DesignSaverTest, SaveWritesStraightAwayWhenTheQuestionIsOff)
 {
-    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
-    le_create_library(session.handle, "edited");
-    le_set_confirm_overwrite(session.handle, 0);
+    session.write_db(path);
+    session.create_library("edited");
+    session.session.write().set_confirm_overwrite(false);
     refresh();
     le::gui::DesignSaver saver(true);
     imgui.frame([&] {
@@ -278,14 +288,13 @@ TEST_F(DesignSaverTest, SaveWritesStraightAwayWhenTheQuestionIsOff)
 
 TEST_F(DesignSaverTest, TheMenusSaverQueuesWriteDb)
 {
-    ASSERT_EQ(le_write_db(session.handle, path.c_str(), 1), 0);
+    session.write_db(path);
     std::filesystem::remove(path); // nothing to overwrite now
     refresh();
     le::gui::DesignSaver saver(false);
     imgui.frame([&] { saver.save(provider); });
-    const char *command = le_take_next_pending_tcl_command(session.handle);
-    ASSERT_NE(command, nullptr);
-    EXPECT_EQ(std::string(command).rfind("write_db ", 0), 0u) << command;
+    const std::string command = session.queued();
+    EXPECT_EQ(command.rfind("write_db ", 0), 0u) << command;
 }
 
 TEST(ExtensionGui, KeyBindingsOnCoreKeysOrTakenCombinationsAreRefused)
@@ -422,14 +431,10 @@ TEST(Icons, ExtIconIsAnItemThatDrawsTheIcon)
 // show it; the filter still applies either way.
 TEST(LibraryBrowser, ADesignWithoutPhysicalViewsShowsOnlyWhenAskedFor)
 {
-    constexpr uint32_t kNone = UINT32_MAX;
-    LeDesignInfo schematic_only{};
-    schematic_only.name = "fifo";
-    schematic_only.abstract_id.index = kNone;
-    schematic_only.layout_id.index = kNone;
-    LeDesignInfo cell = schematic_only;
+    const le::gui::GuiProvider::DesignEntry schematic_only{.id = {}, .name = "fifo", .has_abstract = false, .has_layout = false};
+    le::gui::GuiProvider::DesignEntry cell = schematic_only;
     cell.name = "INV_X1";
-    cell.abstract_id.index = 0;
+    cell.has_abstract = true;
 
     EXPECT_FALSE(le::gui::design_shown_in_browser(schematic_only, "", false));
     EXPECT_TRUE(le::gui::design_shown_in_browser(schematic_only, "", true));
@@ -506,7 +511,7 @@ TEST(Theme, TheSettingsPanelReadsAndQueuesTheTheme)
     Session session;
     le::gui::GuiProvider provider{session.handle};
     HeadlessImGui imgui;
-    ASSERT_EQ(le_set_theme(session.handle, "red"), 0);
+    ASSERT_TRUE(session.session.write().set_theme("red"));
     provider.refresh();
     EXPECT_EQ(provider.state().settings.theme, *le::find_theme("red"));
     imgui.frame([&] {
@@ -515,7 +520,5 @@ TEST(Theme, TheSettingsPanelReadsAndQueuesTheTheme)
         ImGui::End();
     });
     provider.set_theme(*le::find_theme("teal"));
-    const char *command = le_take_next_pending_tcl_command(session.handle);
-    ASSERT_NE(command, nullptr);
-    EXPECT_STREQ(command, "set_theme teal");
+    EXPECT_EQ(session.queued(), "set_theme teal");
 }

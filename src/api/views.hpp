@@ -582,6 +582,9 @@ namespace le
 
     /// @brief The snake_case name of `id`'s class ("terminal_port"), as Tcl's friendly ids use it.
     std::string_view object_kind_name(const ObjectId &id);
+    /// @brief Whether Tcl's friendly ids name `id`'s class by its name
+    /// (`terminal:IN0`) rather than a number (`shape:12`).
+    bool object_kind_is_named(const ObjectId &id);
 
     /// @brief Describes a native database (.led) file without loading it:
     /// its versions, extensions, the migrations it needs and its object

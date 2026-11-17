@@ -108,9 +108,9 @@ fails on a temp path that isn't unique to its process.
     `TRACK_PREFERRED`/`TRACK_NON_PREFERRED`/`ROUTING_BLOCKAGE`/`ROUTE`/
     `CUSTOM_SHAPE`, plus pseudo-rows with no Layer (`ROW`, `BOUNDARY`,
     `PLACEMENT`, `GCELLGRID`, `PLACEMENT_BLOCKAGE`, `REGION`, `DEBUG`,
-    `FLIGHTLINE`, `PORT_MARKER`). Its raw ordinals cross the C API within
-    one process only; the GUI and Tcl read labels through `le_purpose_name`,
-    and anything persisted uses the label. Each Layer gets one palette color shared by its
+    `FLIGHTLINE`, `PORT_MARKER`). Its raw ordinals never leave the process;
+    the GUI and Tcl show its label (`kViewLayerPurposes`), and anything
+    persisted uses the label. Each Layer gets one palette color shared by its
     columns; `FillPattern` distinguishes them. User-picked colors
     (`LeHandle::layer_color_overrides`) are applied on top.
   - `pipelines.cpp` is the module's one compiled TU
@@ -150,8 +150,9 @@ fails on a temp path that isn't unique to its process.
   their members are the operations (over `le::edit`); `Transaction` groups
   edits into one undo step; `Renderer` is the render thread's wait/render/
   cancel, never opening a view. `interaction_types.hpp` holds the design
-  view's modes, keys and snap/orientation enums the views take. Front ends are moving onto it from
-  `api.hpp`, the plain-C API, implemented by concern: `api.cpp` (I/O, design/library access,
+  view's modes, keys and snap/orientation enums the views take. Every
+  front end calls it; `api.hpp`, the plain-C API, remains (for `src/api/tests`
+  and extensions' `handle()` calls) until it's removed, implemented by concern: `api.cpp` (I/O, design/library access,
   properties and search, undo, shape ops, rendering), `input.cpp` (the
   mouse/key state machine, modes, rulers, Move, Resize, Delete),
   `selection.cpp` (hit candidates, click/drag select), `view_options.cpp`
@@ -191,9 +192,8 @@ fails on a temp path that isn't unique to its process.
   via arrays are selectable pieces hit-tested in selection.cpp (their geometry
   comes from `pipelines/via_shapes.hpp`, which `core` can't depend on).
 - `src/tcl/` — the Tcl surface: `le_api.i` (SWIG) wraps `le_tcl_shim` into
-  `le_tcl.so` (its hand-written commands call the C++ views and keep a
-  failure's reason for `last_error_cmd`; the generated ones and the
-  friendly-id resolvers still call the C API); `le_tcl_procs.tcl` parses `-flag value` syntax (`_parse_options`/
+  `le_tcl.so` (every command, generated or hand-written, calls the C++
+  views and keeps a failure's reason for `last_error_cmd`); `le_tcl_procs.tcl` parses `-flag value` syntax (`_parse_options`/
   `_require_options`, `-help` through `_return_usage_if_help`, shared by
   the hand-written and generated procs) and builds dicts/lists. Domain-verb command names, no visible handle, friendly ids
   (`terminal:IN0`, `shape:12`). Property reading, `get_<type>`,
@@ -204,8 +204,10 @@ fails on a temp path that isn't unique to its process.
   main thread (where GLFW wants it), one shared `LeHandle` injected
   via `set_session_handle`.
 - `src/gui/` — the Dear ImGui GUI (`le_gui.cpp`, `gui_provider.*`,
-  `panels.*`, `components/`). `GuiProvider` is its only contact with the C
-  API. Every dockable panel but the design view, core and extension, is a
+  `panels.*`, `components/`). `GuiProvider` is its only contact with the session
+  (C++ views; `le_gui.cpp`'s render thread uses `Renderer`, its show/close
+  polling `SessionRequests`): `refresh()` reads each frame's state under one
+  `ReadView`. Every dockable panel but the design view, core and extension, is a
   `Panel` on one `PanelList` (`make_panels`): drawn with a close button,
   toggled from the main menu bar's Window menu, its open state saved in
   `window_layout.ini`. The File menu opens and saves `.led` files
@@ -217,10 +219,10 @@ fails on a temp path that isn't unique to its process.
   icon is a new `<symbol>` in that sheet. `panels.*` and the extension GUI SDK run headless
   (`gui_tests`).
   Rendering runs on a background thread woken by
-  `le_wait_for_render_needed`; panels read under the shared lock so they
+  `Renderer::wait_until_needed`; panels read under the shared lock so they
   never block on a render. Actions that should appear in command history
   (layer visibility, hierarchy depth, ...) are queued as Tcl commands
-  (`le_enqueue_tcl_command`) for le_shell's console thread to run. Settings
+  (`SessionRequests::enqueue_tcl_command`) for le_shell's console thread to run. Settings
   persist to `~/.layout_engine/settings.json` (loaded in interactive mode
   only; format versioned by `kSettingsVersion` in settings.cpp, with a
   migration step and a golden file in `src/api/tests/fixtures/settings/`

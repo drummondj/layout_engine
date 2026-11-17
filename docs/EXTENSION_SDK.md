@@ -668,8 +668,8 @@ void le_ext_my_ext_register_gui(le::ext::GuiRegistry &registry)
   - `data<T>()` and `with_data<T>()` reach the same per-session state your
     Tcl commands and overlays see; GUI callbacks don't hold the session
     lock, so use `with_data<T>()` for anything they share.
-  - `is_busy()`, `selection_count()` and `selected_object(i)` cover the
-    rest.
+  - `is_busy()`, `selection_count()` and `selected_object(i)` (an
+    `le::ObjectId`: a selected piece is its Shape or Wire) cover the rest.
 
 ## Tcl commands
 
@@ -926,6 +926,10 @@ The first version.
   `end_command` for a step that spans several views.
 - `WriteView::delete_<type>_batch` (added in 0.3, without a version bump):
   deletes several objects of a class as one all-or-nothing edit.
+- `ExtGuiContext::selected_object(index)` returns `std::optional<le::ObjectId>`
+  (a piece as its Shape or Wire), not `LeObjectRef` (changed in 0.3,
+  before it shipped); `le::object_kind_is_named` says whether Tcl's friendly
+  ids name a class by its name.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

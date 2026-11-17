@@ -1251,6 +1251,8 @@ namespace le::edit
 namespace le
 {
     std::string_view object_kind_name(const ObjectId &id) { return kObjectKinds[id.index()].name; }
+
+    bool object_kind_is_named(const ObjectId &id) { return kObjectKinds[id.index()].named; }
 }
 
 namespace le

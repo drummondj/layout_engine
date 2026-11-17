@@ -11,6 +11,7 @@
 #include <imgui.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -34,10 +35,11 @@ namespace le::ext
         /// it (disabling a button would make it flicker).
         bool is_busy() const;
 
-        /// @brief How many objects are selected, and the `index`th of them
-        /// (le_selected_object_ref).
+        /// @brief How many objects are selected, and the `index`th of them:
+        /// a piece as its Shape or Wire, or the Row, Placement or Region;
+        /// nullopt past the end.
         int32_t selection_count() const;
-        LeObjectRef selected_object(int32_t index) const;
+        std::optional<ObjectId> selected_object(size_t index) const;
 
         /// @brief Queues `script` for the Tcl console to run, as if typed:
         /// the way to change the design from the GUI.

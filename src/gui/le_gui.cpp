@@ -1,6 +1,5 @@
 #include "le_gui.hpp"
 
-#include "api.hpp"
 #include "gui_provider.hpp"
 #include "theme.hpp"
 #include "panels.hpp"
@@ -61,7 +60,7 @@ namespace le::gui
 {
     namespace
     {
-        // How often the idle loop polls le_take_show_gui_request() while
+        // How often the idle loop polls take_show_gui_request() while
         // no window is open - `show_gui` itself returns immediately
         // either way, this only bounds how long a caller might have to
         // wait to actually *see* the window appear. Cheap enough (a
@@ -170,49 +169,46 @@ namespace le::gui
             }
         }
 
-        // Every physical key this prototype forwards to the backend,
-        // mapped to its own LeKeyCode - see api.hpp's own LeKeyCode/
-        // le_key_down doc comments for the full per-code modifier-gating
-        // table (checked internally via le_is_key_held(LE_KEY_CTRL/
-        // LE_KEY_SHIFT), not by this table - this loop's only job is
-        // keeping LE_KEY_CTRL/LE_KEY_SHIFT's own held-state in sync
-        // alongside every other key, not deciding what a modifier means).
+        // Every physical key forwarded to the session, mapped to its Key
+        // (interaction_types.hpp). What a modifier means is decided by
+        // WriteView::key_down from the held Ctrl/Shift; this loop only
+        // keeps their held state in sync alongside every other key.
         struct KeyMapping
         {
             ImGuiKey imgui_key;
-            int32_t le_key_code;
+            Key key;
         };
         constexpr KeyMapping kKeyMappings[] = {
-            {ImGuiKey_Z, LE_KEY_ZOOM},
-            {ImGuiKey_F, LE_KEY_FIT},
-            {ImGuiKey_LeftArrow, LE_KEY_PAN_LEFT},
-            {ImGuiKey_RightArrow, LE_KEY_PAN_RIGHT},
-            {ImGuiKey_UpArrow, LE_KEY_PAN_UP},
-            {ImGuiKey_DownArrow, LE_KEY_PAN_DOWN},
-            {ImGuiKey_D, LE_KEY_DESELECT_ALL},
-            {ImGuiKey_1, LE_KEY_1},
-            {ImGuiKey_2, LE_KEY_2},
-            {ImGuiKey_3, LE_KEY_3},
-            {ImGuiKey_4, LE_KEY_4},
-            {ImGuiKey_5, LE_KEY_5},
-            {ImGuiKey_6, LE_KEY_6},
-            {ImGuiKey_7, LE_KEY_7},
-            {ImGuiKey_8, LE_KEY_8},
-            {ImGuiKey_9, LE_KEY_9},
-            {ImGuiKey_0, LE_KEY_0},
-            {ImGuiKey_S, LE_KEY_SELECT_MODE},
-            {ImGuiKey_E, LE_KEY_EDIT_MODE},
-            {ImGuiKey_R, LE_KEY_RULER_MODE},
-            {ImGuiKey_Escape, LE_KEY_FINISH_RULER},
-            {ImGuiKey_M, LE_KEY_MOVE},
-            {ImGuiKey_Delete, LE_KEY_DELETE},
+            {ImGuiKey_Z, Key::ZOOM},
+            {ImGuiKey_F, Key::FIT},
+            {ImGuiKey_LeftArrow, Key::PAN_LEFT},
+            {ImGuiKey_RightArrow, Key::PAN_RIGHT},
+            {ImGuiKey_UpArrow, Key::PAN_UP},
+            {ImGuiKey_DownArrow, Key::PAN_DOWN},
+            {ImGuiKey_D, Key::DESELECT_ALL},
+            {ImGuiKey_1, Key::DIGIT_1},
+            {ImGuiKey_2, Key::DIGIT_2},
+            {ImGuiKey_3, Key::DIGIT_3},
+            {ImGuiKey_4, Key::DIGIT_4},
+            {ImGuiKey_5, Key::DIGIT_5},
+            {ImGuiKey_6, Key::DIGIT_6},
+            {ImGuiKey_7, Key::DIGIT_7},
+            {ImGuiKey_8, Key::DIGIT_8},
+            {ImGuiKey_9, Key::DIGIT_9},
+            {ImGuiKey_0, Key::DIGIT_0},
+            {ImGuiKey_S, Key::SELECT_MODE},
+            {ImGuiKey_E, Key::EDIT_MODE},
+            {ImGuiKey_R, Key::RULER_MODE},
+            {ImGuiKey_Escape, Key::FINISH_RULER},
+            {ImGuiKey_M, Key::MOVE},
+            {ImGuiKey_Delete, Key::DELETE},
         };
 
         // Forwards every currently-pressed/released/held key this frame
         // to the backend - modifiers (Ctrl/Shift) first, since every
-        // action code's own gating (le_key_down's doc comment) reads
+        // action key's gating (WriteView::key_down) reads
         // their held-state at the moment it's called. `repeat=true`
-        // (ImGui's own default) matches le_key_down's own "call on
+        // (ImGui's own default) matches key_down's "call on
         // key-down *and* key-repeat" contract for the canvas-navigation
         // codes (zoom/fit/pan keep re-triggering while held, same as a
         // real keyboard's own repeat).
@@ -232,16 +228,15 @@ namespace le::gui
         // "is some text field actively capturing keystrokes right now".
         // Without this check at all, typing "1"/"2" into
         // layer_manager.hpp's own "Hierarchy Depth" InputInt field also
-        // reached this function unconditionally - LE_KEY_1/LE_KEY_2 mean
-        // "toggle a ROUTING layer's visibility" to the backend
-        // (LeKeyCode's own doc comment), so every digit typed into that
+        // reached this function unconditionally - Key::DIGIT_1/DIGIT_2 mean
+        // "toggle a ROUTING layer's visibility" to the session, so every digit typed into that
         // field silently toggled a layer too, the original bug reported.
-        // When `active` transitions to false, `le_clear_all_keys` fires
+        // When `active` transitions to false, `clear_all_keys` fires
         // once - the matching key-up for whatever was held at that
         // moment (e.g. Shift, mid-multi-select) isn't guaranteed to
         // still reach this function once forwarding stops, so without
         // this a modifier could stay "held" from the backend's own point
-        // of view indefinitely (le_clear_all_keys's own doc comment).
+        // of view indefinitely.
         // `skip_escape` - forward_mouse_input already spent this frame's
         // Escape cancelling a drag, so
         // it mustn't also finish a ruler/cancel a Move here.
@@ -268,17 +263,17 @@ namespace le::gui
             if (io.KeyCtrl != ctrl_was_held)
             {
                 if (io.KeyCtrl)
-                    provider.key_down(LE_KEY_CTRL);
+                    provider.key_down(Key::CTRL);
                 else
-                    provider.key_up(LE_KEY_CTRL);
+                    provider.key_up(Key::CTRL);
                 ctrl_was_held = io.KeyCtrl;
             }
             if (io.KeyShift != shift_was_held)
             {
                 if (io.KeyShift)
-                    provider.key_down(LE_KEY_SHIFT);
+                    provider.key_down(Key::SHIFT);
                 else
-                    provider.key_up(LE_KEY_SHIFT);
+                    provider.key_up(Key::SHIFT);
                 shift_was_held = io.KeyShift;
             }
 
@@ -287,16 +282,16 @@ namespace le::gui
                 if (skip_escape && mapping.imgui_key == ImGuiKey_Escape)
                     continue;
                 if (ImGui::IsKeyPressed(mapping.imgui_key))
-                    provider.key_down(mapping.le_key_code);
+                    provider.key_down(mapping.key);
                 if (ImGui::IsKeyReleased(mapping.imgui_key))
-                    provider.key_up(mapping.le_key_code);
+                    provider.key_up(mapping.key);
             }
         }
 
         // Mouse gesture state, local to one open_and_run_window() call -
         // which button (if any) started the currently-in-progress
-        // gesture, so the matching release calls le_mouse_up() rather
-        // than a second unmatched le_mouse_down()/le_zoom_drag_down().
+        // gesture, so the matching release calls mouse_up() rather
+        // than a second unmatched mouse_down()/zoom_drag_down().
         enum class ActiveGesture
         {
             kNone,
@@ -397,7 +392,7 @@ namespace le::gui
         // this timeout elapses, bounding the idle redraw rate. 33ms (~30Hz) matches
         // kRenderThreadIdleInterval above, both existing for the same
         // reason: cheap enough to never feel laggy, short enough that a
-        // background render-thread frame (le_is_rendering()'s own
+        // background render-thread frame (the busy
         // spinner, or a newly-published mailbox frame) still gets picked
         // up and drawn promptly rather than sitting unseen until the
         // next real input event.
@@ -425,22 +420,19 @@ namespace le::gui
         }
 
         // The one slot a background render thread publishes into and the
-        // main/GUI thread reads from - decouples le_render_pixel_buffer()
+        // main/GUI thread reads from - decouples Renderer::render()
         // (which can take anywhere from microseconds to over a second for
         // a real design on a scale change) from GLFW's own event loop and
-        // window repaint (see is_rendering_'s own doc comment, api.cpp) -
+        // window repaint -
         // without this, a
         // single slow render call blocks *everything* on the thread that
         // also owns polling input and drawing the window, freezing the
         // whole app for its own full duration instead of just delaying
         // the next visible frame while input/repaint keep working.
         //
-        // `pixels` is a plain byte copy of the handle's own returned
-        // buffer, made because LePixelBuffer.data is only valid until the
-        // *next* le_render_pixel_buffer() call on the same handle (its
-        // own doc comment) - and this same background thread is about to
-        // make exactly that next call, on its own next loop iteration,
-        // arbitrarily soon. `generation` lets the main thread notice a
+        // `pixels` is a byte copy of the rendered frame, made opaque
+        // (render_thread_loop) for ImGui's straight-alpha blending.
+        // `generation` lets the main thread notice a
         // new frame arrived (and skip a redundant GL upload when nothing
         // has, which is the common case at idle) without needing its own
         // copy of the pixels to compare byte-for-byte.
@@ -454,28 +446,22 @@ namespace le::gui
             uint64_t generation = 0;
         };
 
-        // Event-driven, not a fixed-interval poll: le_wait_for_render_needed
-        // (api.hpp) blocks with zero CPU cost until a real mutation has
-        // been made to `handle` since the last time it returned, or until
-        // le_cancel_render_wait wakes it for shutdown (open_and_run_window's
-        // own teardown, below) - replacing a former "call
-        // le_render_pixel_buffer back-to-back forever, sleeping a fixed
-        // interval between calls" loop that burned continuous CPU even at
-        // total idle and depended on tuning that sleep interval to some
-        // machine's own load (a real, reported problem - direct
-        // instrumentation once measured over 6500 calls in 244 seconds at
-        // total idle, almost all of them no-ops). Cause and effect instead
-        // of polling: nothing runs here until something actually changed.
+        // Event-driven, not a fixed-interval poll: wait_until_needed blocks
+        // with zero CPU cost until the session has changed since it last
+        // returned, or until cancel_wait wakes it for shutdown
+        // (open_and_run_window's teardown, below). Polling burned CPU at
+        // idle, nearly every call a no-op.
         void render_thread_loop(LeHandle *handle, RenderMailbox &mailbox, std::atomic<bool> &stop)
         {
+            const Renderer renderer(handle);
             while (!stop.load(std::memory_order_relaxed))
             {
-                le_wait_for_render_needed(handle);
+                renderer.wait_until_needed();
                 if (stop.load(std::memory_order_relaxed))
                     break;
 
-                const LePixelBuffer buffer = le_render_pixel_buffer(handle);
-                if (buffer.data != nullptr && buffer.width > 0 && buffer.height > 0)
+                const RenderedFrame buffer = renderer.render();
+                if (!buffer.empty() && buffer.width > 0 && buffer.height > 0)
                 {
                     try
                     {
@@ -534,7 +520,7 @@ namespace le::gui
         // shouldn't count as an unsaved setting. "" if HOME isn't set.
         std::string window_layout_path()
         {
-            const std::string settings_path = le_default_settings_path();
+            const std::string settings_path = default_settings_path();
             if (settings_path.empty())
                 return {};
             return (std::filesystem::path(settings_path).parent_path() / "window_layout.ini").string();
@@ -628,8 +614,8 @@ namespace le::gui
         // Extensions' toolbar buttons for the current mode, after the core's.
         void draw_extension_toolbar_buttons(GuiProvider &provider, LeHandle *handle)
         {
-            const int32_t mode = provider.state().mode;
-            const uint32_t mode_bit = mode == LE_MODE_EDIT ? ext::TOOLBAR_EDIT : mode == LE_MODE_RULER ? ext::TOOLBAR_RULER : ext::TOOLBAR_SELECT;
+            const InteractionMode mode = provider.state().mode;
+            const uint32_t mode_bit = mode == InteractionMode::EDIT ? ext::TOOLBAR_EDIT : mode == InteractionMode::RULER ? ext::TOOLBAR_RULER : ext::TOOLBAR_SELECT;
             for (const ExtensionToolbarButton &registered : extension_toolbar_buttons())
             {
                 const ext::GuiToolbarButton &button = registered.button;
@@ -859,7 +845,7 @@ namespace le::gui
                 if (ImGui::Button("Save settings"))
                     provider.save_settings_now();
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Save to %s", le_default_settings_path());
+                    ImGui::SetTooltip("Save to %s", default_settings_path().c_str());
                 ImGui::SameLine();
             }
             if (!exit_only)
@@ -1042,7 +1028,7 @@ namespace le::gui
             // Deliberately NOT ImGuiConfigFlags_NavEnableKeyboard - this
             // app has its own complete keyboard-shortcut system
             // (forward_keyboard_input/kKeyMappings below, arrow keys
-            // included - LE_KEY_PAN_LEFT/_RIGHT/_UP/_DOWN), and nothing
+            // included - Key::PAN_LEFT/_RIGHT/_UP/_DOWN), and nothing
             // here is built to be Tab/arrow-navigated as ImGui widgets.
             // With that flag on, Dear ImGui's own keyboard nav consumes
             // the same arrow keys to move focus between windows/child
@@ -1152,10 +1138,11 @@ namespace le::gui
             bool close_dialog_requested = false;
             bool close_dialog_exit_only = false;
             CloseChoice close_choice = CloseChoice::NONE;
-            le_take_close_gui_request(handle);
+            const SessionRequests requests(handle);
+            requests.take_close_gui_request();
             for (;;)
             {
-                if (le_take_close_gui_request(handle) || exit_requested())
+                if (requests.take_close_gui_request() || exit_requested())
                     close_choice = CloseChoice::CLOSE_WINDOW;
                 if (close_choice != CloseChoice::NONE)
                     break;
@@ -1199,45 +1186,18 @@ namespace le::gui
                 ImGui_ImplGlfw_NewFrame();
                 ImGui::NewFrame();
 
-                // le_is_rendering() is the one handle call safe to make
-                // unconditionally every frame - lock-free/atomic
-                // (le_handle.hpp's own is_rendering_ doc comment).
-                // Checked FIRST, before anything else below touches the
-                // handle this frame, and used *raw* - deliberately not
-                // debounced/delayed in any way - for every gating
-                // decision below: a slow render holds handle->mutex_
-                // shared for its own *entire* duration (that same doc
-                // comment), so any le_* call that takes it exclusively
-                // while this reads true blocks this whole thread until
-                // the render finishes. Every panel below (draw_library_browser/
-                // _property_viewer/_layer_manager/_mode_selector/
-                // _mode_toolbar, forward_mouse_input,
-                // forward_keyboard_input, draw_status_bar,
-                // le_set_viewport_size) makes at least one such call
-                // every frame - a real reported bug, not hypothetical:
-                // without gating every one of them on is_rendering, the
-                // *whole* window froze solid (not just the design view)
-                // for however long a slow render took, including window
-                // drag/resize.
+                // is_rendering is lock-free (Renderer::is_rendering), read
+                // first by refresh() and used raw - never debounced - for
+                // every gating decision below. A render holds the session's
+                // lock shared for its whole duration, so anything taking it
+                // exclusively (input forwarding, set_viewport_size) while a
+                // render runs blocks this thread until it finishes, freezing
+                // the whole window, drag and resize included. refresh()'s
+                // own ReadView is shared, so it doesn't wait on a render.
                 //
-                // This flag must not be debounced: on the very first
-                // frame after a slow render starts, a debounced value
-                // would still be false, so that frame would make a locked
-                // call anyway and block for the render's entire remaining
-                // duration - the "busy" UI would never appear at all for
-                // a genuinely long render. Whether a call is safe
-                // to make can only ever be judged from the *current*
-                // instant, never a delayed/smoothed view of it -
-                // there's no gap in which it's fine to guess.
-                //
-                // provider.refresh() populates GuiProvider::State fresh
-                // for this frame - called here, first thing, so
-                // is_rendering below (and every other state() field every
-                // component reads this frame) gets exactly the "current
-                // instant" freshness guarantee this whole comment block
-                // already established: it's a lock-free/atomic read
-                // (le_is_rendering) forwarded straight through, not
-                // debounced or delayed by refresh() in any way.
+                // Not debounced: on the first frame of a slow render a
+                // debounced value would still be false, so that frame would
+                // take the lock anyway and block for the whole render.
                 provider.refresh();
                 const bool is_rendering = provider.state().is_rendering;
                 if (provider.state().settings.theme != applied_theme)
@@ -1572,18 +1532,17 @@ namespace le::gui
                         // this trails the mouse by one frame - unnoticeable).
                         if (layout_view_hovered)
                         {
-                            switch (provider.state().resize.hover_axis)
+                            switch (provider.state().resize.hover_axis.value_or(ResizeAxis::BOTH))
                             {
-                            case LE_RESIZE_AXIS_X:
+                            case ResizeAxis::X:
                                 ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
                                 break;
-                            case LE_RESIZE_AXIS_Y:
+                            case ResizeAxis::Y:
                                 ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
                                 break;
-                            case LE_RESIZE_AXIS_BOTH:
-                                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-                                break;
-                            default:
+                            case ResizeAxis::BOTH:
+                                if (provider.state().resize.hover_axis)
+                                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
                                 break;
                             }
                         }
@@ -1728,7 +1687,7 @@ namespace le::gui
             }
 
             stop_render_thread.store(true, std::memory_order_relaxed);
-            // Wakes the render thread out of its own le_wait_for_render_needed()
+            // Wakes the render thread out of its own wait_until_needed()
             // block (render_thread_loop's own doc comment) so it notices
             // stop_render_thread above and exits - without this it would
             // simply stay parked there forever if no further mutation ever
@@ -1737,14 +1696,14 @@ namespace le::gui
             // thread was never even started (a window closed within its
             // very first couple of frames - render_thread's own declaration
             // comment) or happens to already be awake doing a render.
-            le_cancel_render_wait(handle);
+            Renderer(handle).cancel_wait();
 
             // Tear the window/GL/ImGui resources down *before* waiting
             // for the render thread to actually exit, not after - it
-            // never touches any of them (only le_render_pixel_buffer()
+            // never touches any of them (only Renderer::render()
             // on `handle` and its own mailbox, under mailbox.mutex), so
             // there's no ordering hazard in destroying them first. The
-            // render thread's last in-flight le_render_pixel_buffer()
+            // render thread's last in-flight render()
             // call can take several seconds for a large design; joining
             // first would leave a live window on screen that stops
             // responding to window-system events for that whole duration.
@@ -1803,7 +1762,7 @@ namespace le::gui
                     glfwTerminate();
                 std::exit(g_exit_status.load(std::memory_order_relaxed));
             }
-            if (le_take_show_gui_request(handle))
+            if (SessionRequests(handle).take_show_gui_request())
             {
                 if (have_glfw && open_and_run_window(handle))
                     exit_handler()();

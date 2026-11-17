@@ -1,8 +1,12 @@
 #pragma once
 
-#include "api.hpp"
+#include "views.hpp"
 
+#include <array>
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -13,20 +17,16 @@ namespace le::gui
     /// a queued Tcl command.
     std::string tcl_quote(const std::string &text);
 
-    // The single point of contact between this whole module (le_gui.cpp's
-    // own per-frame loop and every src/gui/components/*.cpp file) and the
-    // C API (api.hpp)/LeHandle - no other file in src/gui/ may call a
-    // le_* function or touch a LeHandle directly. Fits Dear ImGui's
-    // immediate-mode redraw-every-frame model - see State's own doc
-    // comment for what is cached per frame and what isn't.
+    // The GUI's one contact with the session: no other file in src/gui/
+    // opens a view or touches the LeHandle (le_gui.cpp's render thread and
+    // its show/close polling aside, which use Renderer and SessionRequests).
+    // Fits Dear ImGui's redraw-every-frame model: refresh() reads what every
+    // frame needs into State under one ReadView, so a frame sees one
+    // snapshot; the on-demand reads below each open their own. Never copied
+    // or moved: one per open window, passed around as GuiProvider&.
     //
-    // Wraps a single non-owning LeHandle* - never copyable or movable
-    // (constructed once per open_and_run_window() call, in le_gui.cpp,
-    // and passed everywhere else as GuiProvider&; there's no case in this
-    // module where a second instance aliasing the same handle, or moving
-    // this one, means anything sensible). Deliberately has no raw
-    // handle()/LeHandle* accessor - that would be a standing loophole
-    // around the entire point of this class existing.
+    // Holding a view on this thread while opening another deadlocks, so
+    // nothing here hands one out: every member opens and closes its own.
     class GuiProvider
     {
     public:
@@ -37,29 +37,24 @@ namespace le::gui
         GuiProvider(GuiProvider &&) = delete;
         GuiProvider &operator=(GuiProvider &&) = delete;
 
-        // One row of State::LayerManager::layers/purposes - built once
-        // per frame by refresh(), read by layer_manager.cpp.
+        // One row of State::LayerManager, built by refresh(). Copies: the
+        // console thread can rebuild the layer rows while a frame uses them.
         struct LayerRow
         {
-            // A copy: the console thread can rebuild the layer rows
-            // while this frame still holds them.
             std::string name;
-            uint8_t color_r;
-            uint8_t color_g;
-            uint8_t color_b;
+            Color color;
             bool visible;
             bool selectable;
         };
         struct PurposeRow
         {
-            int32_t ordinal;
-            const char *name; // le_purpose_name: static storage, never null
+            ViewLayerPurpose purpose;
+            const char *name; // the generated label: static storage, null-terminated
             bool visible;
             bool selectable;
-            bool has_selectable_objects; // false - no selectable checkbox (le_purpose_has_selectable_objects)
+            bool has_selectable_objects; // false: no selectable checkbox
         };
-        // One Placement.type or Route.use value under its purpose row
-        // (le_object_filter_value_at).
+        // One Placement.type, Route.use, ... value under its purpose row.
         struct FilterRow
         {
             std::string value;
@@ -67,62 +62,53 @@ namespace le::gui
             bool selectable;
         };
 
-        // Ambient state - read in full, unconditionally, by one or more
-        // components every frame today regardless of any expand/collapse
-        // UI state (unlike e.g. library_browser.cpp's library->design
-        // tree, only walked for an *expanded* node, or property_viewer.cpp's
-        // per-ref queries, which can address several different refs in
-        // one frame - neither belongs here, see the parameterized
-        // passthrough methods below instead). refresh() populates this
-        // fresh from the live API every time it's called; every component
-        // then reads state() for the remainder of that frame. Grouped
-        // into nested structs per the component(s) that primarily read
-        // each group - shared scalars (mode/is_rendering/is_move_armed)
-        // stay top-level since more than one component reads each.
+        // What components read every frame, whatever is expanded or open.
+        // Grouped by the component that reads it; values more than one
+        // reads stay top-level.
         struct State
         {
-            int32_t mode = LE_MODE_SELECT;
+            InteractionMode mode = InteractionMode::SELECT;
             bool is_rendering = false;
-            // A Tcl command is running (le_is_command_running).
-            bool is_command_running = false;
+            bool is_command_running = false; // a Tcl command holds renders
             bool is_move_armed = false;
             bool is_resize_armed = false;
-            // Selected shape pieces - the Edit-mode Delete button's targets
-            // Refreshed in Edit mode only.
-            int32_t selected_shape_piece_count = 0;
+            // The Edit-mode Delete button's targets; refreshed in Edit mode only.
+            size_t selected_shape_piece_count = 0;
 
             struct StatusBar
             {
                 std::string tooltip_message;
-                LeSnappedMousePosition snapped_mouse_position{};
-                int32_t selection_count = 0;
+                // The snapped mouse position in microns, as the user sees
+                // it (relative to the view's origin, mirrored as it is).
+                std::optional<PointUm> snapped_mouse_position;
+                size_t selection_count = 0;
             } status_bar;
 
             struct LayerManager
             {
-                std::vector<LayerRow> layers;
+                std::vector<LayerRow> layers; // Technology layers only
                 std::vector<PurposeRow> purposes;
-                std::vector<FilterRow> placement_types;    // LE_OBJECT_FILTER_PLACEMENT_TYPE, under PLACEMENT
-                std::vector<FilterRow> placement_statuses; // LE_OBJECT_FILTER_PLACEMENT_STATUS, under PLACEMENT
-                std::vector<FilterRow> route_uses;         // LE_OBJECT_FILTER_ROUTE_USE, under ROUTE
-                std::vector<FilterRow> routing_statuses;   // LE_OBJECT_FILTER_ROUTING_STATUS, under ROUTE
-                std::vector<FilterRow> route_shapes;       // LE_OBJECT_FILTER_ROUTE_SHAPE, under ROUTE
+                std::vector<FilterRow> placement_types;    // under PLACEMENT
+                std::vector<FilterRow> placement_statuses; // under PLACEMENT
+                std::vector<FilterRow> route_uses;         // under ROUTE
+                std::vector<FilterRow> routing_statuses;   // under ROUTE
+                std::vector<FilterRow> route_shapes;       // under ROUTE
             } layer_manager;
 
-            // settings_panel.cpp. Grid spacing is in um, -1 while unknown
+            // settings_panel.cpp. Grid spacing is in um, <= 0 while unknown
             // (no Technology yet).
             struct Settings
             {
                 double minor_grid_um = -1.0;
                 double major_grid_um = -1.0;
-                double manufacturing_grid_um = 0.0; // 0 - none
+                double manufacturing_grid_um = 0.0; // 0: none
                 double ruler_label_size_px = 0.0;
                 double label_min_size_px = 0.0;
                 double label_max_size_px = 0.0;
-                int32_t hierarchy_depth = 0;
-                int32_t flightline_max_fanout = 0;
-                int32_t undo_limit = 0;
-                int32_t max_concurrency = 0; // "CPUs"
+                int hierarchy_depth = 0;
+                int flightline_max_fanout = 0;
+                size_t undo_limit = 0;
+                int max_concurrency = 0; // "CPUs"
                 bool confirm_overwrite = true; // ask before a Save overwrites a design file
                 size_t theme = 0;              // index into le::kThemes
             } settings;
@@ -131,116 +117,123 @@ namespace le::gui
             // the design's session (write_db), not in settings.json.
             struct DatabaseSettings
             {
-                int32_t view_flip = LE_VIEW_FLIP_NONE; // LeViewFlip
+                ViewFlip view_flip = ViewFlip::NONE;
             } database_settings;
 
-            // secondary_toolbar.cpp's placement toolbar - shown in Edit mode
+            // secondary_toolbar.cpp's placement toolbar: shown in Edit mode
             // while selected_count > 0; the rest is only refreshed then.
-            // snap_available is LePlacementSnapMode-indexed,
-            // orientation_ops_enabled a (1 << LeOrientationOp) bitmask.
+            // snap_available is indexed by PlacementSnapMode,
+            // orientation_ops_enabled a (1 << OrientationOp) bitmask.
             struct PlacementMove
             {
-                int32_t selected_count = 0;
-                int32_t snap_mode = LE_PLACEMENT_SNAP_SITE;
-                bool snap_available[4] = {true, false, false, false};
-                int32_t orientation_ops_enabled = 0;
+                size_t selected_count = 0;
+                PlacementSnapMode snap_mode = PlacementSnapMode::SITE;
+                std::array<bool, 4> snap_available = {true, false, false, false};
+                uint32_t orientation_ops_enabled = 0;
                 bool is_move_anchored = false;
                 bool all_fixed = false;   // every selected placement is FIXED
-                int32_t locked_count = 0; // selected FIXED/COVER placements, which Move refuses
+                size_t locked_count = 0; // selected FIXED/COVER placements, which Move refuses
             } placement_move;
 
-            // secondary_toolbar.cpp's resize toolbar - shown while Resize
-            // is armed - and Move's path/via snap toolbar, shown while
-            // Move is armed with paths
-            // or vias selected; the snap settings are only refreshed then.
-            // Arrays are LePieceKind-indexed, RECT..VIA (then
-            // LeShapeSnapMode-indexed).
+            // secondary_toolbar.cpp's resize toolbar (while Resize is armed)
+            // and Move's path/via snap toolbar (while Move is armed with
+            // paths or vias selected); the snap settings are only refreshed
+            // then. Arrays are indexed by PieceKind, RECT..VIA, then by
+            // ShapeSnapMode.
             struct Resize
             {
-                int32_t hover_axis = LE_RESIZE_AXIS_NONE; // le_gui.cpp's resize cursor
-                int32_t selected_piece_kinds = 0;         // le_selected_piece_kinds, while Resize is armed
-                int32_t move_snap_piece_kinds = 0;        // le_selected_move_snap_piece_kinds, while Move is armed
-                int32_t snap_modes[4] = {LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID, LE_SHAPE_SNAP_USER_GRID};
-                bool snap_available[4][5] = {};
+                std::optional<ResizeAxis> hover_axis; // le_gui.cpp's resize cursor
+                uint32_t selected_piece_kinds = 0;    // (1 << PieceKind), while Resize is armed
+                uint32_t move_snap_piece_kinds = 0;   // (1 << PieceKind), while Move is armed
+                std::array<ShapeSnapMode, 4> snap_modes = {ShapeSnapMode::USER_GRID, ShapeSnapMode::USER_GRID, ShapeSnapMode::USER_GRID,
+                                                           ShapeSnapMode::USER_GRID};
+                std::array<std::array<bool, 5>, 4> snap_available = {};
             } resize;
         };
 
-        // Re-populates state() from the live API - call exactly once per
-        // frame (le_gui.cpp's main loop, right where is_rendering used to
-        // be read directly), before any component reads state() that
-        // frame.
+        /// @brief Re-reads state() under one ReadView. Call once per frame,
+        /// before any component reads state().
         void refresh();
         const State &state() const { return state_; }
 
-        // --- Parameterized/on-demand passthroughs - deliberately never
-        // folded into State (see State's own doc comment above for why:
-        // no bounded set to precompute). ---
+        // On-demand reads, for what a component needs only while something
+        // is expanded or open. Each takes one ReadView.
 
-        LeObjectRef object_parent(LeObjectRef ref) const;
-        // le_object_kind_name/le_object_kind_is_named: a kind's friendly-id
-        // prefix (null out of range) and whether that id is a name.
-        static const char *object_kind_name(int32_t kind);
-        static bool object_kind_is_named(int32_t kind);
-        LeObjectRef selected_object_ref(int32_t selection_index) const;
-        int32_t object_property_count(LeObjectRef ref) const;
-        LeProperty object_property_at(LeObjectRef ref, int32_t index) const;
-        // Every child of `ref`, one call covering every LeObjectKind,
-        // with one exception (LE_OBJECT_KIND_DESIGN, still on the older
-        // le_get_abstracts/le_search_result_abstract_at search surface
-        // pending a generated is_child accessor, gated on
-        // state().is_rendering).
-        std::vector<LeObjectRef> object_children(LeObjectRef ref) const;
-        LeObjectRef invalid_ref() const;
+        /// @brief The `index`th selected object: a piece as its Shape or
+        /// Wire, or the Row, Placement or Region.
+        std::optional<ObjectId> selected_object(size_t index) const;
+        /// @brief `id` and its owners, the outermost first; empty if `id`
+        /// doesn't exist.
+        std::vector<ObjectId> ancestry(const ObjectId &id) const;
+        /// @brief `id`'s property table, as Tcl shows it (lengths in microns).
+        std::vector<PropertyValue> properties(const ObjectId &id) const;
+        /// @brief The children the Property Viewer links to: a Library's
+        /// Designs, a Design's Abstract, an Abstract's Terminals,
+        /// Obstructions and free Shapes, ... (never a Layout's placements or
+        /// routes, which can number millions).
+        std::vector<ObjectId> children(const ObjectId &id) const;
+        /// @brief Each id's Tcl-style friendly id: `kind:name` for a class
+        /// named by its name, else `kind:<generation << 32 | index>`. For
+        /// display only.
+        std::vector<std::string> tokens(const std::vector<ObjectId> &ids) const;
 
-        int32_t library_count() const;
-        LeLibraryInfo library_at(int32_t index) const;
-        int32_t library_design_count(int32_t library_index) const;
-        LeDesignInfo library_design_at(int32_t library_index, int32_t design_index) const;
+        // The Browser's tree.
+        struct DesignEntry
+        {
+            DesignId id;
+            std::string name;
+            bool has_abstract = false;
+            bool has_layout = false;
+        };
+        struct LibraryEntry
+        {
+            std::string name;
+            std::vector<DesignEntry> designs;
+        };
+        /// @brief Every Library and its Designs, in database order; re-read
+        /// only when the database has changed.
+        const std::vector<LibraryEntry> &libraries();
 
         // --- Actions ---
 
-        // Opens design_id's Abstract/Layout view - each a direct,
-        // low-latency call (not routed through Tcl, unlike most actions
-        // below). Each bundles a set-current-design call with an
-        // immediate le_fit_scene(10) so the newly opened view starts
-        // framed on its own content.
-        void open_design_abstract(LeDesignId design_id);
-        void open_design_layout(LeDesignId design_id);
+        // Opens `design`'s Abstract/Layout and fits the view to it: direct
+        // calls, not queued Tcl commands.
+        void open_design_abstract(DesignId design);
+        void open_design_layout(DesignId design);
 
-        void set_mode(int32_t mode);
+        void set_mode(InteractionMode mode);
         void deselect_all();
         void arm_move();
         void arm_resize();
         void delete_selected_pieces();
         // Lock: makes the selected placements FIXED; unlock: PLACED.
         void set_selected_placements_fixed(bool fixed);
-        void set_shape_snap_mode(int32_t kind, int32_t mode);
-        void set_placement_snap_mode(int32_t mode);
+        void set_shape_snap_mode(PieceKind kind, ShapeSnapMode mode);
+        void set_placement_snap_mode(PlacementSnapMode mode);
         void rotate_placement();
         void flip_placement_horizontal();
         void flip_placement_vertical();
         void undo();
         void redo();
         void clear_rulers();
-        void set_hierarchy_depth(int32_t depth);
-        // Queues set_view_flip; `flip` is an LeViewFlip.
-        void set_view_flip(int32_t flip);
-        void set_flightline_max_fanout(int32_t max_fanout);
-        void set_undo_limit(int32_t limit);
-        // Settings panel - a spacing <= 0 is left unchanged; a
-        // null/empty path means the default settings file.
+        void set_hierarchy_depth(int depth);
+        void set_view_flip(ViewFlip flip);
+        void set_flightline_max_fanout(int max_fanout);
+        void set_undo_limit(int limit);
+        // Settings panel: a spacing <= 0 is left unchanged; an empty path
+        // means the default settings file.
         void set_grid_spacing_um(double minor_um, double major_um);
         void set_ruler_label_size(double px);
-        void set_max_concurrency(int32_t threads);
+        void set_max_concurrency(int threads);
         void set_label_min_size(double px);
         void set_label_max_size(double px);
         void set_confirm_overwrite(bool confirm);
-        // Queues set_theme; `theme` indexes le::kThemes.
+        // `theme` indexes le::kThemes.
         void set_theme(size_t theme);
         void save_settings(const std::string &path);
-        // The close dialog. Direct calls,
-        // not queued Tcl commands: the dialog needs the answer this frame,
-        // and a batch-mode le_shell never drains that queue.
+        // The close dialog. Direct calls, not queued Tcl commands: the
+        // dialog needs the answer this frame, and a batch-mode le_shell
+        // never drains that queue.
         bool has_unsaved_design() const;
         bool has_unsaved_settings() const;
         // Either of the above: File > Exit asks first only if so.
@@ -257,60 +250,49 @@ namespace le::gui
         void write_db(const std::string &path);
         std::string db_path() const;
         bool database_is_empty() const;
-        // The Settings panel's "Reset
-        // window layout" asks le_gui.cpp (a GUI-only concern, no backend
-        // state) to rebuild the default dock layout next frame.
+        // The Settings panel's "Reset window layout" asks le_gui.cpp (a
+        // GUI-only concern, no session state) to rebuild the default dock
+        // layout next frame.
         void request_window_layout_reset() { window_layout_reset_requested_ = true; }
         bool take_window_layout_reset_request() { return std::exchange(window_layout_reset_requested_, false); }
         void load_settings(const std::string &path);
         void set_layer_visible(const std::string &layer_name, bool value);
         void set_layer_selectable(const std::string &layer_name, bool value);
         // The Layers panel's color picker.
-        void set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b);
+        void set_layer_color(const std::string &layer_name, Color color);
         void reset_layer_color(const std::string &layer_name);
-        void set_purpose_visible(const std::string &purpose_name, bool value);
-        void set_purpose_selectable(const std::string &purpose_name, bool value);
-        // `filter` is an LeObjectFilter.
-        void set_object_filter_visible(int32_t filter, const std::string &value, bool visible);
-        void set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable);
+        void set_purpose_visible(std::string_view purpose_name, bool value);
+        void set_purpose_selectable(std::string_view purpose_name, bool value);
+        void set_object_filter_visible(ObjectFilter filter, const std::string &value, bool visible);
+        void set_object_filter_selectable(ObjectFilter filter, const std::string &value, bool selectable);
 
-        // The single call site for le_enqueue_tcl_command anywhere in
-        // this module - every named action method above that goes
-        // through Tcl builds its own command string and calls this
-        // internally. Also exposed publicly as a deliberate, narrow
-        // escape hatch for layer_manager.cpp's own "All ..." aggregate-
-        // row toggles, which build one semicolon-joined multi-statement
-        // script covering every row client-side so a bulk toggle still
-        // lands as one command-history entry, not one per row.
+        /// @brief Queues `script` for the console thread, so it lands in
+        /// the command history and undo as if typed. The actions above that
+        /// go through Tcl build their command and call this; the Layers
+        /// panel's "All ..." toggles join one script per click so a bulk
+        /// toggle is one history entry.
         void run_tcl_command(const std::string &script);
 
-        // --- App-shell / input forwarding - one-shot commands, not
-        // state, called every frame from le_gui.cpp's own main loop
-        // (mouse/keyboard forwarding, viewport resize) - included here
-        // rather than left as direct le_* calls, so this class stays the
-        // single point of contact. le_wait_for_render_needed/le_render_pixel_buffer/
-        // le_cancel_render_wait (le_gui.cpp's own background render
-        // thread) and le_take_show_gui_request (run_main_thread_loop's
-        // idle poll, before a GuiProvider even exists) are deliberately
-        // NOT here - neither has a per-frame "component" shape, and
-        // le_wait_for_render_needed/le_render_pixel_buffer specifically
-        // run on a different thread than every other method on this
-        // class is ever called from. ---
-        void set_mouse_position(int32_t x, int32_t y);
+        // Input forwarding and the viewport size, from le_gui.cpp's frame
+        // loop. Each takes the session's lock exclusively, so le_gui.cpp
+        // skips them while a render runs.
+        void set_mouse_position(int x, int y);
         void clear_mouse_position();
-        void mouse_down(int32_t x, int32_t y);
-        void mouse_up(int32_t x, int32_t y);
+        void mouse_down(int x, int y);
+        void mouse_up(int x, int y);
         void cancel_drag(); // Escape during a drag
-        void zoom(double factor, int32_t x, int32_t y);
-        void zoom_drag_down(int32_t x, int32_t y);
-        void key_down(int32_t key_code);
-        void key_up(int32_t key_code);
+        void zoom(double factor, int x, int y);
+        void zoom_drag_down(int x, int y);
+        void key_down(Key key);
+        void key_up(Key key);
         void clear_all_keys();
-        void set_viewport_size(int32_t width_px, int32_t height_px);
+        void set_viewport_size(int width_px, int height_px);
 
     private:
         LeHandle *handle_;
         bool window_layout_reset_requested_ = false;
         State state_;
+        std::vector<LibraryEntry> libraries_;
+        std::optional<uint64_t> libraries_version_; // the mutation version libraries_ was read at
     };
 }
