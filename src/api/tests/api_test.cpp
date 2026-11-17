@@ -273,7 +273,7 @@ TEST_F(ApiFixture, ReadLefWithValidFileSucceedsAndPopulatesOneDesign)
 // Message *content* (ERROR/WARNING text, malformed vs. warning-only
 // fixtures) is still covered directly at the reader level - see
 // LEFReaderErrors/LEFReaderMessages in lef_reader_test.cpp - so only
-// le_read_lef's own return-code contract for these fixtures is worth
+// read_lef's own return-code contract for these fixtures is worth
 // re-asserting here, at the API layer.
 TEST_F(ApiFixture, ReadLefWithMalformedContentReturnsNonzero)
 {
@@ -285,7 +285,7 @@ TEST_F(ApiFixture, ReadLefWithAWarningProducingFileStillSucceeds)
     EXPECT_TRUE(read_lef(fixture_path("warning_currentden.lef"), "warning_currentden"));
 }
 
-// le_tooltip_message.
+// tooltip.
 TEST_F(ApiFixture, TooltipMessageReturnsTheSelectModeInstructions)
 {
     const std::string tooltip(read().tooltip());
@@ -321,7 +321,7 @@ TEST_F(ApiFixture, TooltipMessageReflectsRulerMode)
     EXPECT_NE(std::string(tooltip).find("Esc"), std::string::npos);
 }
 
-// le_get_mode/le_set_mode.
+// mode()/set_mode.
 TEST_F(ApiFixture, GetModeDefaultsToSelectMode)
 {
     EXPECT_EQ(read().mode(), le::InteractionMode::SELECT);
@@ -387,7 +387,7 @@ TEST_F(ApiFixture, RenderPixelBufferProducesTheRequestedDimensions)
 
     write().set_viewport_size(200, 200);
 
-    // The view starts at scale 1.0 / pan (0, 0) - le_zoom to scale 10.0 (10
+    // The view starts at scale 1.0 / pan (0, 0) - zoom to scale 10.0 (10
     // px/dbu-micron-ish, matches DATABASE MICRONS 1000 -> 1000 dbu/micron)
     // anchored at image pixel (0, 200) (bottom-left corner, i.e. dbu (0,
     // 0) at the starting pan/scale) keeps pan pinned at (0, 0) exactly.
@@ -474,11 +474,11 @@ TEST_F(ApiFixture, FitRectWithADegenerateRectFallsBackToDefaultScaleAndPan)
 TEST_F(ApiFixture, FitRectUsesTheGivenRectNotTheDesignsOwnBbox)
 {
     // Same fixture as FitSceneFillsTheViewportWithThePinVisible (TESTCELL,
-    // PIN A's own (2,2)-(8,8)um local rect) - le_fit_rect takes microns
+    // PIN A's own (2,2)-(8,8)um local rect) - fit_rect takes microns
     // directly (converted to dbu internally via this fixture's own
     // 1000 dbu/um), not raw dbu - the point here is that it frames
     // whatever rect the caller passes, not the whole macro's own
-    // declared bbox the way le_fit_scene does.
+    // declared bbox the way fit_view does.
     ASSERT_TRUE(read_lef(fixture_path("testcell.lef"), "testcell"));
     ASSERT_TRUE(open_abstract(size_t(0)));
     write().set_viewport_size(200, 200);
@@ -509,8 +509,8 @@ TEST_F(ApiFixture, FitRectUsesTheGivenRectNotTheDesignsOwnBbox)
     // declared (0,0)-(10,10)um boundary edges either (a real,
     // separately-drawn outline, not phantom grid, that a rect anchored
     // right at the origin would pick up as a false positive here). If
-    // le_fit_rect silently fell back to the design's own full bbox (like
-    // le_fit_scene), the pin would still show up somewhere in the frame;
+    // fit_rect silently fell back to the design's own full bbox (like
+    // fit_view), the pin would still show up somewhere in the frame;
     // it must not, since this rect doesn't include it at all.
     fit_rect(0.1, 0.1, 1.1, 1.1, 0);
     le::RenderedFrame empty_corner = render();
@@ -518,7 +518,7 @@ TEST_F(ApiFixture, FitRectUsesTheGivenRectNotTheDesignsOwnBbox)
     EXPECT_FALSE(region_has_colored_pixel(empty_corner, 0, 0, 199, 199));
 
     // Fitting exactly to PIN A's own rect (2,2)-(8,8)um should fill the
-    // viewport with it - a much tighter frame than le_fit_scene's own
+    // viewport with it - a much tighter frame than fit_view's own
     // whole-macro view.
     fit_rect(2, 2, 8, 8, 0);
     le::RenderedFrame pin_area = render();
@@ -536,8 +536,7 @@ TEST_F(ApiFixture, FitSceneInLayoutViewFramesTheDiereaNotTheOrigin)
     // against a 100x100px viewport can't reach dbu coordinates in the
     // millions no matter what, so this is a direct, robust proof the fix
     // actually frames the real content rather than replicating fit's own
-    // pan/scale math by hand (no direct pan/scale getter exists in the
-    // C API to assert against directly).
+    // pan/scale math by hand.
     ASSERT_TRUE(read_lef(fixture_path("testcell.lef"), "testcell"));
     const le::test::SessionTest::DesignInfo testcell_design = library_design_at(0, 0);
 
@@ -622,11 +621,11 @@ TEST_F(ApiFixture, OpeningAnUnknownDesignFails)
 
 TEST_F(ApiFixture, SetCurrentDesignByIdAlsoSetsTheGeneratedCurrentAbstract)
 {
-    // le_set_current_design_abstract_by_id is the shared entry point both
+    // open_abstract is the shared entry point both
     // the GUI and a TCL script
     // (open_design) select a Design through - both should mean the same
     // thing: get_terminals/get_shapes/etc.'s own default -of-omitted
-    // scope (le_current_abstract - the generated has_current_access
+    // scope (current_abstract - the generated has_current_access
     // state, not LeHandle::current_abstract()) has to move too, not just
     // whatever the render actually shows.
     ASSERT_TRUE(read_lef(fixture_path("testcell.lef"), "testcell"));
@@ -840,7 +839,7 @@ TEST_F(ApiFixture, SetCurrentDesignLayoutClearsTheAbstractViewAndViceVersa)
 // --- Selectable objects in Layout view ---
 // A Layout view must hit-test the Layout's own content, never whatever
 // Abstract content happens to exist. These exercise the real, full click -> LeHandle::
-// selection() -> le_selected_object_ref() path end-to-end, the same way
+// selection() -> selection()() path end-to-end, the same way
 // ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId
 // already does for the Abstract path.
 
@@ -918,7 +917,7 @@ TEST_F(ApiFixture, UnsetOptionalEnumFieldDisplaysAsEmptyStringNotItsZeroValuedMe
     EXPECT_TRUE(found_purpose);
 }
 
-// le_set_view_flip mirrors the picture about the view's centre, and the
+// set_view_flip mirrors the picture about the view's centre, and the
 // mouse, zoom anchor and arrow keys follow what's on screen.
 TEST_F(ApiFixture, AFlippedViewMirrorsThePictureAndTheMouseFollowsIt)
 {
@@ -971,7 +970,7 @@ TEST_F(ApiFixture, AFlippedViewMirrorsThePictureAndTheMouseFollowsIt)
 
 }
 
-// In a mirrored view the status bar's coordinates (le_snapped_mouse_position)
+// In a mirrored view the status bar's coordinates (snapped_mouse_position)
 // are mirrored too, with the centre of the boundary (here a 100 x 50 um
 // diearea) at the origin: its on-screen bottom-left is (-50, -25).
 TEST_F(ApiFixture, AFlippedViewsCursorCoordinatesAreCentredOnTheBoundary)
@@ -1572,10 +1571,10 @@ TEST_F(ApiFixture, ReadLefDefaultHidingOnlyAppliesToNewlyIntroducedLayers)
     write().set_layer_visible("OVERLAP", 1); // user explicitly reveals it via the layer manager
     ASSERT_NE(read().layer_visible("OVERLAP"), 0);
 
-    // A second le_read_lef call (e.g. a macro file with its own inline
+    // A second read_lef call (e.g. a macro file with its own inline
     // LAYER declarations) must not re-default OVERLAP back to hidden -
     // only layers newly introduced by *this* read get defaulted (see
-    // le_read_lef's own comment). via_pairing.lef doesn't declare an
+    // read_lef's own comment). via_pairing.lef doesn't declare an
     // OVERLAP layer at all.
     ASSERT_TRUE(read_lef(fixture_path("via_pairing.lef"), "via_pairing"));
     EXPECT_NE(read().layer_visible("OVERLAP"), 0);
@@ -1743,7 +1742,7 @@ TEST_F(ApiFixture, DigitKeysWithShiftHeldAreANoOp)
 
 TEST_F(ApiFixture, DigitKeyWithNoTechnologyReadYetDoesNotCrash)
 {
-    write().key_down(le::Key::DIGIT_1); // no le_read_lef call at all
+    write().key_down(le::Key::DIGIT_1); // no read_lef call at all
 }
 
 TEST_F(ApiFixture, PurposeVisibilityDefaultsTrueAndRoundTrips)
@@ -1922,7 +1921,7 @@ TEST_F(ApiFixture, SnappedMousePositionHasNoPositionUntilMouseIsSet)
 
 TEST_F(ApiFixture, SnappedMousePositionHasNoPositionWithoutATechnologyLoaded)
 {
-    // No le_read_lef call at all - degrades gracefully instead of dividing
+    // No read_lef call at all - degrades gracefully instead of dividing
     // by a Technology::database_units_microns that doesn't exist yet.
     write().set_viewport_size(100, 100);
     write().set_mouse_position(50, 50);
@@ -1966,7 +1965,7 @@ TEST_F(ApiFixture, RenderPixelBufferShowsRedCursorBoxAtSnappedMousePosition)
     write().zoom(1.0, 0, 100); // scale 1.0 -> 2.0, anchored at dbu (0,0) so pan stays (0,0) - default minor spacing (5dbu*2=10px) clears the density floor
 
     // Screen pixel (50,50), top-left origin/y-down (same convention as
-    // le_zoom's x/y) -> dbu (25,25), already a multiple of the default
+    // zoom's x/y) -> dbu (25,25), already a multiple of the default
     // 5dbu minor grid, so it snaps to itself and the box lands centered
     // on screen pixel (50,50) after compose_with_overlays's Y-flip.
     write().set_mouse_position(50, 50);
@@ -2124,7 +2123,7 @@ TEST_F(ApiFixture, KeyDownZoomWithoutAMousePositionSetDoesNotCrash)
     ASSERT_TRUE(open_abstract(size_t(0)));
     write().set_viewport_size(100, 100);
 
-    write().key_down(le::Key::ZOOM); // no le_set_mouse_position call first - anchors at the default (0,0)
+    write().key_down(le::Key::ZOOM); // no set_mouse_position call first - anchors at the default (0,0)
 
     le::RenderedFrame buffer = render();
     EXPECT_NE(buffer.data, nullptr);
@@ -2226,7 +2225,7 @@ TEST_F(ApiFixture, KeyDownFitFitsTheViewportToContent)
     write().key_down(le::Key::FIT);
 
     // Mirrors FitSceneFillsTheViewportWithThePinVisible, triggered via
-    // le_key_down instead of le_fit_scene directly.
+    // key_down instead of fit_view directly.
     le::RenderedFrame buffer = render();
     ASSERT_NE(buffer.data, nullptr);
     EXPECT_TRUE(region_has_opaque_pixel(buffer, 80, 80, 120, 120));
@@ -2378,7 +2377,7 @@ TEST_F(ApiFixture, RenderPixelBufferDrawsThePinRectAtItsExpectedLocation)
     // MACRO SIZE is 10x10 microns, PIN A's RECT is (2,2)-(8,8) microns.
     // DATABASE MICRONS 1000 -> 1 micron = 1000 dbu. Scale chosen so the
     // whole 10x10 micron (10000x10000 dbu) macro fills a 100x100px buffer.
-    // The view starts at scale 1.0 / pan (0, 0) - le_zoom to that scale
+    // The view starts at scale 1.0 / pan (0, 0) - zoom to that scale
     // anchored at image pixel (0, 100) (dbu (0, 0) at the starting
     // pan/scale) keeps pan pinned at (0, 0) exactly.
     write().set_viewport_size(100, 100);
@@ -2578,7 +2577,7 @@ TEST_F(ApiFixture, PlainFKeyStillFitsTheWholeSceneEvenWithASelectionActive)
     write().key_down(le::Key::FIT); // Ctrl not held - whole-design fit, not Ctrl-F's fit-selected
 
     // Both pins should still be visible (generous quadrant windows -
-    // le_fit_scene's own computed scale/pan differs slightly from
+    // fit_view's own computed scale/pan differs slightly from
     // load_two_shapes_at_known_scale's synthetic baseline, since it fits
     // with kKeyFitPaddingPx rather than that helper's own zoom trick, but
     // PIN A stays in the bottom-left quadrant and PIN B in the top-right
@@ -2603,7 +2602,7 @@ TEST_F(ApiFixture, MouseDownThenUpAsAClickSelectsTheHitShape)
 // though it's still marked selectable=true (the default) - "selectable"
 // means "eligible to be selected when visible", not "selectable
 // regardless of visibility". The is_selectable predicate passed to
-// hit_test_abstract_point checks both, as hover (le_set_mouse_position)
+// hit_test_abstract_point checks both, as hover (set_mouse_position)
 // does (see that test below).
 TEST_F(ApiFixture, MouseClickDoesNotSelectATerminalOnAHiddenLayer)
 {
@@ -2632,7 +2631,7 @@ TEST_F(ApiFixture, SelectionVersionBumpsOnlyOnAnActualSelectionChange)
     // Reselecting the exact same shape (no shift, so it clears first then
     // reselects the same one) still changes it, since clear+reselect is
     // two real selection_ mutations even though the end state looks the
-    // same - le_selection_version reflects LeHandle::selection_version()
+    // same - selection_version reflects LeHandle::selection_version()
     // directly, not a "did the final state differ" comparison.
     write().mouse_down(25, 175);
     write().mouse_up(25, 175);
@@ -2733,7 +2732,7 @@ TEST_F(ApiFixture, DragSelectEnclosesEverySelectableShapeInTheRectangle)
     EXPECT_EQ(selection_count(), 2);
 }
 
-// A drag that's cancelled - le_cancel_drag
+// A drag that's cancelled - cancel_drag
 // (the GUI, on Escape or when the release went to another window) or the
 // Escape key itself - selects nothing, and a stray release afterwards is a
 // no-op rather than committing the stale rectangle.
@@ -2802,7 +2801,7 @@ TEST_F(ApiFixture, DragSelectOnAnUnselectableLayerSelectsNothing)
     EXPECT_EQ(selection_count(), 0);
 }
 
-// Edit mode gates le_mouse_up's selection changes.
+// Edit mode gates mouse_up's selection changes.
 TEST_F(ApiFixture, ClickInEditModeDoesNotChangeSelection)
 {
     load_two_shapes_at_known_scale(*this);
@@ -2832,8 +2831,8 @@ TEST_F(ApiFixture, DragSelectInEditModeDoesNotChangeSelection)
 
 TEST_F(ApiFixture, MouseUpInEditModeStillEndsDragging)
 {
-    // No public le_is_dragging accessor exists, so this is verified
-    // indirectly: le_mouse_up's own guard (`if (!is_dragging()) return`,
+    // No public is_dragging accessor exists, so this is verified
+    // indirectly: mouse_up's own guard (`if (!is_dragging()) return`,
     // input.cpp) makes a *second* mouse-up with no preceding mouse-down a
     // no-op only if the first mouse-up's end_drag() actually ran despite
     // the Edit-mode gate skipping the selection block around it.
@@ -3095,7 +3094,7 @@ TEST_F(ApiFixture, ClearAllKeysMakesSubsequentClicksReplaceRatherThanAddAgain)
 {
     // The exact reported bug: a stuck shift (e.g. from a missed key-up on
     // focus loss) made every later plain click behave like a shift-click.
-    // le_clear_all_keys is the escape hatch - simulates a focus-loss
+    // clear_keys is the escape hatch - simulates a focus-loss
     // recovery.
     load_two_shapes_at_known_scale(*this);
 
@@ -3151,12 +3150,10 @@ namespace
 
 TEST_F(ApiFixture, ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPropertiesOnItsShapeId)
 {
-    // Clicking a shape must report the *exact* same rows le_shape_property_at (TCL's
-    // get_properties shape:<id>) already shows for that same ShapeId -
-    // not a pipeline-merged/derived summary. Selection is shape-granular
-    // (le_selected_object_ref always reports LE_OBJECT_KIND_SHAPE), so
-    // this compares le_object_property_at's LE_OBJECT_KIND_SHAPE branch
-    // directly against le_shape_property_at for the identical id.
+    // Clicking a shape must report the *exact* same rows properties (Tcl's
+    // get_properties shape:<id>) shows for that same ShapeId - not a
+    // pipeline-merged/derived summary. A selected piece reports its Shape,
+    // so this compares the selection's properties with the ShapeId's.
     load_pin_and_obstruction_at_known_scale(*this);
 
     write().mouse_down(25, 175); // PIN A
@@ -3196,7 +3193,7 @@ TEST_F(ApiFixture, ClickSelectingAShapeReportsExactlyTheSamePropertiesAsGetPrope
 TEST_F(ApiFixture, SelectedShapesParentChainReportsTerminalPortThenTerminal)
 {
     // Selection reports the exact Shape hit (see the regression test
-    // above) - a Property Viewer walks *up* from there via le_object_parent
+    // above) - a Property Viewer walks *up* from there via parent
     // to reach the owning TerminalPort/Terminal's own name/direction/
     // port_count, rather than those rows being folded into the Shape's
     // own property list the way the old selection-index path used to.
@@ -3337,9 +3334,9 @@ TEST_F(ApiFixture, SelectedObjectPropertiesDistinguishTwoSelectedObjectsByIndex)
     write().mouse_up(125, 75);
     ASSERT_EQ(selection_count(), 2);
 
-    // Both selections are shape-level (LE_OBJECT_KIND_SHAPE) - "distinguish
+    // Both selections are shape-level (ShapeIds) - "distinguish
     // by index" now means each index's own Shape properties (own rect),
-    // with name/shapes_count reachable one hop up via le_object_parent.
+    // with name/shapes_count reachable one hop up via parent.
     const std::optional<le::ObjectId> first_ref = selected(0);
     const std::optional<le::ObjectId> second_ref = selected(1);
     EXPECT_TRUE(is<le::ShapeId>(first_ref));
@@ -3393,13 +3390,13 @@ TEST_F(ApiFixture, ClickSelectingOnePortOfATwoPortTerminalReportsOnlyThatPortsRe
     // build_shape_properties overwrites the generic property table's own
     // "layer" row with a friendly "layer:<name>" token (see
     // api_property_accessors_internal_inc_j2.py), so this checks the
-    // real generic row directly rather than only le_shape_layer_name.
+    // real generic row directly rather than only its shape's layer.
     ASSERT_TRUE(properties.contains("layer"));
     EXPECT_EQ(properties.at("layer").string_value, "layer:M1");
     EXPECT_EQ(shape_layer_name(std::get<le::ShapeId>(*shape_ref)), "M1");
 
     // Parent-level context (Terminal's own name/port_count) is one hop up
-    // via le_object_parent, not folded into the Shape's own row list.
+    // via parent, not folded into the Shape's own row list.
     const std::optional<le::ObjectId> terminal_ref = parent(parent(shape_ref));
     ASSERT_TRUE(is<le::TerminalId>(terminal_ref));
     const std::map<std::string, le::PropertyValue> terminal_properties = object_properties(*this, terminal_ref);
@@ -3436,7 +3433,7 @@ TEST_F(ApiFixture, DragSelectingATwoPortTerminalSelectsBothPortsIndependently)
     // build_shape_properties overwrites the generic property table's own
     // "layer" row with a friendly "layer:<name>" token (see
     // api_property_accessors_internal_inc_j2.py). Copied out immediately,
-    // same as first_rects above - le_object_property_at's own string_value
+    // same as first_rects above - properties's own string_value
     // is only valid until the next call for a *different* ref, and
     // second_properties below is exactly that next call.
     ASSERT_TRUE(first_properties.contains("layer"));
@@ -3475,7 +3472,7 @@ TEST_F(ApiFixture, ShiftClickingTwoPiecesOfTheSameTerminalSelectsBothIndependent
 
     // Copy each rects value out as its own std::string immediately -
     // LeProperty::string_value is only valid until the next
-    // le_object_property_at()/_count() call *for the same ref* (see its
+    // properties()/_count() call *for the same ref* (see its
     // doc comment); querying a different index (as `second`'s query
     // below does) invalidates `first`'s pointers.
     const std::map<std::string, le::PropertyValue> first_properties = selected_object_properties(*this, 0);
@@ -3493,8 +3490,8 @@ TEST_F(ApiFixture, ShiftClickingTwoPiecesOfTheSameTerminalSelectsBothIndependent
 
 TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCrash)
 {
-    // le_render_pixel_buffer (the GUI's render thread) and
-    // le_set_mouse_position/le_zoom (the GUI thread, on every pointer
+    // Renderer::render (the GUI's render thread) and
+    // set_mouse_position/zoom (the GUI thread, on every pointer
     // event) run concurrently on the same handle. Every LeHandle-touching
     // function locks the handle's own mutex; this drives both call paths
     // concurrently, repeatedly, and must complete without crashing,
@@ -3525,7 +3522,7 @@ TEST_F(ApiFixture, ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCras
 TEST_F(ApiFixture, ConcurrentRendersFromTwoThreadsDoNotCrash)
 {
     // The GUI render thread and the Tcl thread (dump_png) both call
-    // le_render_pixel_buffer; each reads its whole frame after the call
+    // Renderer::render; each reads its whole frame after the call
     // returns while the other keeps rendering.
     ASSERT_TRUE(read_concurrency_stress_lef(session, 3000));
     ASSERT_TRUE(open_abstract(size_t(0)));
@@ -3591,13 +3588,13 @@ TEST_F(ApiFixture, IsRenderingReflectsWhetherARenderIsActuallyInProgress)
 {
     // The GUI's "rendering..." indicator needs to observe a render
     // actually in progress from a
-    // different thread, without blocking behind it (see le_is_rendering's
+    // different thread, without blocking behind it (see Renderer::is_rendering's
     // own doc comment for why it deliberately doesn't take handle's own
     // mutex). Same concurrency-stress fixture as
     // ConcurrentRenderAndMousePositionCallsOnTheSameHandleDoNotCrash
     // above, reused here specifically because its own render takes real,
     // observable time: a render_thread does the actual render while this
-    // thread tight-spin-polls le_is_rendering concurrently, expecting to
+    // thread tight-spin-polls Renderer::is_rendering concurrently, expecting to
     // catch it true at least once before the render finishes.
     ASSERT_TRUE(read_concurrency_stress_lef(session, 3000));
     ASSERT_TRUE(open_abstract(size_t(0)));
@@ -3658,7 +3655,7 @@ TEST_F(ApiFixture, IsCommandRunningIsTrueBetweenBeginAndEndCommand)
 }
 
 // Window teardown cancels the wait to stop its render thread; that must
-// work mid-command too, since a typed `exit` never reaches le_end_command.
+// work mid-command too, since a typed `exit` never reaches end_command.
 TEST_F(ApiFixture, CancelRenderWaitWakesTheWaiterWhileACommandHoldsRenders)
 {
     write().begin_command("held");
@@ -3682,8 +3679,8 @@ TEST_F(ApiFixture, TakeShowGuiRequestConsumesTheRequestExactlyOnce)
 {
     // Dear ImGui prototype's own show_gui signal - a one-shot edge (a Tcl
     // console thread requesting the window open), not a level, so
-    // le_take_show_gui_request() must clear it as part of reading it -
-    // a second poll with no intervening le_request_show_gui() call must
+    // take_show_gui_request() must clear it as part of reading it -
+    // a second poll with no intervening request_show_gui() call must
     // not see a stale true.
     EXPECT_EQ(session.requests().take_show_gui_request(), 0) << "no request made yet";
 
@@ -3721,7 +3718,7 @@ namespace
     }
 }
 
-// --- le_select_object_ref (the script-driven counterpart to a real
+// --- select (the script-driven counterpart to a real
 // mouse click) ---
 
 TEST_F(ApiFixture, SelectObjectRefWithAShapeRefSelectsEveryPieceOfIt)
@@ -3729,7 +3726,7 @@ TEST_F(ApiFixture, SelectObjectRefWithAShapeRefSelectsEveryPieceOfIt)
     load_pin_and_obstruction_at_known_scale(*this);
     // A real click first, purely to discover PIN A's own ShapeId (no
     // other way to get one without duplicating this fixture's own LEF
-    // content) - then clear the selection le_select_object_ref is about
+    // content) - then clear the selection select is about
     // to redo, so this test actually exercises that function, not the
     // click.
     write().mouse_down(25, 175);
@@ -3839,7 +3836,7 @@ TEST_F(ApiFixture, CreateTerminalSucceedsAndIsReadableViaProperties)
 TEST_F(ApiFixture, CreateTerminalWithADuplicateNameOnTheSameAbstractFailsButDifferentAbstractsBothSucceed)
 {
     // Root::create_terminal is fallible (Terminal.name is unique_per_parent,
-    // scoped to Abstract) - le_create_terminal surfaces that as an invalid
+    // scoped to Abstract) - create_terminal surfaces that as an invalid
     // id, same as any other failure. Two different Abstracts legitimately
     // reuse the same pin name (e.g. VDD/IN0 across a library's cells), so
     // that must keep succeeding.
@@ -3919,23 +3916,23 @@ TEST_F(ApiFixture, DeleteTerminalRemovesItAndIsIdempotentlySafeAfterwards)
 
 TEST_F(ApiFixture, BuildingALibraryDesignAbstractFromScratchAndMakingItCurrentFindsItsTerminalByName)
 {
-    // le_terminal_by_name (Terminal's own hand-written friendly-id
+    // Tcl's terminal:NAME lookup (Terminal's own hand-written friendly-id
     // resolver - unique_per_parent means it can't use the generated
     // by-name lookup pair, see Field.unique_per_parent's own docstring)
     // must read handle->current_abstract_id - the field
-    // le_set_current_abstract sets and le_get_terminals' own default
+    // set_current_abstract sets and get_terminals' own default
     // scope derives from - not the GUI-rendering current_abstract(),
     // which only moves when a Design is selected. A script building a
     // brand new Library/Design/Abstract purely through create_<type>
     // calls and selecting the Abstract directly via
-    // le_set_current_abstract (this test's own flow, with no LEF file
+    // set_current_abstract (this test's own flow, with no LEF file
     // involved) must be able to create_terminal_port -terminal $in for a
     // Terminal it just created.
     const le::LibraryId library_id = write().create_library({.name = "LIB"}).value_or(le::LibraryId{});
     ASSERT_NE(library_id.index, UINT32_MAX);
     const le::DesignId design_id = write().create_design({.library = library_id, .name = "CELL"}).value_or(le::DesignId{});
     ASSERT_NE(design_id.index, UINT32_MAX);
-    // create_abstract's own -size/-origin/-bbox (le_create_abstract's
+    // create_abstract's own -size/-origin/-bbox (create_abstract's
     // has_size/has_origin/has_bbox) are all dbu-using compound fields -
     // Klass.create_api_body() fetches dbu_per_um unconditionally
     // whenever a class has any such field, regardless of whether it was
@@ -3997,7 +3994,7 @@ namespace
     // schema.py comment). Tests here use layer names like "M4"/"M5"/"M6"
     // that testcell.lef doesn't declare (only "M1" is), so this
     // resolves-or-creates a real Layer under the fixture's own
-    // Technology to stand in for them. Idempotent (le_layer_by_name first)
+    // Technology to stand in for them. Idempotent (looks the name up first)
     // since several tests request the same name more than once.
     le::LayerId named_layer(le::test::SessionHelpers &s, const char *name)
     {
@@ -4008,14 +4005,8 @@ namespace
         return s.write().create_layer({.technology = technology, .name = name, .type = "ROUTING", .direction = le::RoutingDirection::NONE}).value_or(le::LayerId{});
     }
 
-    // Composes le_create_terminal_port + le_create_shape (with its own
-    // -rects-equivalent has_rects/rects_flat_um/rects_flat_count slots,
-    // rather than a separate le_add_shape_rect call - that command no
-    // longer exists, geometry is provided at create_shape/update_shape
-    // time now) - the common case most tests below want (a port with
-    // exactly one rect shape), without re-typing the sequence in every
-    // test. Tests that specifically exercise one of those calls' own
-    // validation call them directly instead.
+    // A TerminalPort with one rect Shape - the common case most tests
+    // below want, without re-typing the sequence in every test.
     le::TerminalPortId create_terminal_port_with_rect(le::test::SessionHelpers &s, le::TerminalId terminal_id, const char *layer_name, const double rect_um[4])
     {
         const le::TerminalPortId port_id = s.write().create_terminal_port({.terminal = terminal_id}).value_or(le::TerminalPortId{});
@@ -4418,7 +4409,7 @@ TEST_F(ApiFixture, DeselectAllInEditModeIsANoOpEvenWithCtrlHeld)
 TEST_F(ApiFixture, UndoRedoRoundTripsAGeneratedUpdateCallThroughBeginEndCommand)
 {
     // Confirms the generated recording hook actually fires end-to-end
-    // through the real le_update_shape entry point, not just at the
+    // through the real update_shape entry point, not just at the
     // Root layer directly (see editing_test.cpp for that).
     ASSERT_TRUE(read_lef(fixture_path("testcell.lef"), "testcell"));
     const le::AbstractId abstract_id = testcell_abstract_id(*this);
@@ -4490,7 +4481,7 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
 
     // scale 0.1 (10 dbu/px), pan (0,0) - "anchor at the bottom-left image
     // corner" trick (see load_two_shapes_at_known_scale's own comment):
-    // le_zoom's factor is multiplicative (new_scale = old_scale*(1+factor)),
+    // zoom's factor is multiplicative (new_scale = old_scale*(1+factor)),
     // so -0.9 takes the default scale 1.0 to 0.1; anchoring at (0,
     // viewport_height) - dbu (0,0) at the already-(0,0) pan - keeps pan
     // pinned at (0,0) across the zoom.
@@ -4510,8 +4501,8 @@ TEST_F(ApiFixture, MoveTranslatesSelectedShapeGeometryAndIsUndoable)
 
     // First click sets the anchor at dbu (200,250) - same point as the
     // selecting click above (Move reads the *stored* mouse position, not
-    // this call's own x/y - le_set_mouse_position must precede it, unlike
-    // a plain Select-mode click - see le_mouse_up's own doc comment).
+    // this call's own x/y - set_mouse_position must precede it, unlike
+    // a plain Select-mode click - see mouse_up's own doc comment).
     write().set_mouse_position(20, 175);
     write().mouse_down(20, 175);
     write().mouse_up(20, 175);
@@ -5167,7 +5158,7 @@ TEST_F(ApiFixture, DragSelectEnclosingTwoPiecesOfTheSameShapeSelectsBothAsSepara
     EXPECT_EQ(selection_count(), 2);
 }
 
-// --- le_write_lef/le_write_def ---
+// --- write_lef/write_def ---
 
 namespace
 {
@@ -5228,11 +5219,11 @@ TEST_F(ApiFixture, WriteLefTechnologyOnlyModeSucceedsWithNoAbstractAndNoCurrentA
 TEST_F(ApiFixture, WriteLefWithALibraryWritesAMacroForEveryAbstractInEveryDesign)
 {
     // testcell.lef/othercell.lef each read into their *own* Library
-    // (le_read_lef's own library name is the LEF file's stem - see
+    // (read_lef's own library name is the LEF file's stem - see
     // api.cpp) - not useful here, this test needs two Designs sharing one
     // real Library, so it builds both from scratch instead (still needs
     // testcell.lef read first, purely to establish a real Technology -
-    // le_create_abstract fails with no Technology present).
+    // create_abstract fails with no Technology present).
     ASSERT_TRUE(read_lef(fixture_path("testcell.lef"), "testcell"));
 
     const le::LibraryId library_id = write().create_library({.name = "MULTI_LIB"}).value_or(le::LibraryId{});
@@ -5280,8 +5271,7 @@ TEST_F(ApiFixture, WriteLefWithALibraryThatHasNoAbstractsWritesNoMacrosAndIsNotA
     ASSERT_TRUE(read_lef(fixture_path("testcell.lef"), "testcell"));
     const le::LibraryId library_id = library_at(0).id;
     ASSERT_NE(library_id.index, UINT32_MAX);
-    // A hand-built Design with no Abstract at all yet - the case
-    // le_write_lef's own api.hpp doc comment says isn't an error.
+    // A hand-built Design with no Abstract at all yet - not an error.
     const le::DesignId empty_design_id = write().create_design({.library = library_id, .name = "EMPTY_DESIGN"}).value_or(le::DesignId{});
     ASSERT_NE(empty_design_id.index, UINT32_MAX);
 
@@ -5329,7 +5319,7 @@ TEST_F(ApiFixture, WriteDefFallsBackToTheCurrentLayoutWhenNoneIsGiven)
 
 // A free-standing shape (Abstract.free_shapes) renders in its layer's own
 // color on the CUSTOM_SHAPE column, and hiding that purpose hides it -
-// rasterized end to end through le_render_pixel_buffer.
+// rasterized end to end through Renderer::render.
 TEST_F(ApiFixture, FreeShapeOnALayerRendersAndHidesWithTheCustomShapePurpose)
 {
     ASSERT_TRUE(read_lef(fixture_path("testcell.lef"), "testcell"));
@@ -6549,7 +6539,6 @@ TEST_F(ApiFixture, CloseGuiRequestIsTakenOnce)
     session.requests().request_close_gui();
     EXPECT_EQ(session.requests().take_close_gui_request(), 1);
     EXPECT_EQ(session.requests().take_close_gui_request(), 0);
-    le_request_close_gui(nullptr); // no-op
 }
 
 // A render with nothing loaded yet (the

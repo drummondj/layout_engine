@@ -587,7 +587,7 @@ namespace
 
 namespace le::api_detail
 {
-    // le_mouse_up's Select-mode click. A plain click cycles through
+    // mouse_up's Select-mode click. A plain click cycles through
     // everything under the mouse: if the one object selected before the
     // click is among them, the next one (wrapping round) is selected
     // instead, so repeated clicks at one spot step through overlapping
@@ -621,9 +621,9 @@ namespace le::api_detail
         handle->select_any(candidates[next]);
     }
 
-    // le_mouse_up's Select-mode, Abstract-view drag-select branch (a
+    // mouse_up's Select-mode, Abstract-view drag-select branch (a
     // click goes through click_select_unlocked). Called with
-    // handle->mutex_ already held, `x`/`y` the release point le_mouse_up
+    // handle->mutex_ already held, `x`/`y` the release point mouse_up
     // received. Hit-tests Root's raw ShapeData directly
     // (hit_test.hpp's hit_test_abstract_rect) rather than
     // rendered output - a drag is a rare, one-off query, not a per-frame
@@ -631,7 +631,7 @@ namespace le::api_detail
     void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y)
     {
         const le::AbstractId abstract_id = handle->current_abstract();
-        // Both visible AND selectable - see le_set_mouse_position's own
+        // Both visible AND selectable - see set_mouse_position's own
         // comment on this same predicate shape.
         const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
         { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
@@ -651,7 +651,7 @@ namespace le::api_detail
         }
     }
 
-    // le_mouse_up's Select-mode, Layout-view drag-select branch: selects
+    // mouse_up's Select-mode, Layout-view drag-select branch: selects
     // every top-level placement, Route/PhysicalPort shape piece, via and
     // Row fully inside the rectangle, never recursing into a Placement's
     // reference_design. Blockage and Region aren't hit-tested yet.
@@ -659,7 +659,7 @@ namespace le::api_detail
     {
         const le::LayoutId layout_id = handle->current_layout();
         const int remaining_depth = std::max(0, handle->hierarchy_depth() - 1);
-        // Both visible AND selectable - see le_set_mouse_position's own
+        // Both visible AND selectable - see set_mouse_position's own
         // comment on this same predicate shape.
         const auto is_selectable = [handle](const std::string &layer_name, le::ViewLayerPurpose purpose)
         { return handle->is_view_layer_visible(layer_name, purpose) && handle->is_view_layer_selectable(layer_name, purpose); };
@@ -878,123 +878,4 @@ namespace le::edit
     }
 
     void clear_selection(LeHandle &handle) { handle.clear_selection(); }
-}
-
-extern "C"
-{
-    void le_deselect_all(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::clear_selection(*handle);
-    }
-
-    int32_t le_selected_shape_piece_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(std::ranges::count_if(handle->selection(), [](const LeHandle::SelectedObject &selected)
-                                                          { return std::holds_alternative<LeHandle::ShapePiece>(selected); }));
-    }
-
-    int32_t le_selected_placement_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(selected_placements_unlocked(handle).size());
-    }
-
-    int32_t le_selection_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-
-        return static_cast<int32_t>(handle->selection().size());
-    }
-
-    int64_t le_selection_version(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-
-        return static_cast<int64_t>(handle->selection_version());
-    }
-
-    LeObjectRef le_selected_object_ref(LeHandle *handle, int32_t selection_index)
-    {
-        if (!handle || selection_index < 0)
-            return invalid_object_ref();
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-
-        const std::vector<LeHandle::SelectedObject> &selection = handle->selection();
-        if (static_cast<size_t>(selection_index) >= selection.size())
-            return invalid_object_ref();
-
-        // Dispatches every SelectedObject alternative to its own
-        // LeObjectKind; ShapePiece (Terminal/Obstruction/Blockage/Route/
-        // PhysicalPort) resolves to LE_OBJECT_KIND_SHAPE, or
-        // LE_OBJECT_KIND_WIRE for routed wiring - a Property Viewer wanting
-        // the owning Blockage/Route/PhysicalPort instead walks up via
-        // le_object_parent (see object_ref_parent's own Shape->blockage/
-        // route/physical_port_segment and Wire->route hops).
-        return std::visit([](const auto &s) -> LeObjectRef
-                          {
-            using T = std::decay_t<decltype(s)>;
-            if constexpr (std::is_same_v<T, LeHandle::ShapePiece>)
-                return s.wire_id.valid() ? ref_from_id(LE_OBJECT_KIND_WIRE, s.wire_id) : ref_from_id(LE_OBJECT_KIND_SHAPE, s.shape_id);
-            else if constexpr (std::is_same_v<T, le::RowId>)
-                return ref_from_id(LE_OBJECT_KIND_ROW, s);
-            else if constexpr (std::is_same_v<T, le::PlacementId>)
-                return ref_from_id(LE_OBJECT_KIND_PLACEMENT, s);
-            else if constexpr (std::is_same_v<T, le::RegionId>)
-                return ref_from_id(LE_OBJECT_KIND_REGION, s); }, selection[static_cast<size_t>(selection_index)]);
-    }
-
-    int32_t le_select_object_ref(LeHandle *handle, LeObjectRef ref)
-    {
-        if (!handle)
-            return 1;
-        HandleWriteLock lock(handle);
-
-        le::SelectableObject object;
-        switch (ref.kind)
-        {
-        case LE_OBJECT_KIND_SHAPE:
-            object = id_from_ref<le::ShapeId>(ref);
-            break;
-        case LE_OBJECT_KIND_WIRE:
-            object = id_from_ref<le::WireId>(ref);
-            break;
-        case LE_OBJECT_KIND_ROUTE:
-            object = id_from_ref<le::RouteId>(ref);
-            break;
-        case LE_OBJECT_KIND_PHYSICAL_PORT:
-            object = id_from_ref<le::PhysicalPortId>(ref);
-            break;
-        case LE_OBJECT_KIND_ROW:
-            object = id_from_ref<le::RowId>(ref);
-            break;
-        case LE_OBJECT_KIND_PLACEMENT:
-            object = id_from_ref<le::PlacementId>(ref);
-            break;
-        case LE_OBJECT_KIND_REGION:
-            object = id_from_ref<le::RegionId>(ref);
-            break;
-        default:
-            spdlog::error("select: unsupported object kind (only Shape/Route/PhysicalPort/Row/Placement/Region can be selected)");
-            return 1;
-        }
-        const std::expected<void, std::string> selected = le::edit::select(*handle, object);
-        if (!selected)
-        {
-            spdlog::error("select: {}", selected.error());
-            return 1;
-        }
-        return 0;
-    }
 }

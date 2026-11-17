@@ -145,7 +145,7 @@ namespace le
         /// from every other one build_for_technology() has ever produced,
         /// even one built for the same TechnologyId (e.g. after a second
         /// LEF file adds a layer, changing every later ViewLayerId
-        /// assignment - see le_read_lef's own doc comment on why it
+        /// assignment - see read_lef's own doc comment on why it
         /// rebuilds on every call, not just the first). A fresh, empty
         /// (default-constructed) ViewLayerSet reads 0. Exists so a cache
         /// keyed on some other stable identity (e.g. AbstractId, which

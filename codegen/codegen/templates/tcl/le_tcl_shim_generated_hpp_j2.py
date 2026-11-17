@@ -40,9 +40,9 @@ const char *get_{{klass.tcl_plural_snake_case()}}_at(int index);
 // value...]` (le_tcl_procs.tcl's own generated create_<type> proc parses
 // the flags then calls this). Each parent field takes a friendly-id
 // token (resolved via resolve_<parent_klass>_id inside the .cpp
-// definition), same as every other resolve_X_id-taking shim function -
-// see api_declarations_inc_j2's own comment for the rest of the field
-// conventions this follows uniformly. ---
+// definition), same as every other resolve_X_id-taking shim function.
+// Lengths are microns; an optional string or enum is omitted when empty,
+// any other optional field when its has_<field> flag is 0. ---
 {% for klass in classes %}
 const char *create_{{klass.to_snake_case()}}_cmd({{klass.create_shim_params()}});
 {% endfor %}
@@ -51,9 +51,8 @@ const char *create_{{klass.to_snake_case()}}_cmd({{klass.create_shim_params()}})
 // [-flag value...]` (le_tcl_procs.tcl's own generated update_<type>
 // proc parses the flags then calls this). `id` and (for a single-
 // parent class) the parent are friendly-id tokens, resolved the same
-// way create_<type>_cmd's own parent tokens are - see
-// api_declarations_inc_j2's own comment for the "omitted means leave
-// unchanged" convention every other field follows uniformly. Returns
+// way create_<type>_cmd's own parent tokens are. An omitted field (an
+// empty string or enum, or a 0 has_<field> flag) is left unchanged. Returns
 // the (possibly-changed, e.g. after a rename) friendly id token on
 // success, "" on failure. ---
 {% for klass in classes %}

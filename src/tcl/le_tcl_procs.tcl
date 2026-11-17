@@ -1289,8 +1289,7 @@ register_command_help deselect_all \
 # get_selection/select, the script-driven counterpart to
 # select_all/deselect_all/a real mouse click. Only
 # shape:/wire:/row:/placement:/region: tokens are meaningful (the kinds
-# LeHandle::SelectedObject covers, see
-# le_select_object_ref's own api.hpp comment) - selecting a shape: or
+# WriteView::select takes) - selecting a shape: or
 # wire: token selects every one of its pieces, not one piece,
 # since piece-level granularity has no meaning outside a real mouse
 # hit-test.
@@ -1654,8 +1653,9 @@ register_command_help set_placement_status \
 # command would have (a variable a sourced script sets lands in the
 # right scope whether `source` is called at top level or from inside
 # another proc).
-# Expands a leading `~` or `~/` to $HOME in a file argument; the C API
-# opens paths as given, and Tcl 9's file commands no longer expand `~`.
+# Expands a leading `~` or `~/` to $HOME in a file argument; the readers
+# and writers open paths as given, and Tcl 9's file commands no longer
+# expand `~`.
 proc _expand_path {path} {
     if {$path eq "~" || [string match "~/*" $path]} {
         return "$::env(HOME)[string range $path 1 end]"
@@ -1816,8 +1816,8 @@ proc write_lef {args} {
     if {$opts(-abstract) ne "" && ($opts(-library) ne "" || $opts(-abstracts) ne "")} {
         error "write_lef: -abstract cannot be combined with -library/-abstracts"
     }
-    # Matches LeLefLayerWriteMode (api.hpp): 0=None, 1=IncludeWithAbstract,
-    # 2=TechnologyOnly.
+    # Matches le::LefLayerWriteMode: 0=NONE, 1=INCLUDE_WITH_ABSTRACT,
+    # 2=TECHNOLOGY_ONLY.
     set mode 0
     if {$opts(-tech_only)} {
         set mode 2
@@ -2353,7 +2353,7 @@ register_command_help remove_shape_path \
 # rects, polygons and stroked paths together). New Shapes go to the current
 # Abstract/Layout's free-standing shapes (Abstract/Layout.free_shapes -
 # never written by write_lef/write_def) unless -parent names somewhere
-# else; see le_shape_*'s own api.hpp comment.
+# else.
 
 # Parses a shape_* command's arguments: every non-flag argument is a shape
 # or wire token or a *list* of them - so [get_selection]/[get_shapes ...] can be
@@ -2457,7 +2457,7 @@ register_command_help shape_change_layer \
         {-help {type flag required 0 description {Show this usage message and return immediately}}}
     }
 
-# Matches LeShapeBooleanOp (api.hpp): 0=OR, 1=AND, 2=NOT.
+# Matches le::BooleanOp: 0=Or, 1=And, 2=Not (a minus b).
 proc _shape_boolean {name op arglist} {
     if {[lsearch -exact $arglist "-help"] >= 0} {
         return "$name <shapes> -with <shapes> \[-layer <token>\] \[-parent <token>\] \[-help\]"

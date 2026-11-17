@@ -25,8 +25,7 @@ def create_tcl_required_flags(klass) -> str:
     Space-joined `-flag` names the generated `create_<type> {args}`
     proc rejects as missing before calling create_<type>_cmd - each
     parent flag when there's only one (get_parent_fields() length > 1
-    means "exactly one of these", a distinct check - see
-    c_api.create_api_body()'s own parent-count validation, mirrored here),
+    means "exactly one of these", a distinct check),
     plus every create_required() create field.
     """
     parts = []
@@ -345,7 +344,7 @@ def delete_tcl_usage(klass) -> str:
     (and returned by its own `-help` flag) - much narrower than
     create_tcl_usage()/update_tcl_usage(): delete_<type> takes exactly
     one positional `<id>` and no flags of its own (nothing to specify -
-    see c_api.delete_api_body() for the cascade a delete triggers). When this
+    see edit_ops.delete_op_body() for the cascade a delete triggers). When this
     class owns any tcl_child_list_fields(), the description names every
     child type deleted along with it, so `-help`/`man` surfaces the
     cascade instead of a caller discovering it only after the fact. See

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "api.hpp"
 
 #include "../core/flightlines.hpp"
 #include "../core/object_filters.hpp"
@@ -37,77 +36,45 @@
 #include <variant>
 #include <vector>
 
-// The real, C++-only definition behind the opaque LeHandle - never exposed
-// in api.hpp. Owns everything needed to load a design and render it: the
-// pipelines module's ViewRenderPipeline (one per handle, not one per call,
-// so its MemoizingStage caching works across calls) plus every piece of
+// The definition behind the opaque LeHandle that le::Session owns. Owns
+// everything needed to load a design and render it: the pipelines
+// module's ViewRenderPipeline (one per handle, not one per render, so its
+// MemoizingStage caching works across renders) plus every piece of
 // per-handle mutable view/interaction state (current Abstract/Layout, pan/
-// zoom, layer visibility, selection, rulers, Move-drag state,
-// interaction mode). `le::Root`/`le::ViewLayerSet` are separate members
-// (the persistent database and its rendering-layer view respectively) -
-// this struct owns the mutable *view* of them, not their own content.
-// That state is grouped by concern in private structs (view_,
-// interaction_, selection_, settings_) behind the methods below.
-// It has its own header (rather than living privately in the C API's sources) so
-// `api/tests/le_handle_test.cpp` can construct and exercise it directly.
+// zoom, layer visibility, selection, rulers, Move-drag state, interaction
+// mode). `le::Root`/`le::ViewLayerSet` are separate members (the
+// persistent database and its rendering-layer view respectively) - this
+// struct owns the mutable *view* of them, not their own content. That
+// state is grouped by concern in private structs (view_, interaction_,
+// selection_, settings_) behind the methods below. It has its own header
+// so `api/tests/le_handle_test.cpp` can construct and exercise it directly.
 //
-// `mutex_` exists because this handle genuinely is called from more than
-// one thread: le_gui.cpp's background render thread invokes
-// le_render_pixel_buffer (a single call can run for seconds on a large
-// design), while the GUI's main thread and the Tcl console thread both
-// reach the same pipelines/Root/view state via ordinary calls
-// (le_set_mouse_position, le_mouse_down/up, le_get_mode, ...).
+// `mutex_` exists because the handle is used from more than one thread:
+// the GUI's background render thread renders (Renderer::render, which
+// can run for seconds on a large design), while the GUI's main thread and
+// the Tcl console thread both reach the same Root and view state through
+// views.
 //
-// A std::shared_mutex, not a plain std::mutex - le_render_pixel_buffer
-// itself and every genuinely read-only le_* function (one that reads
-// handle->root/view_layers/etc. and mutates nothing
-// reachable by another caller) take a shared (reader) lock via
-// std::shared_lock. le_render_pixel_buffer mutates only
-// view_render_pipeline, which it guards with render_mutex_, taken first:
-// the GUI render thread and the Tcl thread (dump_png) can both render.
-// So plain UI queries (current mode, hierarchy depth,
-// library/design listing, selection count, mouse position, tooltip) can
-// run concurrently with an in-progress render instead of blocking behind
-// it for however long it takes - this is what le_gui.cpp's own per-frame
-// panel reads rely on to stay live and unblocked during a slow render.
-// Every function that actually *mutates* handle/Root state - every
-// generated le_create_X/le_update_X/le_delete_X, le_set_*, le_mouse_*,
-// le_key_*, le_read_lef/_def/_verilog, le_link_unresolved_instances, ... -
-// still takes a std::unique_lock (exclusive), so a real edit still
-// correctly waits for an in-progress render to finish rather than racing
-// it.
+// A std::shared_mutex, not a plain std::mutex - a render and every
+// ReadView take it shared. A render mutates only view_render_pipeline,
+// which it guards with render_mutex_, taken first: the GUI render thread
+// and the Tcl thread (dump_png) can both render. So the GUI's per-frame
+// panel reads run concurrently with an in-progress render instead of
+// blocking behind it for however long it takes. Everything that mutates
+// handle or Root state - a WriteView, Transaction or typed command - takes
+// it exclusive (HandleWriteLock), so a real edit waits for an in-progress
+// render to finish rather than racing it.
 //
 // ensure_view_layers_current() looks read-only but rebuilds view_layers
-// when it is stale (le_layer_count/_at, le_purpose_count/_at): it checks
-// under a shared lock first and escalates to a brief unique_lock only
-// right after a real edit. Other read-only functions that cache (property
-// tables, token paths) keep the cache per calling thread, so they never
-// write the handle. generated/api/search.inc's get_<type>/
-// search_result_<type>_at pair rewrites a per-class search-result cache on
-// every call, so those take a unique_lock.
-//
-// A returned `const char*` is copied under the lock into storage owned by
-// the returning function and the calling thread, so it stays valid after
-// the lock is released, until that function's next call on that thread.
-//
-// See every exported function's own std::shared_lock/std::unique_lock for
-// the actual enforcement; see le_destroy's doc comment in api.hpp for the
-// one function that can't be covered by the handle's own mutex.
+// when it is stale: it checks under a shared lock first and escalates to
+// a brief unique_lock only right after a real edit.
 struct LeHandle
 {
-    // Unique per LeHandle in this process, so a thread-local cache keyed
-    // by it can't mistake a new handle at a freed one's address for it.
-    const uint64_t serial = []
-    {
-        static std::atomic<uint64_t> next{0};
-        return ++next;
-    }();
-
     le::Root root;
     le::ViewLayerSet view_layers;
 
     // Flightlines - view_options.cpp's
-    // flightlines_for fills this from le_render_pixel_buffer's
+    // flightlines_for fills this from Renderer::render's
     // shared-lock read path, hence `mutable` plus its own mutex. Two
     // levels: the whole-Layout net endpoint index is rebuilt only when
     // Root mutates (or the Layout changes); the lines themselves also on
@@ -134,8 +101,8 @@ struct LeHandle
     mutable std::uint64_t render_tree_selections = 0;
     // root.mutation_version() as of the most recent view_layers rebuild -
     // see view_options.cpp's ensure_view_layers_current() (view_layers must be
-    // rebuilt after any technology change, e.g. a plain le_create_layer
-    // call, not only after le_read_lef).
+    // rebuilt after any technology change, e.g. a plain create_layer
+    // call, not only after read_lef).
     // UINT64_MAX (never a real mutation_version(), which starts at 0 and
     // only increases) rather than 0, so "never built yet" can't
     // accidentally alias a real, already-current version.
@@ -146,18 +113,18 @@ struct LeHandle
     // left-anchored placement-name labels) is drawn via a monospace font
     // (rasterize_blend2d_stage.hpp).
     le::ViewRenderPipeline view_render_pipeline;
-    // Held for a whole le_render_pixel_buffer call, before mutex_: the
+    // Held for a whole Renderer::render call, before mutex_: the
     // pipeline's stages and flow graph can't run on two threads at once.
     // Nothing that holds mutex_ renders, so the order can't invert.
     std::mutex render_mutex_;
 
-    // Undo/redo stack + command-recall log - every
-    // generated le_create_X/le_update_X/le_delete_X function records
-    // itself into whatever transaction is currently recording (see
-    // command_history.is_recording()); Move
-    // (le_mouse_up's Edit-mode branch) and le_repl_eval (the Tcl-side
-    // wrapper every typed console command goes through) are the two
-    // callers that bracket one with begin()/end().
+    // Undo/redo stack + command-recall log - every generated
+    // le::edit create/update/delete records itself into whatever
+    // transaction is currently recording (see
+    // command_history.is_recording()); a labelled WriteView, a
+    // Transaction, Move (mouse_up's Edit-mode branch) and le_repl_eval
+    // (the Tcl-side wrapper every typed console command goes through)
+    // bracket one with begin()/end().
     le::editing::CommandHistory command_history{root};
     std::shared_mutex mutex_;
     // Extensions' per-handle state (le::ext::ExtensionContext::data<T>()),
@@ -201,22 +168,22 @@ struct LeHandle
             mutation_dispatch.own_changes.emplace_back(begin, end);
     }
 
-    // Whether le_render_pixel_buffer is currently doing real work on this
+    // Whether Renderer::render is currently doing real work on this
     // handle, for a caller (the GUI's "rendering..." indicator) that
     // wants to know without blocking behind the render itself. Deliberately a plain
-    // std::atomic<bool>, read/written with no lock - le_is_rendering()
+    // std::atomic<bool>, read/written with no lock - Renderer::is_rendering()
     // must NOT take mutex_ (that's the exact mutex the render itself
     // holds for its own entire duration - see mutex_'s own doc comment -
     // so a lock-taking getter would just block until the render it's
     // reporting on already finished, defeating the whole point). Safe
-    // without one: only le_render_pixel_buffer writes it, under
+    // without one: only Renderer::render writes it, under
     // render_mutex_, so there is one writer at a time; a plain atomic is
     // exactly the right tool for "one writer under a different lock,
     // arbitrary lock-free readers".
     std::atomic<bool> is_rendering_{false};
 
     // Event-driven render wake-up: a render thread calls
-    // le_wait_for_render_needed(handle) (api.hpp) rather than polling on
+    // Renderer::wait_until_needed (views.hpp) rather than polling on
     // a fixed sleep interval (which burns CPU at idle and needs
     // machine-specific tuning). It blocks with zero CPU cost until
     // render_needed_ is true, then clears it and returns.
@@ -224,7 +191,7 @@ struct LeHandle
     // ever sets it (never toggles/clears it itself), and a waiter only
     // ever clears it right before acting on it, under the same
     // render_needed_mutex_ - so a notify that arrives before anyone is
-    // waiting yet (e.g. the very first le_set_viewport_size call, before
+    // waiting yet (e.g. the very first set_viewport_size call, before
     // le_gui.cpp has even spawned the render thread) is never lost, and
     // several notifies arriving while the render thread is still busy on
     // a previous render coalesce into exactly one more render afterward
@@ -238,14 +205,14 @@ struct LeHandle
     std::mutex render_needed_mutex_;
     std::condition_variable render_needed_cv_;
     bool render_needed_ = false;
-    // Set between le_begin_command and le_end_command: a Tcl command
+    // Set between begin_command and end_command: a Tcl command
     // (e.g. a loop of deletes) renders once when it ends, not after each
     // mutation it makes. Written under render_needed_mutex_; read
     // lock-free by renders_held().
     std::atomic<bool> renders_held_{false};
     // Set by cancel_render_wait; wakes a waiter even while renders are
     // held, so window teardown never waits on a command that won't end
-    // (a typed `exit` never reaches le_end_command). Under
+    // (a typed `exit` never reaches end_command). Under
     // render_needed_mutex_.
     bool render_wait_cancelled_ = false;
 
@@ -260,8 +227,8 @@ struct LeHandle
     // ruler_version_, visibility_version_ are bumped from well over a
     // dozen separate call sites across this file alone). Over-notifying
     // for a unique_lock that didn't actually change anything rendering
-    // cares about is harmless - le_wait_for_render_needed's own caller
-    // (render_thread_loop, le_gui.cpp) just calls le_render_pixel_buffer
+    // cares about is harmless - Renderer::wait_until_needed's own caller
+    // (render_thread_loop, le_gui.cpp) just calls Renderer::render
     // once, which cheaply no-ops via ViewRenderPipeline::would_recompute()
     // when nothing relevant changed (view_render_pipeline.hpp's own
     // run() doc comment).
@@ -328,11 +295,11 @@ struct LeHandle
     // oneapi::tbb::global_control is enough to cap every one of them
     // without threading a reference through each pipeline). global_control
     // has no setter of its own - only construction/destruction sets its
-    // limit for as long as it's alive - so le_set_max_concurrency
+    // limit for as long as it's alive - so set_max_concurrency
     // destroys and reconstructs this in place under a new limit rather
     // than mutating it; std::optional makes that destroy-then-reconstruct
     // possible. max_concurrency_ mirrors the limit currently in effect so
-    // le_max_concurrency() doesn't need to ask oneapi::tbb::global_control
+    // max_concurrency() doesn't need to ask oneapi::tbb::global_control
     // (which has no public getter) what it's currently set to. Defaults
     // to 8.
     int32_t max_concurrency_ = 8;
@@ -346,7 +313,7 @@ struct LeHandle
     // OS threads sharing this same LeHandle, like the split is_rendering_
     // above documents. Same reasoning for staying a
     // lock-free std::atomic<bool>, test-and-cleared by
-    // le_take_show_gui_request rather than read via a separate getter -
+    // take_show_gui_request rather than read via a separate getter -
     // a request is a one-shot edge, not a level, so whichever thread
     // observes it first (there's only ever one GUI-thread reader) should
     // consume it, not leave it for a second poll to see stale.
@@ -500,7 +467,7 @@ struct LeHandle
         int viewport_width_px() const { return view_.viewport_width_px; }
         int viewport_height_px() const { return view_.viewport_height_px; }
 
-        // How the view is mirrored on screen (le_set_view_flip). Pan and
+        // How the view is mirrored on screen (set_view_flip). Pan and
         // scale describe the unmirrored view; only the screen mapping
         // changes.
         le::ViewFlip view_flip() const { return view_.view_flip; }
@@ -601,9 +568,9 @@ struct LeHandle
         int64_t major_grid_spacing() const { return settings_.major_grid_spacing; }
 
         // --- Mouse position (screen pixels) + grid-snapped dbu position ---
-        // Set by the frontend on every pointer move (see le_set_mouse_position)
+        // Set by the frontend on every pointer move (see set_mouse_position)
         // - screen/image pixel space (top-left origin, y down, matching
-        // le_render_pixel_buffer()'s output and le_zoom's x/y), not the
+        // Renderer::render()'s output and zoom's x/y), not the
         // rasterizer's pre-Y-flip pixel space. Deliberately its own
         // version counter, not visibility_version - a mouse move must not
         // invalidate the expensive, design-sized rasterized images; only
@@ -645,15 +612,15 @@ struct LeHandle
         // set_mouse_position) - 0/0 if has_mouse_position() is false.
         // Exposed for callers that need the pixel coordinate itself, not
         // just its dbu equivalent (mouse_dbu_position) - e.g. a
-        // keyboard-triggered zoom (le_key_down's LE_KEY_ZOOM) anchored at
+        // keyboard-triggered zoom (key_down's Key::ZOOM) anchored at
         // "wherever the mouse currently is", the same anchor semantics
-        // le_zoom's own x/y parameter already has.
+        // zoom's own x/y parameter already has.
         int32_t mouse_x_px() const { return interaction_.mouse_x_px; }
         int32_t mouse_y_px() const { return interaction_.mouse_y_px; }
 
         // Converts a screen/image pixel coordinate (top-left origin, y
         // down - same convention as set_mouse_position) to dbu space,
-        // undoing the rasterizer's Y-flip the same way le_zoom's own
+        // undoing the rasterizer's Y-flip the same way zoom's own
         // pixel->dbu conversion does - pan/scale describe the pre-flip
         // transform while a screen pixel coordinate is post-flip. view_.scale
         // is always positive by construction
@@ -662,7 +629,7 @@ struct LeHandle
         // currently stored mouse position) and click/drag-select
         // handling (an arbitrary x/y from a mouse-down/up event, not
         // necessarily the currently stored position - see
-        // le_mouse_down/le_mouse_up).
+        // mouse_down/mouse_up).
         le::Point pixel_to_dbu(int32_t x_px, int32_t y_px) const
         {
             const auto [x, y] = unmirrored_pixel(x_px, y_px);
@@ -702,8 +669,8 @@ struct LeHandle
         // --- Drag-select / drag-zoom gesture ---
         // Which high-level action a drag gesture should perform once it
         // ends - this handle itself doesn't interpret this, it's purely a
-        // label the caller (le_mouse_down/le_zoom_drag_down, and later
-        // le_mouse_up) attaches to and reads back, so the same rubber-band
+        // label the caller (mouse_down/zoom_drag_down, and later
+        // mouse_up) attaches to and reads back, so the same rubber-band
         // machinery below serves both left-button drag-select and
         // right-button drag-zoom without duplicating it.
         enum class DragKind
@@ -715,15 +682,15 @@ struct LeHandle
         // Tracks a mouse-down-to-mouse-up rubber-band gesture in screen
         // pixels (top-left origin, y down - same convention as
         // set_mouse_position). The frontend calls begin_drag on
-        // mouse-down and end_drag on mouse-up (see le_mouse_down/
-        // le_mouse_up), which decide there whether the gesture was a
+        // mouse-down and end_drag on mouse-up (see mouse_down/
+        // mouse_up), which decide there whether the gesture was a
         // plain click or an actual drag (by comparing the down/up pixel
         // distance against a small threshold) and perform the
         // corresponding action - this handle itself doesn't know which
         // interpretation applies, it just tracks the raw gesture state
         // (plus which `kind` was requested) and derives drag_rect_dbu()
         // from it plus the current mouse position. `kind` defaults to
-        // SELECT so the existing le_mouse_down call site (left-button
+        // SELECT so the existing mouse_down call site (left-button
         // drag-select) needs no change.
         void begin_drag(int32_t x_px, int32_t y_px, DragKind kind = DragKind::SELECT)
         {
@@ -767,7 +734,7 @@ struct LeHandle
         }
 
         // --- Mode ---
-        // Select mode is the only mode where mouse interaction (le_mouse_up)
+        // Select mode is the only mode where mouse interaction (mouse_up)
         // changes the current selection; Edit mode restricts mouse
         // interaction to editing whatever is already selected (Move,
         // Resize, Delete), so the selection can only change back in
@@ -800,7 +767,7 @@ struct LeHandle
         // --- Rulers ---
         // A ruler is a polyline of already-committed (grid-snapped)
         // points; `finished` is set once the user presses Esc to stop
-        // adding to it (see le_finish_ruler) or leaves Ruler mode (see
+        // adding to it (see finish_ruler) or leaves Ruler mode (see
         // set_mode above). Multiple rulers can exist at once - starting
         // a new one never clears an existing one. The *last* entry is "the active
         // ruler" new clicks append to, if and only if it exists and
@@ -815,7 +782,7 @@ struct LeHandle
         // arm_move()/move_set_anchor()/move_delta()/end_move(). Never
         // itself mutates Root - a committed Move is recorded as an
         // ordinary editing::Transaction of per-piece update steps by the
-        // caller (see input.cpp's le_mouse_up EDIT-mode branch), once the
+        // caller (see input.cpp's mouse_up EDIT-mode branch), once the
         // second click lands. Piece-granular: `moving_pieces` is a direct
         // copy of `selection_.objects` at
         // arm time, so Move moves exactly whichever pieces are selected,
@@ -850,7 +817,7 @@ struct LeHandle
         // arm_move_unlocked builds it from Root right before calling
         // this, since this handle's own view state has no Root access
         // here. Does not itself check Mode - callers gate this on
-        // Mode::EDIT (see input.cpp's LE_KEY_MOVE handler).
+        // Mode::EDIT (see input.cpp's Key::MOVE handler).
         void arm_move(std::vector<le::ShapeData> geometry)
         {
             if (selection_.objects.empty())
@@ -981,7 +948,7 @@ struct LeHandle
             ++interaction_.mouse_version;
         }
 
-        // The hover indicator - input.cpp's le_set_mouse_position recomputes
+        // The hover indicator - input.cpp's set_mouse_position recomputes
         // it on every mouse move while armed and nothing is grabbed.
         void set_resize_hover(std::optional<le::ResizeHandleSegment> hover)
         {
@@ -1072,7 +1039,7 @@ struct LeHandle
         // Clears all Move state - called both on commit (the second
         // click, after the caller has already applied move_delta() to
         // every moving shape and recorded the resulting Transaction) and
-        // on cancel (Escape, sharing LE_KEY_FINISH_RULER's handler - see
+        // on cancel (Escape, sharing Key::FINISH_RULER's handler - see
         // input.cpp). A no-op if Move wasn't armed.
         void end_move()
         {
@@ -1086,7 +1053,7 @@ struct LeHandle
         const MoveState &move() const { return interaction_.move; }
 
         // Same dedup-then-bump pattern as set_ruler_free_form - input.cpp
-        // resyncs this from LE_KEY_SHIFT on every key event, right next
+        // resyncs this from Key::SHIFT on every key event, right next
         // to its own interaction_.ruler_free_form resync.
         void set_move_free_form(bool free_form)
         {
@@ -1106,8 +1073,7 @@ struct LeHandle
         // exactly) - "orthogonal by default, shift for non-orthogonal".
         // `free_form` is passed in rather than read
         // from held keys internally - see set_ruler_free_form's own
-        // comment for why this handle stays agnostic of api.hpp's
-        // LE_KEY_SHIFT value.
+        // comment for why this handle stays agnostic of which key is Shift.
         std::optional<le::Point> ruler_next_point(bool free_form) const
         {
             const std::optional<le::Point> snapped = snapped_mouse_position();
@@ -1171,7 +1137,7 @@ struct LeHandle
 
         // Marks the active ruler (if any) finished - a no-op if there
         // isn't one. Called both by the Esc-to-finish gesture
-        // (le_finish_ruler) and by set_mode when leaving Ruler mode.
+        // (finish_ruler) and by set_mode when leaving Ruler mode.
         void finish_active_ruler()
         {
             if (!interaction_.rulers.empty() && !interaction_.rulers.back().finished)
@@ -1185,7 +1151,7 @@ struct LeHandle
         // already in progress, ready for the next click to start a
         // fresh one (still subject to add_ruler_point's own distance
         // guard against restarting too close to the just-abandoned
-        // ruler). Called for every LE_KEY_RULER_MODE / le_set_mode(RULER)
+        // ruler). Called for every Key::RULER_MODE / set_mode(RULER)
         // - including when mode is already RULER, which is what lets
         // 'r' double as an explicit "abandon the current ruler"
         // shortcut (a plain set_mode(RULER) would no-op when the mode
@@ -1228,10 +1194,10 @@ struct LeHandle
 
         // Whether the current/next ruler point should ignore the
         // orthogonal constraint - a plain, key-code-agnostic flag;
-        // input.cpp resyncs it (from its own knowledge of LE_KEY_SHIFT,
+        // input.cpp resyncs it (from its own knowledge of Key::SHIFT,
         // which this handle doesn't know the meaning of) on every key
         // event, so render-side code can read "free-form active right
-        // now" every frame without needing to know what LE_KEY_SHIFT
+        // now" every frame without needing to know what Key::SHIFT
         // means. Dedups (only bumps interaction_.mouse_version on an actual change)
         // since a resync happens on every key event, not just shift's.
         void set_ruler_free_form(bool free_form)
@@ -1246,8 +1212,8 @@ struct LeHandle
 
         // The on-screen text size (px) for every ruler label - tick
         // values, each segment's own point-to-point distance, and a
-        // ruler's running total. Runtime-configurable (le_ruler_label_size/
-        // le_set_ruler_label_size) rather than a fixed style constant,
+        // ruler's running total. Runtime-configurable (ruler_label_size/
+        // set_ruler_label_size) rather than a fixed style constant,
         // since legible label size varies with display/preferences.
         // Bumps view_.visibility_version (not a dedicated counter), the same
         // signal set_minor_grid_spacing/set_major_grid_spacing already
@@ -1311,22 +1277,21 @@ struct LeHandle
 
         // --- Held keys ---
         // A generic set of currently-held key codes, set by the frontend
-        // via press_key/release_key (see le_key_down/le_key_up) on every
+        // via press_key/release_key (see key_down/key_up) on every
         // key-down/key-up event - decoupled from any specific gesture
         // (mouse clicks, future keyboard shortcuts) so those can query
         // "is X held" internally without needing modifier/key state
         // threaded through their own call's parameter list (e.g.
-        // le_mouse_up reading is_key_held for shift-click/shift-drag,
+        // mouse_up reading is_key_held for shift-click/shift-drag,
         // rather than taking a shift parameter itself). Key codes are
-        // opaque ints here - api.hpp's LeKeyCode enum gives them stable,
-        // platform-independent meaning at the C API boundary; this
+        // opaque ints here - le::Key gives them their meaning; this
         // handle itself doesn't interpret them.
         void press_key(int32_t key_code) { interaction_.held_keys.insert(key_code); }
         void release_key(int32_t key_code) { interaction_.held_keys.erase(key_code); }
         bool is_key_held(int32_t key_code) const { return interaction_.held_keys.contains(key_code); }
 
         // Call when the widget/window receiving key events loses focus
-        // (see le_clear_all_keys) - a key's matching release is not
+        // (see clear_keys) - a key's matching release is not
         // guaranteed to still reach a widget that no longer has focus by
         // the time the physical key comes up, so without this a modifier
         // held at the moment of a focus loss would stay "held" from this
@@ -1444,7 +1409,7 @@ struct LeHandle
         // its value are both visible. Values are matched upper-case
         // (le::to_filter_value); everything is visible and selectable by
         // default. Hiding a value bumps view_.visibility_version.
-        void set_object_filter_visible(int32_t filter, const std::string &value, bool visible)
+        void set_object_filter_visible(le::ObjectFilter filter, const std::string &value, bool visible)
         {
             if (std::set<std::string> *values = filter_values(view_.hidden_objects, filter))
             {
@@ -1453,19 +1418,19 @@ struct LeHandle
             }
         }
 
-        bool is_object_filter_visible(int32_t filter, const std::string &value) const
+        bool is_object_filter_visible(le::ObjectFilter filter, const std::string &value) const
         {
             const std::set<std::string> *values = filter_values(view_.hidden_objects, filter);
             return !values || !values->contains(le::to_filter_value(value));
         }
 
-        void set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable)
+        void set_object_filter_selectable(le::ObjectFilter filter, const std::string &value, bool selectable)
         {
             if (std::set<std::string> *values = filter_values(view_.unselectable_objects, filter))
                 set_membership(*values, le::to_filter_value(value), !selectable);
         }
 
-        bool is_object_filter_selectable(int32_t filter, const std::string &value) const
+        bool is_object_filter_selectable(le::ObjectFilter filter, const std::string &value) const
         {
             const std::set<std::string> *values = filter_values(view_.unselectable_objects, filter);
             return !values || !values->contains(le::to_filter_value(value));
@@ -1476,8 +1441,8 @@ struct LeHandle
         const le::ObjectFilterSets &hidden_objects() const { return view_.hidden_objects; }
         const le::ObjectFilterSets &unselectable_objects() const { return view_.unselectable_objects; }
 
-        // le_object_filter_value_count/_at's LE_OBJECT_FILTER_PLACEMENT_TYPE
-        // list, rebuilt when Root has changed since. Read under a shared
+        // object_filter_values' ObjectFilter::PLACEMENT_TYPE list, rebuilt
+        // when Root has changed since. Read under a shared
         // lock, so it has a mutex of its own.
         const std::vector<std::string> &placement_type_values() const
         {
@@ -1509,7 +1474,7 @@ struct LeHandle
         // piece (or the same whole Row/Placement/Region) twice (e.g.
         // shift-clicking it again, or a drag-select re-enclosing it)
         // still no-ops. This still needs to stay cheap per call:
-        // le_mouse_up's drag-select branch (selection.cpp) calls select() once
+        // mouse_up's drag-select branch (selection.cpp) calls select() once
         // per enclosed piece, and a real design can put hundreds of
         // thousands of pieces under one shared Obstruction's OBS block.
         void select(le::ShapeId shape_id, le::PieceKind piece_kind = le::PieceKind::RECT, size_t piece_index = 0)
@@ -1620,20 +1585,23 @@ struct LeHandle
             return off;
         }
 
-        // `sets`' value set for an LeObjectFilter; nullptr for an unknown one.
+        // `sets`' value set for `filter`; nullptr for an unknown one.
         template <typename Sets>
-        static auto filter_values(Sets &sets, int32_t filter) -> decltype(&sets.placement_types)
+        static auto filter_values(Sets &sets, le::ObjectFilter filter) -> decltype(&sets.placement_types)
         {
-            if (filter == LE_OBJECT_FILTER_PLACEMENT_TYPE)
+            switch (filter)
+            {
+            case le::ObjectFilter::PLACEMENT_TYPE:
                 return &sets.placement_types;
-            if (filter == LE_OBJECT_FILTER_ROUTE_USE)
+            case le::ObjectFilter::ROUTE_USE:
                 return &sets.route_uses;
-            if (filter == LE_OBJECT_FILTER_PLACEMENT_STATUS)
+            case le::ObjectFilter::PLACEMENT_STATUS:
                 return &sets.placement_statuses;
-            if (filter == LE_OBJECT_FILTER_ROUTING_STATUS)
+            case le::ObjectFilter::ROUTING_STATUS:
                 return &sets.routing_statuses;
-            if (filter == LE_OBJECT_FILTER_ROUTE_SHAPE)
+            case le::ObjectFilter::ROUTE_SHAPE:
                 return &sets.route_shapes;
+            }
             return nullptr;
         }
         static void set_membership(std::set<std::string> &values, std::string value, bool member)
@@ -1767,33 +1735,18 @@ struct LeHandle
         // a build without an extension doesn't lose its settings.
         std::string unknown_extension_settings_json;
 
-        // The Shapes the most recent le_shape_* call created, read back via
-        // le_shape_op_result_at - same "count now, _at later" shape as the
-        // generated search-result caches below.
-        std::vector<le::ShapeId> shape_op_results;
-
-        // Generated TCL property-reading cache - one cached_X_property_id/
-        // cached_X_properties pair per TCL-readable class not already covered
-        // by hand-written code above. Never edit generated/api/
-        // handle_fields.inc directly - the build regenerates it.
 #include "generated/api/handle_fields.inc"
 };
 
-// Every genuine mutation of a LeHandle goes through exactly this pattern
-// (mutex_'s own doc comment above: a std::unique_lock<std::shared_mutex>
-// is *only* ever taken by a real write) - wrapping that acquisition in
-// this one RAII type, in place of a bare std::unique_lock, is what makes
-// notify_render_needed() (LeHandle's own doc comment above) fire on
-// every mutating call site mechanically, without maintaining a hand-
-// picked list of them. Construct as `HandleWriteLock lock(handle);` -
-// same call-site shape as the std::unique_lock it replaces, so the bulk
-// conversion across api.cpp (and the codegen fork's own generated
-// create/update/delete bodies, schema.py) is a pure find-and-replace.
 // Tells extensions' mutation listeners what changed since they were last
 // called, if anything did. Call with no lock on `handle` held. Defined in
 // extension.cpp.
 void dispatch_mutation_listeners(LeHandle *handle);
 
+// Every genuine mutation of a LeHandle takes its exclusive lock through
+// this (a std::unique_lock<std::shared_mutex> is *only* ever taken by a
+// real write), so notify_render_needed() fires on every mutating call
+// site without a hand-picked list of them.
 class HandleWriteLock
 {
 public:
@@ -1803,7 +1756,7 @@ public:
     }
 
     // Listeners hear about a typed command's changes once, when it ends
-    // (le_begin_command holds renders until then).
+    // (begin_command holds renders until then).
     ~HandleWriteLock()
     {
         handle_->note_write_finished(begin_);

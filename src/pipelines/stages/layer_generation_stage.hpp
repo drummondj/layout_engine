@@ -57,7 +57,7 @@ namespace le
                 return ViewLayerSet{};
 
             // A Root is expected to hold at most one Technology in this
-            // MVP (see api.cpp's own le_read_lef, ViewLayerSet's own
+            // MVP (see api.cpp's own read_lef, ViewLayerSet's own
             // caller) - front() is every existing call site's convention,
             // not a new assumption introduced here.
             ViewLayerSet view_layers = ViewLayerSet::build_for_technology(*root, technology_ids.front());

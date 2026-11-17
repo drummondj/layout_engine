@@ -16,8 +16,8 @@ namespace le::ext
 {
     /// @brief What an overlay draws with, valid for one call. It runs on the
     /// render thread with the session locked for reading: read root() and
-    /// your state, but don't call le_* functions or ExtensionContext::read()/
-    /// write(). The session lock doesn't cover state a GUI callback or Tcl
+    /// your state, but don't open a view (ExtensionContext::read()/write()).
+    /// The session lock doesn't cover state a GUI callback or Tcl
     /// command changes: read that with with_data<T>(), and have them write
     /// it the same way. Keep it quick - it runs on every mouse move.
     class OverlayContext
@@ -29,7 +29,7 @@ namespace le::ext
         /// restored after the overlay returns.
         BLContext &canvas() { return canvas_; }
         /// @brief Where a design point (dbu) is on the canvas, mirrored like
-        /// the view (le_set_view_flip).
+        /// the view (WriteView::set_view_flip).
         BLPoint to_pixel(Point dbu) const;
         /// @brief Pixels per dbu.
         double scale() const;

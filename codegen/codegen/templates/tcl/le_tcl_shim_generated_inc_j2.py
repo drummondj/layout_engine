@@ -157,7 +157,7 @@ le::{{klass.owner_type_name()}} resolve_{{klass.to_snake_case()}}_owner(const Lo
 {%- set snake = klass.to_snake_case() %}
 std::expected<le::{{klass.name}}Id, std::string> create_{{snake}}_native(le::WriteView &view{% if klass.create_native_params() %}, {{klass.create_native_params()}}{% endif %})
 {
-{{emit.c_api.create_api_body(klass, native=True)}}
+{{emit.tcl_shim.create_native_body(klass)}}
 }
 
 const char *create_{{snake}}_cmd({{klass.create_shim_params()}})
@@ -177,7 +177,7 @@ const char *create_{{snake}}_cmd({{klass.create_shim_params()}})
 {%- set snake = klass.to_snake_case() %}
 std::expected<void, std::string> update_{{snake}}_native(le::WriteView &view, {{klass.update_native_params()}})
 {
-{{emit.c_api.update_api_body(klass, native=True)}}
+{{emit.tcl_shim.update_native_body(klass)}}
 }
 
 const char *update_{{snake}}_cmd({{klass.update_shim_params()}})

@@ -12,7 +12,7 @@ namespace le::gui
     /// GUI-owning loop: idles (polling SessionRequests::take_show_gui_request()) until
     /// the Tcl console's `show_gui` command requests a window, then opens
     /// a GLFW + Dear ImGui window rendering `handle`'s own pixel buffer
-    /// (le_render_pixel_buffer) and driving its mouse/keyboard input
+    /// (Renderer::render) and driving its mouse/keyboard input
     /// through the existing le_* API, closing back down to the idle
     /// state (ready for `show_gui` to reopen it) when the window is
     /// closed. This module has no dependency on Tcl/SWIG at all and

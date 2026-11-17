@@ -530,11 +530,10 @@ TEST_F(WriteViewEdits, RemovingAShapePieceTakesItsMaskAndUndoes)
 namespace
 {
     // One mutation listener for the whole test binary (the registry is
-    // process-wide); it records events for `watched` only, and can be told
-    // to read or edit from inside the call.
+    // process-wide); it records events for the session watched_session()
+    // made only, and can be told to read or edit from inside the call.
     struct ListenerLog
     {
-        LeHandle *watched = nullptr;
         std::vector<le::ext::MutationEvent> events; // `changes` copied into `changes`
         std::vector<std::vector<le::ChangeLogEntry>> changes;
         std::function<void(le::ext::ExtensionContext &)> respond;
@@ -547,10 +546,16 @@ namespace
         return log;
     }
 
+    // Marks the session the listener watches.
+    struct Watched
+    {
+        bool watched = false;
+    };
+
     void record_mutation(le::ext::ExtensionContext &ctx, const le::ext::MutationEvent &event)
     {
         ListenerLog &log = listener_log();
-        if (ctx.handle() != log.watched)
+        if (!ctx.data<Watched>().watched)
             return;
         log.events.push_back(le::ext::MutationEvent{.everything = event.everything});
         log.changes.emplace_back(event.changes.begin(), event.changes.end());
@@ -570,7 +575,8 @@ namespace
         }();
         (void)registered;
         le::Session session;
-        listener_log() = ListenerLog{.watched = session.handle()};
+        le::ext::ExtensionContext(session.handle(), "mutation_listener_test").data<Watched>().watched = true;
+        listener_log() = ListenerLog{};
         return session;
     }
 

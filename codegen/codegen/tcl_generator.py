@@ -1,6 +1,6 @@
-"""Generates the TCL/SWIG property-reading and search surface (C API
-fragments for src/api, SWIG/shim/procs files for src/tcl) from a
-schema - a separate generation target from generator.py's database
+"""Generates the session's per-class surface - the C++ views' and edit
+ops' fragments for src/api, and the SWIG/shim/procs files for src/tcl -
+from a schema: a separate generation target from generator.py's database
 codegen, invoked via `codegen --target tcl`.
 """
 
@@ -13,7 +13,6 @@ import jinja2
 from codegen import emitters
 
 from codegen.templates.tcl import (
-    api_declarations_inc_j2,
     api_edit_ops_decls_inc_j2,
     api_edit_ops_defs_inc_j2,
     api_edit_types_hpp_j2,
@@ -28,13 +27,8 @@ from codegen.templates.tcl import (
     api_extension_current_defs_inc_j2,
     api_filter_tables_inc_j2,
     api_handle_fields_inc_j2,
-    api_id_conversions_hpp_j2,
-    api_ids_inc_j2,
     api_object_dispatch_inc_j2,
-    api_object_kinds_inc_j2,
     api_property_accessors_internal_inc_j2,
-    api_property_accessors_public_inc_j2,
-    api_search_inc_j2,
     api_snapshot_appliers_hpp_j2,
     le_api_generated_i_j2,
     le_tcl_procs_generated_tcl_j2,
@@ -80,8 +74,8 @@ def get_search_scopes(classes, current_access_classes) -> dict:
 
 
 def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
-    """Generate the TCL property-reading/search surface into `output_dir`'s
-    api/ (C API fragments) and tcl/ (SWIG, shim and procs) subdirectories,
+    """Generate the per-class surface into `output_dir`'s api/ (C++ view
+    and edit-op fragments) and tcl/ (SWIG, shim and procs) subdirectories,
     each recreated from scratch."""
 
     logger.info("Validating schema ...")
@@ -120,8 +114,6 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
     tcl_dir.mkdir(parents=True, exist_ok=True)
 
     files = [
-        (api_dir / "ids.inc", api_ids_inc_j2.TEMPLATE),
-        (api_dir / "id_conversions.hpp", api_id_conversions_hpp_j2.TEMPLATE, True),
         (api_dir / "view_current_decls.inc", api_view_current_decls_inc_j2.TEMPLATE, True),
         (api_dir / "view_current_defs.inc", api_view_current_defs_inc_j2.TEMPLATE, True),
         (api_dir / "extension_current_defs.inc", api_extension_current_defs_inc_j2.TEMPLATE, True),
@@ -130,24 +122,17 @@ def generate(schema: Schema, output_dir: str, logger: Logger) -> int:
         (api_dir / "edit_ops_defs.inc", api_edit_ops_defs_inc_j2.TEMPLATE, True),
         (api_dir / "view_edit_decls.inc", api_view_edit_decls_inc_j2.TEMPLATE, True),
         (api_dir / "view_edit_defs.inc", api_view_edit_defs_inc_j2.TEMPLATE, True),
-        (api_dir / "declarations.inc", api_declarations_inc_j2.TEMPLATE),
-        (api_dir / "handle_fields.inc", api_handle_fields_inc_j2.TEMPLATE),
+        (api_dir / "handle_fields.inc", api_handle_fields_inc_j2.TEMPLATE, True),
         (
             api_dir / "property_accessors_internal.inc",
             api_property_accessors_internal_inc_j2.TEMPLATE,
         ),
-        (
-            api_dir / "property_accessors_public.inc",
-            api_property_accessors_public_inc_j2.TEMPLATE,
-        ),
         (api_dir / "filter_tables.inc", api_filter_tables_inc_j2.TEMPLATE),
-        (api_dir / "search.inc", api_search_inc_j2.TEMPLATE),
         (api_dir / "search_decls.inc", api_search_decls_inc_j2.TEMPLATE, True),
         (api_dir / "search_defs.inc", api_search_defs_inc_j2.TEMPLATE, True),
         (api_dir / "view_search_decls.inc", api_view_search_decls_inc_j2.TEMPLATE, True),
         (api_dir / "view_search_defs.inc", api_view_search_defs_inc_j2.TEMPLATE, True),
         (api_dir / "snapshot_appliers.hpp", api_snapshot_appliers_hpp_j2.TEMPLATE),
-        (api_dir / "object_kinds.inc", api_object_kinds_inc_j2.TEMPLATE, True),
         (api_dir / "object_dispatch.inc", api_object_dispatch_inc_j2.TEMPLATE, True),
         (tcl_dir / "le_tcl_shim_generated.hpp", le_tcl_shim_generated_hpp_j2.TEMPLATE),
         (tcl_dir / "le_tcl_shim_generated.inc", le_tcl_shim_generated_inc_j2.TEMPLATE),

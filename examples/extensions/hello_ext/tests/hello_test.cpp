@@ -184,16 +184,6 @@ TEST(HelloExt, AFailedEditLeavesNothingToUndo)
     EXPECT_EQ(session.write().undo(), false);
 }
 
-TEST(HelloExt, ItsIdsConvertBetweenTheCApiAndTheDatabase)
-{
-    le::Session session;
-    const le::HelloMarkerId id = add_marker(session);
-    const LeHelloMarkerId marker = le::ext::to_c(id);
-    EXPECT_EQ(context(session).read().root().get_hello_marker(le::ext::from_c(marker))->name, "clock_root");
-    EXPECT_EQ(marker.index, id.index);
-    EXPECT_EQ(marker.generation, id.generation);
-}
-
 TEST(HelloExt, AddsAMarkerToTheCurrentLayoutAsOneUndoStep)
 {
     le::Session session;

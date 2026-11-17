@@ -267,3 +267,50 @@ def delete_body(klass, batch: bool) -> str:
     add('    return std::unexpected("delete failed");')
     add("return {};")
     return "\n".join(lines)
+
+
+def apply_snapshot_body(klass) -> str:
+    """
+    The full statement-list body of `inline bool apply_<snake>_snapshot
+    (Root &root, <Klass>Id id, const <Klass>Data &data)`
+    (api_snapshot_appliers_hpp_j2.py) - restores a *whole* field
+    snapshot through one real Root::update_<klass>() call, reusing the
+    same field list/single-parent handling update_root_params() does,
+    so every index stays consistent. Each create field is passed as
+    `std::optional<T>(data.<field>)` (T = root_value_cpp_type()). For
+    an is_optional field that is unset in the snapshot that's an empty
+    optional, which update_<klass>() reads as "leave unchanged", so
+    those fields are then copied directly. None is indexed, and the
+    update already logged the object as changed.
+    """
+    indent = "        "
+    lines: List[str] = []
+
+    def add(text: str = "") -> None:
+        lines.append(f"{indent}{text}" if text else "")
+
+    snake = klass.to_snake_case()
+    parent_fields = klass.get_parent_fields()
+    create_fields = klass.get_create_fields()
+    single_parent = parent_fields[0] if len(parent_fields) == 1 else None
+
+    call_args = ["id"]
+    if single_parent is not None:
+        call_args.append(f"data.{single_parent.name}")
+    for rf in klass.get_reference_create_fields():
+        call_args.append(f"std::optional<{rf.type}Id>(data.{rf.name})")
+    for f in create_fields:
+        call_args.append(f"std::optional<{f.root_value_cpp_type(qualified=False)}>(data.{f.name})")
+
+    optional_fields = [f for f in create_fields if f.is_optional]
+    if not optional_fields:
+        add(f"return root.update_{snake}({', '.join(call_args)});")
+        return "\n".join(lines)
+    add(f"if (!root.update_{snake}({', '.join(call_args)}))")
+    add("    return false;")
+    add(f"{klass.name}Data *stored = root.get_{snake}(id);")
+    for f in optional_fields:
+        add(f"stored->{f.name} = data.{f.name};")
+    add("return true;")
+
+    return "\n".join(lines)

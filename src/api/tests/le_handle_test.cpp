@@ -211,7 +211,7 @@ TEST(LeHandle, SelectDedupsCorrectlyAcrossManyDistinctShapes)
 {
     // Regression/refactor-safety test for select()'s O(1)-average dedup
     // (selected_ids_, a plain unordered_set<ShapeId>) - this matters
-    // because le_mouse_up's drag-select branch (selection.cpp) calls select()
+    // because mouse_up's drag-select branch (selection.cpp) calls select()
     // once per enclosed piece, and a real design can put hundreds of
     // thousands of pieces under one shared Obstruction's OBS block. Mixes distinct new ids with re-selecting already-
     // selected ones (in original and reverse order) and checks the exact
@@ -481,8 +481,8 @@ TEST(LeHandle, SetMousePositionBumpsMouseVersionNotViewportOrVisibilityVersion)
 
 TEST(LeHandle, MouseDbuPositionUndoesPanScaleAndYFlip)
 {
-    // Pixel space is top-left origin/y-down (matches le_render_pixel_buffer's
-    // output image and le_zoom's x/y); dbu space is y-up - see handle.hpp's
+    // Pixel space is top-left origin/y-down (matches Renderer::render's
+    // output image and zoom's x/y); dbu space is y-up - see handle.hpp's
     // mouse_dbu_position comment for the exact inverse formula.
     LeHandle handle;
     handle.set_pan(Point{100, 200});
@@ -574,7 +574,7 @@ TEST(LeHandle, BeginDragSetsStateAndBumpsMouseVersionNotViewportOrVisibilityVers
 
 TEST(LeHandle, BeginDragDefaultsToSelectKind)
 {
-    // The defaulted third parameter: le_mouse_down's call site
+    // The defaulted third parameter: mouse_down's call site
     // (begin_drag(x, y), no third argument) must start a select drag.
     LeHandle handle;
     handle.begin_drag(10, 20);

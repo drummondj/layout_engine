@@ -84,8 +84,8 @@ namespace le
     using ShapeOpResult = std::expected<std::vector<ShapeId>, std::string>;
 
     /// @brief A shared-locked, read-only view of the session for as long as
-    /// it lives. Don't open a WriteView (or call a C API function that
-    /// takes the session's lock) on the same thread while holding one.
+    /// it lives. Don't open another view (or anything else that takes the
+    /// session's lock) on the same thread while holding one.
     class ReadView
     {
     public:
@@ -555,8 +555,8 @@ namespace le
         std::string error_;
     };
 
-    /// @brief Groups every edit made while it lives - through WriteViews
-    /// and the C API alike - into one undo step labelled `label`, and holds
+    /// @brief Groups every edit made while it lives, through any of the
+    /// session's WriteViews, into one undo step labelled `label`, and holds
     /// renders until it ends. Recorded as succeeded unless fail() is
     /// called. Does nothing if a step is already open, e.g. inside a typed
     /// Tcl command. Takes the session's lock to open and close the step, so
@@ -678,7 +678,7 @@ namespace le
         Session(const Session &) = delete;
         Session &operator=(const Session &) = delete;
 
-        /// @brief The session's handle, for ExtensionContext and the C API;
+        /// @brief The session's handle, for ExtensionContext and the views;
         /// null once moved from or released.
         LeHandle *handle() const { return handle_; }
 

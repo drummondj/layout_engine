@@ -1,12 +1,10 @@
 #pragma once
-// The C++ half of the C API's edits: validate, change the Root, bump its
-// mutation version and record undo, in native types (database ids, dbu,
-// std::expected errors). The le_* functions convert their C arguments and
-// call these under the handle's lock; extensions reach them through
-// le::WriteView (views.hpp). Every function here expects the caller to hold the
+// The session's edits: validate, change the Root, bump its mutation
+// version and record undo, in native types (database ids, dbu,
+// std::expected errors). The views (views.hpp) call these under the
+// handle's lock; every function here expects the caller to hold the
 // handle's exclusive lock.
 
-#include "api.hpp"
 #include "database.hpp"
 #include "generated/api/edit_types.hpp"
 #include "../database/wire_helpers.hpp"
@@ -22,6 +20,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+struct LeHandle;
 
 namespace le::edit
 {
@@ -359,8 +359,8 @@ namespace le::edit
     std::expected<void, std::string> rename_instance(LeHandle &handle, InstanceId instance, const std::string &name);
 
     // --- Files ---
-    // Each logs what it reports, as the C API always has (the readers and
-    // writers log as they go), and returns the error text too: the reader's
+    // Each logs what it reports (the readers and writers log as they go),
+    // and returns the error text too: the reader's
     // or writer's ERROR lines, or its own reason. A read records into the
     // open undo step, if any.
 

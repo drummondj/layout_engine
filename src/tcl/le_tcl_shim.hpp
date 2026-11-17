@@ -212,11 +212,11 @@ bool is_placement_snap_mode_available_cmd(int mode);
 int set_view_flip_cmd(int flip);
 int get_view_flip_cmd();
 
-/// @brief `rotate_placement`/`flip_placement`: an LeOrientationOp value.
+/// @brief `rotate_placement`/`flip_placement`: an le::OrientationOp value.
 /// 0, 1 nothing selected, 2 not available, 3 locked, -1 an unknown op.
 int apply_placement_orientation_op_cmd(int op);
 
-/// @brief Resize and shape snapping: LePieceKind/LeShapeSnapMode values.
+/// @brief Resize and shape snapping: le::PieceKind/le::ShapeSnapMode values.
 void arm_resize_cmd();
 void set_shape_snap_mode_cmd(int kind, int mode);
 int get_shape_snap_mode_cmd(int kind);

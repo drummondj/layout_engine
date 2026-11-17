@@ -1,5 +1,5 @@
 import unittest
-from codegen.emitters import c_api, tcl_procs
+from codegen.emitters import tcl_procs, tcl_shim
 from codegen.schema import Schema, Klass, Field, to_snake_case, to_camel_case
 
 
@@ -144,7 +144,7 @@ class TestSmallUnsignedCreateFields(unittest.TestCase):
         self.schema = Schema(name="t", description="", namespace="t", classes=[self.klass], version="1.0.0")
         self.schema.link()
 
-    def test_crosses_the_c_api_as_int32(self):
+    def test_crosses_the_tcl_shim_as_int32(self):
         field = self.schema.get_field("Marker", "index")
         self.assertEqual(field.create_c_type(), "int32_t")
         self.assertEqual(field.root_value_cpp_type(), "unsigned char")
@@ -159,28 +159,25 @@ class TestSmallUnsignedCreateFields(unittest.TestCase):
         self.assertEqual(self.schema.get_field("Marker", "count").create_struct_init_expr(), "static_cast<unsigned short>(count)")
 
     def test_create_and_update_reject_an_out_of_range_value(self):
-        create = c_api.create_api_body(self.klass)
+        create = tcl_shim.create_native_body(self.klass)
         self.assertIn("if (has_index && (index < 0 || index > 255))", create)
         self.assertIn("if (count < 0 || count > 65535)", create)
-        update = c_api.update_api_body(self.klass)
+        update = tcl_shim.update_native_body(self.klass)
         self.assertIn("if (has_index && (index < 0 || index > 255))", update)
         self.assertIn("if (has_count && (count < 0 || count > 65535))", update)
 
     def test_native_bodies_return_their_errors(self):
-        # The Tcl shim's create_/update_<type>_native: the same checks,
-        # returned as the error instead of logged, with no lock taken.
-        create = c_api.create_api_body(self.klass, native=True)
+        # The Tcl shim's create_/update_<type>_native: errors come back as
+        # values, and the view they're given holds the lock.
+        create = tcl_shim.create_native_body(self.klass)
         self.assertIn('return std::unexpected(std::format("index {} is out of range (0 to 255)", index));', create)
         self.assertIn("return view.create_marker(std::move(new_data));", create)
-        update = c_api.update_api_body(self.klass, native=True)
+        update = tcl_shim.update_native_body(self.klass)
         self.assertIn('return std::unexpected(std::format("count {} is out of range (0 to 65535)", count));', update)
         self.assertIn("return view.update_marker(typed_id, std::move(changes));", update)
         for body in (create, update):
             self.assertNotIn("spdlog", body)
             self.assertNotIn("HandleWriteLock", body)
-            self.assertNotIn("from_c(", body)
-        # The C API keeps logging.
-        self.assertIn('spdlog::error("create_marker: index {} is out of range (0 to 255)", index);', c_api.create_api_body(self.klass))
 
     def test_unset_default_of_a_multi_word_type_is_a_cast(self):
         self.assertEqual(self.schema.get_field("Marker", "index")._optional_default_cpp(), "static_cast<unsigned char>(0)")

@@ -108,8 +108,8 @@ namespace le
         }
 
         // Read file
-        // A callback that throws would unwind through the vendored parser
-        // and out of the C API; it ends the read as a parse failure.
+        // A callback that throws would unwind through the vendored C
+        // parser; it ends the read as a parse failure instead.
         int result = 0;
         try
         {

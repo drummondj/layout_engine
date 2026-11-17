@@ -64,7 +64,7 @@ TYPEMAP = {
 DBU_TYPES = ("dbu", "dbu2", "dbu32")
 
 # Unsigned integer types narrower than int a create/update field may use:
-# each crosses the C API as an int32_t, range-checked against its maximum.
+# each crosses the Tcl shim as an int32_t, range-checked against its maximum.
 SMALL_UINT_MAX = {"unsigned char": 255, "unsigned short": 65535}
 
 
@@ -120,15 +120,15 @@ def _leaf_param_name(field_name: str, flat: str, leaf: "Field") -> str:
     leaves get the same _um suffix Field.create_c_param_name() already
     uses for a plain dbu field - matches the same microns-at-the-C-
     boundary convention every dbu-crossing parameter in this generated
-    surface follows, e.g. le_create_shape's own rects_flat_um).
+    surface follows, e.g. create_shape_native's own rects_flat_um).
     """
     return f"{field_name}_{flat}_um" if leaf.type in DBU_TYPES else f"{field_name}_{flat}"
 
 
 def _leaf_value_expr(leaf: "Field", param: str) -> str:
     """
-    The api.cpp-layer expression converting one flattened scalar leaf's
-    raw C-API parameter into its final typed C++ value - to_dbu(...) for
+    The Tcl-shim-layer expression converting one flattened scalar leaf's
+    raw Tcl-shim parameter into its final typed C++ value - to_dbu(...) for
     a dbu leaf (assumes a local `dbu_per_um` already exists, same
     assumption Field.create_struct_init_expr()'s own dbu branch makes),
     a != 0 bool coercion, or identity.
@@ -434,11 +434,10 @@ class Klass:
     # per-Abstract by hand, not a global codegen index).
     tcl_id_field: Optional[str] = None
 
-    # Whether this class has a generated "current instance" concept
-    # (a settable Le{Klass}Id on LeHandle, plus generated current_X/
-    # set_current_X_cmd TCL commands) - independent of any hand-written
-    # "current view" state elsewhere (e.g. LeHandle::current_abstract(),
-    # which drives GUI rendering and is deliberately not bridged to this).
+    # Whether this class has a generated "current instance" concept (a
+    # settable current_<type>_id on LeHandle, the views' current_<type>,
+    # and generated current_X/set_current_X_cmd TCL commands). Opening a
+    # Design's view in the GUI moves the matching one.
     # Every readable class's generated get_<type> search command derives
     # its default (-of omitted) scope from whichever has_current_access
     # class governs it, purely from schema parent/is_child structure - see
@@ -548,12 +547,9 @@ class Klass:
 
     def tcl_plural_snake_case(self) -> str:
         """
-        snake_case, pluralized - matches the existing hand-written search
-        naming convention (le_get_terminals/get_terminals_cmd/
-        get_terminals_at/the "get_terminals" Tcl proc itself are all
-        plural; le_search_result_terminal_at and the
-        terminal_search_results cache member stay singular - see
-        to_snake_case() for those). Simple English pluralization (+s, or
+        snake_case, pluralized - the search naming convention
+        (ReadView::get_terminals/get_terminals_cmd/the "get_terminals"
+        Tcl proc). Simple English pluralization (+s, or
         -y -> -ies after a consonant) - covers every class name in this
         schema; extend here if a future class name needs an irregular
         plural codegen doesn't already know how to form.
@@ -759,8 +755,8 @@ class Klass:
         """
         "<type> <name>" declaration fragments for every create field's own
         slot(s) (Field.cmd_param_slots(mode)), in order - shared by
-        create_api_params/create_shim_params (mode="create") and
-        update_api_params/update_shim_params (mode="update"). Parent-field
+        create_native_params/create_shim_params (mode="create") and
+        update_native_params/update_shim_params (mode="update"). Parent-field
         parts are each aggregator's own concern (the shape differs too
         much between create's "always every parent, required" and
         update's "at most one, optional" to share here).
@@ -778,29 +774,15 @@ class Klass:
             parts.extend(f.cmd_forward_exprs(mode))
         return parts
 
-    def create_api_params(self) -> str:
-        """
-        Full comma-joined parameter list (excluding the leading
-        LeHandle*) for this class's generated le_create_<type> - one
-        Le<Parent>Id per parent field (get_parent_fields(), usually one,
-        more for a multi-parent class like Shape/ViaLayer/Foreign/
-        LayerDensityEntry), then each create field's own slot(s) (plus a
-        has_<field> companion for the ones that need one - see
-        Field.create_needs_has_flag()).
-        """
-        parts = [f"Le{pf.type}Id {pf.name}_id" for pf in self.non_owner_parent_fields()]
-        if self.get_owner_fields():
-            parts.append(f"Le{self.owner_type_name()} owner")  # kind + id, not one id per owner option
-        parts += [f"Le{rf.type}Id {rf.name}_id" for rf in self.get_reference_create_fields()]
-        parts += self._create_field_param_parts("create")
-        return ", ".join(parts)
-
     def create_native_params(self) -> str:
         """
-        create_api_params() with native ids (le::<Parent>Id, the owner as
-        le::<OwnerType>): the parameters of the Tcl shim's
-        create_<type>_native(le::WriteView &view, ...), which
-        create_<type>_cmd forwards to (create_shim_forward_args()).
+        Full comma-joined parameter list (after the leading
+        le::WriteView &) of the Tcl shim's create_<type>_native, which
+        create_<type>_cmd forwards to (create_shim_forward_args()): one
+        le::<Parent>Id per non-owner parent field, the owner as
+        le::<OwnerType>, each plain reference, then each create field's
+        own slot(s) (plus a has_<field> companion for the ones that need
+        one - see Field.create_needs_has_flag()).
         """
         parts = [f"le::{pf.type}Id {pf.name}_id" for pf in self.non_owner_parent_fields()]
         if self.get_owner_fields():
@@ -812,7 +794,7 @@ class Klass:
     def create_shim_params(self) -> str:
         """
         The parameters of create_<type>_cmd, the SWIG/Tcl-facing shim:
-        create_api_params()'s shape with each parent (and reference) as a
+        create_native_params()'s shape with each parent (and reference) as a
         `const char *` friendly-id token, and the owner as its option's
         name and token.
         """
@@ -871,44 +853,20 @@ class Klass:
         through that field, not through `::database_units_microns(root)`."""
         return any(f.name == "database_units_microns" and not f.is_list for f in self.fields)
 
-    def update_api_params(self) -> str:
-        """
-        Full comma-joined parameter list (excluding the leading
-        LeHandle*) for this class's generated le_update_<type> -
-        Le<Klass>Id id, then (iff this class has exactly one parent
-        field) a has_<parent>/Le<Parent>Id pair letting the caller
-        reassign it, then every create field's own slot(s) via
-        Field.cmd_param_slots("update") - every field gets a has-flag
-        (or, for str/enum, relies on the same nullptr-means-omitted
-        signal create_<type> already uses) here, since an omitted update
-        flag means "leave unchanged", not "unset"/"apply the zero value"
-        (see c_api.update_api_body()). Multi-parent classes (Shape/ViaLayer/
-        Foreign/LayerDensityEntry) get no parent flag at all -
-        reassigning one parent field alone would violate their "exactly
-        one parent set" invariant, and there's no atomic "swap parent,
-        clear siblings" primitive.
-        Generated for every pool class unconditionally, same as
-        create_<type> - even a class with zero non-parent create fields
-        (Obstruction, Schematic) still has a real, useful reparent-only
-        update_<type> (every pool class has at least a parent field or a
-        create field, never neither).
-        """
-        parts = [f"Le{self.name}Id id"]
-        parent_fields = self.get_parent_fields()
-        if len(parent_fields) == 1:
-            pf = parent_fields[0]
-            parts.append(f"int32_t has_{pf.name}")
-            parts.append(f"Le{pf.type}Id {pf.name}_id")
-        for rf in self.get_reference_create_fields():
-            parts.append(f"int32_t has_{rf.name}")
-            parts.append(f"Le{rf.type}Id {rf.name}_id")
-        parts += self._create_field_param_parts("update")
-        return ", ".join(parts)
-
     def update_native_params(self) -> str:
         """
-        update_api_params() with native ids: the parameters of the Tcl
-        shim's update_<type>_native(le::WriteView &view, ...).
+        Full comma-joined parameter list (after the leading
+        le::WriteView &) of the Tcl shim's update_<type>_native: the id,
+        then (iff this class has exactly one parent field) a has-flag/id
+        pair letting the caller reassign it, the same for each plain
+        reference, then every create field's own slot(s) via
+        Field.cmd_param_slots("update") - every field gets a has-flag (or,
+        for str/enum, relies on the nullptr-means-omitted signal create
+        uses), since an omitted update flag means "leave unchanged", not
+        "unset". Multi-parent classes (Shape/ViaLayer/Foreign/
+        LayerDensityEntry) get no parent flag at all - reassigning one
+        parent field alone would violate their "exactly one parent set"
+        invariant.
         """
         parts = [f"le::{self.name}Id id"]
         parent_fields = self.get_parent_fields()
@@ -924,7 +882,7 @@ class Klass:
 
     def update_shim_params(self) -> str:
         """
-        The parameters of update_<type>_cmd: update_api_params()'s shape
+        The parameters of update_<type>_cmd: update_native_params()'s shape
         with `id`, a single parent and each reference as friendly-id
         tokens.
         """
@@ -1007,10 +965,10 @@ class Klass:
     def edit_changes_members(self) -> List[tuple]:
         """
         (C++ type, name) of each <Klass>Changes member (edit_types.hpp), in
-        update_api_params() order: the parent (single-parent classes only,
-        to move the object), each plain reference, then each create field -
-        everything le_update_<type> can change. Types are bare, for use
-        inside `namespace le`.
+        update_native_params() order: the parent (single-parent classes
+        only, to move the object), each plain reference, then each create
+        field - everything update_<type> can change. Types are bare, for
+        use inside `namespace le`.
         """
         members = []
         parent_fields = self.get_parent_fields()
@@ -1035,10 +993,10 @@ class Klass:
         prefix, since this is emitted inside `namespace le` already) -
         has_value() is Root's own "was this field provided" signal, no
         separate has_<field> bool needed at this layer (unlike
-        update_api_params(), which still needs explicit has-flags/
-        nullptr-style raw C-API slots, since that's the boundary where
-        the "was it provided" signal first has to be materialized out of
-        raw Tcl/C input).
+        update_native_params(), which still needs explicit has-flags/
+        nullptr-style raw slots, since that's the boundary where the "was
+        it provided" signal first has to be materialized out of raw Tcl
+        input).
         """
         parts = [f"{self.name}Id id"]
         parent_fields = self.get_parent_fields()
@@ -1050,27 +1008,6 @@ class Klass:
         for f in self.get_create_fields():
             parts.append(f"std::optional<{f.root_value_cpp_type(qualified=False)}> {f.name}")
         return ", ".join(parts)
-
-    def delete_batch_api_body(self) -> str:
-        """
-        The full statement-list body of le_delete_<type>_batch(LeHandle
-        *handle, const Le<Klass>Id *ids, int32_t count): locks and calls
-        le::edit::delete_<type>_batch (edit_ops.delete_batch_op_body()). Returns 1,
-        without logging, if any id is unknown.
-        """
-        snake = self.to_snake_case()
-        return "\n".join(
-            [
-                "        if (!handle || count < 0 || (count > 0 && !ids))",
-                "            return 1;",
-                f"        std::vector<le::{self.name}Id> native;",
-                "        native.reserve(static_cast<size_t>(count));",
-                "        for (int32_t i = 0; i < count; ++i)",
-                "            native.push_back(from_c(ids[i]));",
-                "        HandleWriteLock lock(handle);  // writer - mutates Root",
-                f"        return le::edit::delete_{snake}_batch(*handle, native) ? 0 : 1;",
-            ]
-        )
 
     def get_include_define(self) -> str:
         """
@@ -1198,10 +1135,6 @@ class Klass:
     def non_owner_parent_fields(self) -> List["Field"]:
         """The parent fields that aren't owner options - each its own create parameter."""
         return [f for f in self.get_parent_fields() if not f.owner]
-
-    def owner_c_kind(self, field: "Field") -> str:
-        """The C API's kind constant for one owner option: LE_SHAPE_OWNER_ROUTE."""
-        return f"LE_{self.to_snake_case().upper()}_OWNER_{field.name.upper()}"
 
     def get_owner_fields(self) -> List["Field"]:
         """The owner=True parent fields, stored together in one `owner` member."""
@@ -1614,7 +1547,7 @@ class Field:
         collects these; each gets its own create_<type>/update_<type>
         `-<field> <token>` flag, resolved via resolve_<type>_id() exactly
         like a single-parent field's own token (see Klass.
-        c_api.create_api_body()/c_api.update_api_body()'s own reference-field
+        tcl_shim.create_native_body()/tcl_shim.update_native_body()'s own reference-field
         sections) - a small, deliberately separate mechanism from
         get_parent_fields()/has_parent(), which several other structural
         concerns (is_child enumeration, delete cascade, tcl_scope's
@@ -1626,7 +1559,7 @@ class Field:
         optional one follows the same "omitted means unset" convention a
         parent-field token already does at the API layer (an invalid,
         default-constructed Le<Type>Id) and a str/enum field already does
-        at the shim layer (an empty token) - see c_api.create_api_body()'s
+        at the shim layer (an empty token) - see tcl_shim.create_native_body()'s
         own reference-field section for exactly how required vs optional
         differs there (only in whether an unresolved/omitted value is an
         error). Its own get_cpp_type() stores it as a bare <Type>Id either
@@ -1841,8 +1774,8 @@ class Field:
 
     def list_compound_parse_lines(self, mode: str, fail: Callable[[str], List[str]]) -> List[str]:
         """
-        api.cpp-layer statements (8-space indented, matching c_api.create_api_body()/
-        c_api.update_api_body()'s own base indent) that parse this list-compound
+        Tcl-shim-layer statements (8-space indented, matching tcl_shim.create_native_body()/
+        tcl_shim.update_native_body()'s own base indent) that parse this list-compound
         create field's own `<field>_flat_um`/`<field>_flat_count` slots
         (cmd_param_slots()) - the flat, per-record-length-prefixed
         encoding tcl_procs.cmd_tcl_preamble() builds Tcl-side (see its own
@@ -1857,7 +1790,7 @@ class Field:
         (...) : std::nullopt` wrapping - when the flag was never provided
         at all. Assumes a local `dbu_per_um` already exists
         (cmd_uses_dbu() is always True for a list-compound field, so
-        c_api.create_api_body()/c_api.update_api_body() already guarantee this by
+        tcl_shim.create_native_body()/tcl_shim.update_native_body() already guarantee this by
         the time this runs). Every arity/malformed-encoding check here is
         defense in depth against a caller reaching *_cmd directly with a
         hand-built flat array - the generated Tcl preamble already
@@ -2018,7 +1951,7 @@ class Field:
         required flag. mode="update" is always False - nothing is ever
         required to *update* an existing object, that's the entire point
         of the command (an omitted flag there means "leave unchanged", not
-        "unset" - see c_api.update_api_body()). In mode="create", mirrors
+        "unset" - see tcl_shim.update_native_body()). In mode="create", mirrors
         is_optional, with two deliberate exceptions:
         - `bool` fields are never is_optional=True anywhere in this schema
           (false is already a zero-cost "not specified" default - see
@@ -2081,7 +2014,7 @@ class Field:
     def create_c_param_name(self) -> str:
         """
         The C-level parameter name for this create-field's value slot -
-        `<name>_um` for a dbu field (its value crosses the C API in
+        `<name>_um` for a dbu field (its value crosses the Tcl shim in
         microns, converted via database_units_microns()/to_dbu() - the
         same microns-at-the-C-boundary convention every dbu-crossing
         parameter in this generated surface follows), the bare field
@@ -2093,7 +2026,7 @@ class Field:
         """
         The C type of this create-field's own value slot (not counting
         any companion has_<field> parameter - see create_needs_has_flag).
-        str and enum fields both cross the C API as `const char *` -
+        str and enum fields both cross the Tcl shim as `const char *` -
         enum-typed flags take the same spelling to_string()/from_string()
         use (e.g. "INPUT"), parsed via the matching generated
         <enum>_from_string() inside the generated create_<type> body,
@@ -2112,23 +2045,10 @@ class Field:
             return "double"
         raise ValueError(f"create_c_type: unsupported create-field type {self.type!r} on field {self.name!r}")
 
-    def create_c_param_decl(self) -> str:
-        """
-        The full "<type> <name>" declaration fragment for this create-
-        field's own value-slot parameter (e.g. "const char *shape",
-        "double width_um") - identical text used in le_create_<type>'s
-        declaration (api.hpp) and definition (api.cpp) and the matching
-        create_<type>_cmd shim declaration/definition, so those four
-        always stay in sync by construction rather than by hand-copying.
-        """
-        ctype = self.create_c_type()
-        name = self.create_c_param_name()
-        return f"{ctype}{name}" if ctype.endswith("*") else f"{ctype} {name}"
-
     def cmd_param_slots(self, mode: str = "create") -> List[Tuple[str, str]]:
         """
         Every (c_type, param_name) positional slot this field occupies in
-        a generated le_create_<type>/le_update_<type> (or the matching
+        a generated create_<type>_native/update_<type>_native (or the matching
         create_<type>_cmd/update_<type>_cmd shim) signature, in order: the
         has_<field> companion first (create_needs_has_flag(mode)), then
         one value slot per scalar leaf - exactly one for a plain field,
@@ -2157,7 +2077,7 @@ class Field:
         """
         The expression(s) forwarding this field's own value(s) from a
         create_<type>_cmd/update_<type>_cmd shim call to
-        le_create_<type>/le_update_<type>, in cmd_param_slots(mode) order
+        create_<type>_native/update_<type>_native, in cmd_param_slots(mode) order
         - identical to the raw parameter for a numeric/compound-leaf slot,
         but converts an empty/null string to a real nullptr for an
         optional (or update-mode) str/enum field. Tcl/SWIG can't produce a
@@ -2207,9 +2127,9 @@ class Field:
 
     def cmd_value_expr(self) -> str:
         """
-        The api.cpp-layer expression producing this field's final typed
+        The Tcl-shim-layer expression producing this field's final typed
         C++ value, assuming it was provided - no has-flag/nullopt
-        wrapping (create_struct_init_expr() and c_api.update_api_body()
+        wrapping (create_struct_init_expr() and tcl_shim.update_native_body()
         each apply that themselves, since they wrap it differently -
         std::optional in a struct initializer vs. a plain value forwarded
         to Root::update_<klass>()). A plain field reuses the exact
@@ -2254,8 +2174,8 @@ class Field:
     def create_struct_init_expr(self) -> str:
         """
         The `.field = <expr>` initializer value for this create-field
-        inside le_create_<type>'s own `le::<Klass>Data{...}` construction.
-        Assumes (built by c_api.create_api_body(), which emits them in
+        inside create_<type>_native's own `le::<Klass>Data{...}` construction.
+        Assumes (built by tcl_shim.create_native_body(), which emits them in
         this order): a local `parsed_<name>` variable already exists for
         an enum field (declared/validated earlier in the function body),
         and `dbu_per_um` already exists for a field with cmd_uses_dbu().
@@ -2267,7 +2187,7 @@ class Field:
                 return f"has_{self.name} ? {self.cmd_value_expr()} : le::{self.type}{{}}"
             return f"has_{self.name} ? std::optional<le::{self.type}>({self.cmd_value_expr()}) : std::nullopt"
         if self.list_compound_kind() is not None:
-            # c_api.create_api_body() already parsed the flat wire
+            # tcl_shim.create_native_body() already parsed the flat wire
             # encoding into a `<field>_value` std::vector<ElementKlass>
             # local (see Field.list_compound_parse_lines()) - an omitted
             # flag already means "no records" there (create mode's parse
@@ -2301,7 +2221,7 @@ class Field:
         field's own value - the T in Root::update_<klass>'s
         std::optional<T> parameter for this field (Klass.
         update_root_params()) and in the std::optional<T>(...) this
-        field's own update_root_arg_expr() constructs at the api.cpp
+        field's own update_root_arg_expr() constructs at the Tcl shim
         call site. Deliberately independent of get_cpp_type()'s own
         is_optional wrapping - Root's "was this field provided in this
         update call" signal (the outer std::optional this method's
@@ -2309,7 +2229,7 @@ class Field:
         field's own database storage is itself is_optional (the inner
         type here), and wrapping both together would double-wrap a field
         that's_optional=True in storage (e.g. Terminal.shape,
-        Abstract.size). `qualified=True` (the api.cpp-layer call site,
+        Abstract.size). `qualified=True` (the Tcl-shim-layer call site,
         outside `namespace le`) prefixes an enum/compound type with
         "le::"; `qualified=False` (root_hpp_j2.py's own parameter
         declaration, already inside `namespace le`) leaves it bare.
@@ -2341,14 +2261,14 @@ class Field:
 
     def update_root_arg_expr(self) -> str:
         """
-        The api.cpp-layer argument this field contributes to the single
-        Root::update_<klass>(...) call in c_api.update_api_body() -
+        The Tcl-shim-layer argument this field contributes to the single
+        Root::update_<klass>(...) call in tcl_shim.update_native_body() -
         always std::optional<T> (T = root_value_cpp_type()), regardless
         of whether the field's own database storage is is_optional
         (Root's "was this field provided" signal is independent of
         storage optionality - see root_value_cpp_type()). An enum field
-        reuses the parsed_<name> local c_api.update_api_body() already builds
-        (identical shape to c_api.create_api_body()'s own non-required enum
+        reuses the parsed_<name> local tcl_shim.update_native_body() already builds
+        (identical shape to tcl_shim.create_native_body()'s own non-required enum
         branch, since create_required("update") is always False); a str
         field applies the same "empty means omitted" convention inline
         (no has_<field> companion exists for str - see
@@ -2364,7 +2284,7 @@ class Field:
             name = self.create_c_param_name()
             return f"({name} && {name}[0]) ? std::optional<std::string>({name}) : std::nullopt"
         if self.list_compound_kind() is not None:
-            # c_api.update_api_body()'s own list-compound parsing already
+            # tcl_shim.update_native_body()'s own list-compound parsing already
             # guards the parse loop itself with `if (has_<field>)`, but
             # `<field>_value` stays a plain std::vector<ElementKlass> (see
             # Field.list_compound_parse_lines()) - the optional wrap
@@ -2535,8 +2455,7 @@ class Field:
         top-level property-table row) is responsible for adding exactly
         one wrapping brace pair around the nested value it embeds - the
         same responsibility to_property_list_string() already carries
-        per list item. This reproduces api.cpp's old hand-written
-        format_rect_um()'s exact "{{llx lly} {urx ury}}" shape
+        per list item. This gives the "{{llx lly} {urx ury}}" shape
         generically: Point has no embedded-klass fields of its own so it
         stays bare ("llx lly"), Rect's own "ll"/"ur" fields each wrap
         their Point in one brace pair, and whatever embeds a whole Rect
@@ -2691,7 +2610,7 @@ class Purpose:
     """
     One view-layer purpose: a kind of object the renderer draws, toggled as
     one column across every layer. Declaration order is the C++ enum's
-    order, whose ordinals cross the C API within one process only.
+    order; anything persisted uses the label, never the ordinal.
 
     Attributes:
         name (str): The C++ enumerator, UPPER_SNAKE_CASE (e.g. TRACK_PREFERRED).

@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from codegen.emitters import c_api, edit_ops, root, tcl_procs
+from codegen.emitters import edit_ops, root, tcl_procs
 from codegen.schema import Field, Klass, Schema
 from examples import eda
 
@@ -62,11 +62,6 @@ class TestEmittersOverAHierarchy(unittest.TestCase):
     def test_a_leaf_class_deletes_without_a_cascade(self):
         self.assertNotIn("casc", edit_ops.delete_op_body(self.klass["Instance"]))
 
-    def test_delete_api_takes_the_write_lock_and_calls_the_op(self):
-        body = c_api.delete_api_body(self.klass["Design"])
-        self.assertIn("HandleWriteLock lock(handle);", body)
-        self.assertIn("le::edit::delete_design(*handle, from_c(id))", body)
-
     def test_update_root_reparents_through_the_child_lists(self):
         body = root.update_root_body(self.klass["Instance"])
         self.assertIn("const bool reparent = module.valid() && module != existing->module;", body)
@@ -76,7 +71,7 @@ class TestEmittersOverAHierarchy(unittest.TestCase):
 
     def test_apply_snapshot_passes_every_field(self):
         self.assertEqual(
-            c_api.apply_snapshot_body(self.klass["Instance"]).strip(),
+            edit_ops.apply_snapshot_body(self.klass["Instance"]).strip(),
             "return root.update_instance(id, data.module, std::optional<ModuleId>(data.reference), std::optional<std::string>(data.name));",
         )
 
@@ -118,7 +113,7 @@ class TestTclProcEmitters(unittest.TestCase):
 
 class TestTheModelHoldsNoEmitters(unittest.TestCase):
     def test_klass_has_no_body_emitters(self):
-        for name in ("create_api_body", "update_api_body", "delete_api_body", "apply_snapshot_body", "create_op_body",
+        for name in ("create_native_body", "update_native_body", "apply_snapshot_body", "create_op_body",
                      "update_op_body", "delete_op_body", "delete_batch_op_body", "update_root_body"):
             self.assertFalse(hasattr(Klass, name), name)
 

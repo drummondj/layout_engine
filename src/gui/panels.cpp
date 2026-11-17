@@ -292,7 +292,7 @@ namespace le::ext
     }
 
     ExtGuiContext::ExtGuiContext(gui::GuiProvider &provider, LeHandle *handle, std::string_view extension_name)
-        : provider_(provider), extension_(handle, extension_name), extension_name_(extension_name)
+        : provider_(provider), handle_(handle), extension_(handle, extension_name), extension_name_(extension_name)
     {
     }
 
@@ -318,6 +318,6 @@ namespace le::ext
 
     ReadView ExtGuiContext::read() const
     {
-        return ReadView(extension_.handle(), std::try_to_lock);
+        return ReadView(handle_, std::try_to_lock);
     }
 }

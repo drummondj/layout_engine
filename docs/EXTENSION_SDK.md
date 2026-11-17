@@ -202,26 +202,26 @@ void le_ext_my_ext_register(le::ext::Registry &registry)
 At startup, `le::ext::register_all()` adds each extension's name and version
 to the registry, then calls its register function, in dependency order and
 once. In API 1 the registry only lists extensions
-(`le::ext::registry().extensions()`, or `le_extension_count`/
-`le_extension_name`/`le_extension_version` from the C API); windows and
-menus register separately, from `GUI_SOURCES` (below).
+(`le::ext::registry().extensions()`); windows and menus register
+separately, from `GUI_SOURCES` (below).
 
 ### `ExtensionContext`: working with a session
 
-A session is one `LeHandle`, the database and view state that `le_shell`'s
-console and GUI share. Make a context for it with your extension's name:
+A session is the database and view state that `le_shell`'s console and
+GUI share, owned by an `le::Session`. Make a context for it with its handle
+(`session.handle()`, or `tcl_session()` in a Tcl command) and your
+extension's name:
 
 ```cpp
-le::ext::ExtensionContext ctx(handle, "my_ext");
+le::ext::ExtensionContext ctx(session.handle(), "my_ext");
 ```
 
 | Member | Use |
 |---|---|
-| `handle()` | The `LeHandle *`, for any C API call (`le_*`, `api.hpp`). |
 | `read()` | A `ReadView`: `view.root()` is a `const le::Root &`, held under a shared lock for the view's lifetime. |
 | `write(label)` | A `WriteView` whose edits are one undo step named `label` (below). Call `view.fail()` if the operation failed. Inside a typed Tcl command, which is already a step, it joins that one. |
 | `write()` | A `WriteView` that opens no undo step, held under an exclusive lock. `view.root()` is a `const le::Root &`; `view.unrecorded_root()` is the writable `le::Root &`, for bulk work such as importing: edits through it aren't validated or recorded for undo. When the view ends, it wakes the renderer, and bumps the database's mutation version if `unrecorded_root()` was used. |
-| `transaction(label)` | A `Transaction`: the edits made while it lives, through views or the C API, become one undo step named `label`, rendered once when it ends. Call `fail()` if the operation failed. It does nothing if a step is already open. |
+| `transaction(label)` | A `Transaction`: the edits made while it lives, through any of its views, become one undo step named `label`, rendered once when it ends. Call `fail()` if the operation failed. It does nothing if a step is already open. |
 | `data<T>()` | Your state of type `T` for this session, default-constructed on first use and destroyed with the session. Unsynchronized. |
 | `with_data<T>(fn)` | Calls `fn(T &)` on that state with it locked against every other `with_data<T>()` on any thread, and returns what `fn` returns. Use it for state another thread also touches (below). Don't nest it for the same `T`. |
 | `current_layout()`, `current_schematic()`, `current_abstract()`, `current_technology()` | The session's current object (what Tcl's `current_layout` etc. set), as an `le::LayoutId` etc.; invalid if none. `ReadView` and `WriteView` have the same accessors. |
@@ -265,15 +265,11 @@ can't be undone; use them for bulk work, such as importing data, where undo
 isn't wanted. An object keeps its id through undo and redo, so ids your
 extension holds stay valid.
 
-**Ids.** The C API's ids (`LeLayoutId`) and the database's (`le::LayoutId`)
-hold the same `{index, generation}`. For C API calls, convert with
-`le::ext::from_c` and `le::ext::to_c`, which exist for every class, your own
-included; an invalid id stays invalid.
-
-**Locks.** Every `le_*` function takes the session's lock, so call none
-while you hold a `ReadView` or `WriteView`; that deadlocks. The same goes for
-`ExtensionContext`'s `current_*()` and for `write(label)`/`transaction()` while
-a view is open: inside a view, use the view's own members. Keep views short,
+**Locks.** A view holds the session's lock, so don't open another one on
+the same thread while you hold a `ReadView` or `WriteView`; that deadlocks.
+The same goes for `ExtensionContext`'s `current_*()` and for
+`write(label)`/`transaction()` while a view is open: inside a view, use the
+view's own members. Keep views short,
 because a view blocks rendering (`write()`) or edits (`read()`).
 
 ### Microns and shapes
@@ -417,9 +413,9 @@ void le_ext_my_ext_register(le::ext::Registry &registry)
 ```
 
 - **When it's called:** after a change's lock is released, once per typed
-  Tcl command (when it ends), GUI edit, `WriteView`, or other C API call.
-  It runs on the thread that made the change, with no lock held, so it may
-  `read()`, `write()` and call `le_*`. Changes that don't touch the database
+  Tcl command (when it ends), GUI edit or `WriteView`. It runs on the
+  thread that made the change, with no lock held, so it may `read()` and
+  `write()`. Changes that don't touch the database
   (selection, the view, visibility) aren't reported.
 - **What it gets:** `event.changes` lists each create, update and delete in
   order, as `le::ChangeLogEntry`: the class (`klass`), what happened (`op`),
@@ -480,8 +476,7 @@ def extend(schema):
   (named after your class, `my_ext_marker`) without changing Shape's own
   fields. Create your shapes as any owner's:
   `view.create_shape({.owner = le::ShapeOwner::my_ext_marker(marker), ...})`,
-  `le_create_shape(handle, le_shape_owner_my_ext_marker(marker), ...)` from
-  the C API, or `create_shape -my_ext_marker <token> ...` in Tcl. Deleting your object
+  or `create_shape -my_ext_marker <token> ...` in Tcl. Deleting your object
   deletes its shapes, undoably.
 - **Drawing them:** give a class that owns shapes and has a `Layout`
   parent a `render=`:
@@ -776,7 +771,7 @@ none named).
 - **C++:** `TESTS` sources build into `<name>_tests`, each test reported as
   `<name>.<Suite>.<Test>`. They link every extension, so
   `le::ext::register_all()` works in them.
-  Make sessions with `le_create()`/`le_destroy()`, as `hello_ext`'s tests do.
+  Make sessions with `le::Session`, as `hello_ext`'s tests do.
 - **Generated:** an extension with database classes also gets
   `<name>_generated_tests`, built from the fields' examples:
   `<name>.GeneratedEditOps.<Class>_CreateDeleteUndoRedo` and one
@@ -803,9 +798,8 @@ release without notice.
 - `le_add_extension()` and the `le_extension.toml` format
 - `schema_ext.py`'s `VERSION`/`extend()` contract and the `codegen.schema`
   `Klass`/`Field` it uses
-- the C API (`api.hpp`) and the database classes (`le::Root`, the
-  `<Type>Data` structs, `<Type>Changes` and `<Type>Id` handles, generated
-  from `schema.py`), and `le::ext::to_c`/`from_c` between their ids
+- the database classes (`le::Root`, the `<Type>Data` structs,
+  `<Type>Changes` and `<Type>Id` handles, generated from `schema.py`)
 - the core's C++ API, `views.hpp` (included by `<le/extension.hpp>`):
   `le::ReadView`, `WriteView`, `Transaction`, `Units`, `PointUm`, `RectUm`,
   `ShapeBuilder`, `Session`, `Renderer` and `RenderedFrame`; the SDK's
@@ -842,8 +836,7 @@ The first version.
   `write`, `transaction`, `data`), `ReadView::valid()`, `tcl_session()`,
   `init_tcl()`.
 - `current_layout()`, `current_schematic()`, `current_abstract()` and
-  `current_technology()` on `ExtensionContext`, `ReadView` and `WriteView`;
-  `le::ext::to_c`/`from_c` for every class's id.
+  `current_technology()` on `ExtensionContext`, `ReadView` and `WriteView`.
 - Editing: `ExtensionContext::write(label)`, `WriteView::fail()`, and
   `create_<type>`/`update_<type>`/`delete_<type>` on `WriteView` with
   `<Type>Changes`, recorded for undo. `WriteView::root()` is read-only;
@@ -883,13 +876,12 @@ The first version.
   depends_on_core=...)`, `--migrate-extension`), and the `"extensions"`
   entry in `.led` files. Every create field needs an `example`, from
   which `<name>_generated_tests` is built.
-- C API: `le_extension_count`, `le_extension_name`, `le_extension_version`.
 - `extensions.json` format 1.
 - The views, `Transaction`, `Units`, `PointUm`, `RectUm` and
   `ShapeBuilder` are the core's C++ API (`views.hpp`, namespace `le`), with
   `le::Session` (owns a session) and `le::Renderer`; `le::ext::` names them
   too (changed in 0.3, without a version bump: the `le::ext::` names still
-  work). `Transaction` now groups `WriteView` edits as well as C API ones.
+  work).
 - The design view's interaction on the views (added in 0.3, without a
   version bump): `mode`/`set_mode`, `key_down`/`key_up`/`key_held`,
   `mouse_down`/`mouse_up`/`zoom_drag_down`/`cancel_drag`,
@@ -930,6 +922,10 @@ The first version.
   (a piece as its Shape or Wire), not `LeObjectRef` (changed in 0.3,
   before it shipped); `le::object_kind_is_named` says whether Tcl's friendly
   ids name a class by its name.
+- No C API (removed in 0.3, before it shipped): `api.hpp`, the `le_*`
+  functions, `ExtensionContext::handle()` and `le::ext::to_c`/`from_c` are
+  gone. Use the views; make a session with `le::Session` and give
+  `session.handle()` to `ExtensionContext`.
 - Tcl help: an extension's commands are tagged as its own
   (`register_command_help`'s optional attributes dict), so Layout Engine's
   command reference leaves them out.

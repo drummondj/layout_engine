@@ -1,7 +1,6 @@
 #include "le_tcl_shim.hpp"
 #include "le/extension_tcl.hpp"
 
-#include "api.hpp"
 #include "views.hpp"
 #include "../core/themes.hpp"
 #include "../database/hierarchical_resolver.hpp"
@@ -28,6 +27,16 @@
 
 namespace
 {
+    // Whether Tcl's integer `value` names one of `first`..`last` of an enum.
+    template <class Enum>
+    bool in_range(int value, Enum first, Enum last)
+    {
+        return value >= static_cast<int>(first) && value <= static_cast<int>(last);
+    }
+
+    bool valid_piece_kind(int kind) { return in_range(kind, le::PieceKind::RECT, le::PieceKind::VIA_ITERATE); }
+    bool valid_shape_snap_mode(int mode) { return in_range(mode, le::ShapeSnapMode::NONE, le::ShapeSnapMode::TRACKS); }
+
     // Set by set_session_handle() (see le_tcl_shim.hpp) - an externally-
     // owned handle wins over the lazy self-create below whenever one has
     // been injected (le_shell injects the handle its GUI renders).
@@ -50,7 +59,7 @@ namespace
 
     // See le_tcl_shim.hpp's "IDs" comment for why AbstractId/DesignId
     // cross this shim packed into one int64_t rather than wrapped with a
-    // custom SWIG struct typemap. Generic over every LeXxxId (all
+    // custom SWIG struct typemap. Generic over every database id (all
     // identical {uint32_t index, generation} layouts) rather than one
     // pack/unpack pair per type - also still used internally here for
     // TerminalPortId/ObstructionId/ShapeId, whose friendly string form is
@@ -126,8 +135,7 @@ namespace
         return return_string("");
     }
 
-    // Microns to dbu at the Technology's scale, or 1:1 without one, as the
-    // C API's micron arguments always were.
+    // Microns to dbu at the Technology's scale, or 1:1 without one.
     template <typename View>
     double dbu_per_um(const View &view)
     {
@@ -470,7 +478,7 @@ int read_def(const char *path, const char *library_name)
 // above (no filename this project's own test fixtures/workflow uses
 // contains whitespace); read_verilog (le_tcl_procs.tcl) builds this via
 // [join $positional] on the way in. Passing every file through one
-// le_read_verilog call (rather than one call per file) matters for
+// read_verilog call (rather than one call per file) matters for
 // SVReader::read_netlist specifically - see verilog_stub_writer.hpp's
 // own top-of-file comment - only files elaborated together in the same
 // call share one slang::ast::Compilation, which is what lets a
@@ -704,7 +712,7 @@ bool get_layer_visible_cmd(const char *layer_name)
     return !layer_name || read_view().layer_visible(layer_name);
 }
 
-// abstract_token/layout_token empty means "use le_write_lef/le_write_def's
+// abstract_token/layout_token empty means "use write_lef/write_def's
 // own current-Abstract/current-Layout fallback" - resolve_abstract_id/
 // resolve_layout_id (generated, this file's own anonymous namespace)
 // would otherwise happily "resolve" an empty string to the same invalid
@@ -727,11 +735,9 @@ int write_lef_cmd(const char *path, const char *abstract_tokens, const char *lib
     while (stream >> token)
         abstracts.push_back(resolve_abstract_id(lk, token.c_str()));
     const le::LibraryId library = resolve_library_id(lk, library_token);
-    le::LefLayerWriteMode layers = le::LefLayerWriteMode::NONE;
-    if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT)
-        layers = le::LefLayerWriteMode::INCLUDE_WITH_ABSTRACT;
-    else if (layer_write_mode == LE_LEF_LAYER_WRITE_MODE_TECHNOLOGY_ONLY)
-        layers = le::LefLayerWriteMode::TECHNOLOGY_ONLY;
+    const le::LefLayerWriteMode layers = in_range(layer_write_mode, le::LefLayerWriteMode::NONE, le::LefLayerWriteMode::TECHNOLOGY_ONLY)
+                                             ? static_cast<le::LefLayerWriteMode>(layer_write_mode)
+                                             : le::LefLayerWriteMode::NONE;
     return status(view.write_lef(path ? path : "", abstracts, library, layers));
 }
 
@@ -758,8 +764,7 @@ const char *migrate_db_cmd(const char *in_path, const char *out_path)
 }
 
 // get_selection/select. Only Shape/Wire/Row/Placement/Region friendly ids are
-// meaningful here (the kinds LeHandle::SelectedObject covers - see le_select_object_ref's
-// own api.hpp doc comment); literal prefix strings rather than the
+// meaningful here (the kinds WriteView::select takes); literal prefix strings rather than the
 // generated kShapePrefix/etc constants, since those live in the generated
 // file's own scope and duplicating a plain "shape:"/"wire:"/"row:"/... literal
 // here is simpler than reaching for them.
@@ -885,7 +890,7 @@ bool get_object_filter_selectable_cmd(int32_t filter, const char *value)
 
 void set_mode_cmd(int32_t mode)
 {
-    if (mode >= LE_MODE_SELECT && mode <= LE_MODE_RULER)
+    if (in_range(mode, le::InteractionMode::SELECT, le::InteractionMode::RULER))
         write_view().set_mode(static_cast<le::InteractionMode>(mode));
 }
 
@@ -926,7 +931,7 @@ int delete_selected_pieces_cmd()
 
 void set_placement_snap_mode_cmd(int mode)
 {
-    if (mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID)
+    if (in_range(mode, le::PlacementSnapMode::NONE, le::PlacementSnapMode::MANUFACTURING_GRID))
         write_view().set_placement_snap_mode(static_cast<le::PlacementSnapMode>(mode));
 }
 
@@ -937,7 +942,7 @@ int get_placement_snap_mode_cmd()
 
 int set_view_flip_cmd(int flip)
 {
-    if (flip < LE_VIEW_FLIP_NONE || flip > LE_VIEW_FLIP_VERTICAL)
+    if (!in_range(flip, le::ViewFlip::NONE, le::ViewFlip::VERTICAL))
         return 1;
     write_view().set_view_flip(static_cast<le::ViewFlip>(flip));
     return 0;
@@ -950,13 +955,13 @@ int get_view_flip_cmd()
 
 bool is_placement_snap_mode_available_cmd(int mode)
 {
-    return mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID &&
+    return in_range(mode, le::PlacementSnapMode::NONE, le::PlacementSnapMode::MANUFACTURING_GRID) &&
            read_view().placement_snap_mode_available(static_cast<le::PlacementSnapMode>(mode));
 }
 
 int apply_placement_orientation_op_cmd(int op)
 {
-    if (op < LE_ORIENTATION_OP_ROTATE_CCW || op > LE_ORIENTATION_OP_FLIP_VERTICAL)
+    if (!in_range(op, le::OrientationOp::ROTATE_CCW, le::OrientationOp::FLIP_VERTICAL))
         return -1;
     const std::expected<void, le::OrientationOpError> applied = write_view().apply_placement_orientation_op(static_cast<le::OrientationOp>(op));
     if (applied)
@@ -980,20 +985,20 @@ void arm_resize_cmd()
 
 void set_shape_snap_mode_cmd(int kind, int mode)
 {
-    if (kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE && mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS)
+    if (valid_piece_kind(kind) && valid_shape_snap_mode(mode))
         write_view().set_shape_snap_mode(static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
 }
 
 int get_shape_snap_mode_cmd(int kind)
 {
-    if (kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA_ITERATE)
-        return LE_SHAPE_SNAP_USER_GRID;
+    if (!valid_piece_kind(kind))
+        return static_cast<int>(le::ShapeSnapMode::USER_GRID);
     return static_cast<int>(read_view().shape_snap_mode(static_cast<le::PieceKind>(kind)));
 }
 
 bool is_shape_snap_mode_available_cmd(int kind, int mode)
 {
-    return kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE && mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS &&
+    return valid_piece_kind(kind) && valid_shape_snap_mode(mode) &&
            read_view().shape_snap_mode_available(static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
 }
 
@@ -1301,7 +1306,7 @@ int shape_copy_cmd(const char *shape_tokens, const char *layer_token, const char
 
 int shape_boolean_cmd(const char *shape_tokens_a, const char *shape_tokens_b, int op, const char *layer_token, const char *parent_token)
 {
-    const le::BooleanOp boolean_op = op == LE_SHAPE_BOOLEAN_AND ? le::BooleanOp::And : op == LE_SHAPE_BOOLEAN_NOT ? le::BooleanOp::Not : le::BooleanOp::Or;
+    const le::BooleanOp boolean_op = in_range(op, le::BooleanOp::Or, le::BooleanOp::Not) ? static_cast<le::BooleanOp>(op) : le::BooleanOp::Or;
     return run_shape_op_cmd(layer_token, parent_token, [&](le::WriteView &view, const Lookup &lk, const auto &layer, const auto &parent)
                             {
                                 const std::vector<le::GeometryId> a = resolve_shape_tokens(lk, shape_tokens_a);

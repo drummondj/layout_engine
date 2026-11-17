@@ -75,6 +75,7 @@ namespace le::ext
 
     private:
         gui::GuiProvider &provider_;
+        LeHandle *handle_;
         ExtensionContext extension_;
         std::string extension_name_;
     };
