@@ -1,5 +1,5 @@
 // GuiProvider (src/gui/gui_provider.cpp) is compiled straight into
-// backend_tests - it only talks to the C API, so no ImGui/GLFW is needed.
+// backend_tests: it only talks to the C++ views, so no ImGui/GLFW is needed.
 
 #include "gui/gui_provider.hpp"
 #include "api/le_handle.hpp"
@@ -11,10 +11,10 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <unistd.h>
 #include <future>
 #include <shared_mutex>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace
@@ -26,8 +26,33 @@ namespace
 
     struct GuiProviderFixture : ::testing::Test
     {
-        LeHandle *handle = le_create();
-        ~GuiProviderFixture() override { le_destroy(handle); }
+        le::Session session;
+        LeHandle *handle = session.handle();
+
+        void read_lef(const std::string &fixture, const std::string &library)
+        {
+            ASSERT_TRUE(session.write().read_lef(fixture_path(fixture), library).has_value());
+        }
+
+        void create_library(const std::string &name)
+        {
+            ASSERT_TRUE(session.write().create_library(le::LibraryData{.name = name}).has_value());
+        }
+
+        std::string queued()
+        {
+            return session.requests().take_next_tcl_command().value_or("");
+        }
+
+        // `name`'s Abstract (the testcell fixture's TESTCELL).
+        le::AbstractId abstract_named(const std::string &name)
+        {
+            const le::ReadView view = session.read();
+            for (const le::DesignId design : view.root().get_design_ids())
+                if (view.root().get_design(design)->name == name)
+                    return view.root().get_design_abstract(design);
+            return {};
+        }
     };
 }
 
@@ -35,18 +60,32 @@ namespace
 // handle's (a colour reset, another read_lef).
 TEST_F(GuiProviderFixture, LayerRowsKeepTheirNamesAcrossALayerRowRebuild)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    read_lef("testcell.lef", "testcell");
     le::gui::GuiProvider provider(handle);
     provider.refresh();
     const auto &layers = provider.state().layer_manager.layers;
     ASSERT_EQ(layers.size(), 1u);
 
-    ASSERT_EQ(le_set_layer_color(handle, "M1", 1, 2, 3), 0);
-    le_reset_layer_color(handle, "M1");
-    ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many"), 0);
-    ASSERT_GT(le_layer_count(handle), 0);
+    {
+        le::WriteView view = session.write();
+        view.set_layer_color("M1", le::Color{.r = 1, .g = 2, .b = 3});
+        view.reset_layer_color("M1");
+    }
+    read_lef("many_routing_layers.lef", "many");
+    ASSERT_FALSE(session.read().layer_rows().empty());
 
     EXPECT_EQ(layers[0].name, "M1");
+}
+
+// A user-picked color shows in the Layers panel's swatch.
+TEST_F(GuiProviderFixture, LayerRowsShowAPickedColor)
+{
+    read_lef("testcell.lef", "testcell");
+    session.write().set_layer_color("M1", le::Color{.r = 1, .g = 2, .b = 3});
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    ASSERT_EQ(provider.state().layer_manager.layers.size(), 1u);
+    EXPECT_EQ(provider.state().layer_manager.layers[0].color, (le::Color{.r = 1, .g = 2, .b = 3}));
 }
 
 // The Layers panel lists technology layers only. Pseudo-rows with
@@ -55,8 +94,8 @@ TEST_F(GuiProviderFixture, LayerRowsKeepTheirNamesAcrossALayerRowRebuild)
 // purpose, and are listed once, under purposes.
 TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPurposes)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    ASSERT_GT(le_layer_count(handle), 1); // M1 plus the pseudo-rows
+    read_lef("testcell.lef", "testcell");
+    ASSERT_GT(session.read().layer_rows().size(), 1u); // M1 plus the pseudo-rows
 
     le::gui::GuiProvider provider(handle);
     provider.refresh();
@@ -64,16 +103,16 @@ TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPur
     ASSERT_EQ(layers.size(), 1u); // testcell.lef declares one Technology layer
     EXPECT_EQ(layers[0].name, "M1");
 
-    // The pseudo-rows' own purposes are still listed.
+    // The pseudo-rows' own purposes are still listed, by their labels.
     const auto &purposes = provider.state().layer_manager.purposes;
-    const auto has_purpose = [&](int32_t ordinal)
+    const auto has_purpose = [&](le::ViewLayerPurpose purpose, std::string_view label)
     { return std::ranges::any_of(purposes, [&](const auto &p)
-                                 { return p.ordinal == ordinal; }); };
-    EXPECT_TRUE(has_purpose(2));  // BOUNDARY
-    EXPECT_TRUE(has_purpose(6));  // ROW
-    EXPECT_TRUE(has_purpose(11)); // PLACEMENT
-    EXPECT_TRUE(has_purpose(13)); // DEBUG
-    EXPECT_TRUE(has_purpose(14)); // FLIGHTLINE
+                                 { return p.purpose == purpose && p.name == label; }); };
+    EXPECT_TRUE(has_purpose(le::ViewLayerPurpose::BOUNDARY, "boundary"));
+    EXPECT_TRUE(has_purpose(le::ViewLayerPurpose::ROW, "row"));
+    EXPECT_TRUE(has_purpose(le::ViewLayerPurpose::PLACEMENT, "placement"));
+    EXPECT_TRUE(has_purpose(le::ViewLayerPurpose::DEBUG, "debug"));
+    EXPECT_TRUE(has_purpose(le::ViewLayerPurpose::FLIGHTLINE, "flightline"));
 
     provider.refresh(); // rebuilt, not appended to
     EXPECT_EQ(provider.state().layer_manager.layers.size(), 1u);
@@ -83,17 +122,19 @@ TEST_F(GuiProviderFixture, LayersListsOnlyTechnologyLayersAndPseudoRowsOnlyAsPur
 // be selected on get a selectable checkbox in the Layers panel.
 TEST_F(GuiProviderFixture, OnlyPurposesWithSelectableObjectsOfferASelectableToggle)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    read_lef("testcell.lef", "testcell");
     le::gui::GuiProvider provider(handle);
     provider.refresh();
 
-    std::vector<int32_t> with_toggle;
+    std::vector<le::ViewLayerPurpose> with_toggle;
     for (const auto &purpose : provider.state().layer_manager.purposes)
         if (purpose.has_selectable_objects)
-            with_toggle.push_back(purpose.ordinal);
+            with_toggle.push_back(purpose.purpose);
     std::ranges::sort(with_toggle);
-    std::vector<int32_t> expected{0 /* TERMINAL */, 1 /* OBSTRUCTION */, 6 /* ROW */, 9 /* ROUTE */, 11 /* PLACEMENT */};
-    le::renderable::for_each([&]<class R>(R) { expected.push_back(static_cast<int32_t>(R::purpose)); }); // extensions' rows are selectable
+    std::vector<le::ViewLayerPurpose> expected{le::ViewLayerPurpose::TERMINAL, le::ViewLayerPurpose::OBSTRUCTION, le::ViewLayerPurpose::ROW,
+                                               le::ViewLayerPurpose::ROUTE, le::ViewLayerPurpose::PLACEMENT};
+    le::renderable::for_each([&]<class R>(R) { expected.push_back(R::purpose); }); // extensions' rows are selectable
+    std::ranges::sort(expected);
     EXPECT_EQ(with_toggle, expected);
 }
 
@@ -101,9 +142,12 @@ TEST_F(GuiProviderFixture, OnlyPurposesWithSelectableObjectsOfferASelectableTogg
 // value's current visibility and selectability.
 TEST_F(GuiProviderFixture, LayerManagerListsPlacementTypesAndRouteUsesWithTheirState)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0); // TESTCELL is CLASS CORE
-    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_PLACEMENT_TYPE, "CORE", 0);
-    le_set_object_filter_value_selectable(handle, LE_OBJECT_FILTER_ROUTE_USE, "POWER", 0);
+    read_lef("testcell.lef", "testcell"); // TESTCELL is CLASS CORE
+    {
+        le::WriteView view = session.write();
+        view.set_object_filter_visible(le::ObjectFilter::PLACEMENT_TYPE, "CORE", false);
+        view.set_object_filter_selectable(le::ObjectFilter::ROUTE_USE, "POWER", false);
+    }
 
     le::gui::GuiProvider provider(handle);
     provider.refresh();
@@ -126,7 +170,7 @@ TEST_F(GuiProviderFixture, LayerManagerListsPlacementTypesAndRouteUsesWithTheirS
 // command a toggle queues.
 TEST_F(GuiProviderFixture, LayerManagerListsStatusesAndShapesAndQueuesTheirCommands)
 {
-    le_set_object_filter_value_visible(handle, LE_OBJECT_FILTER_ROUTE_SHAPE, "FOLLOWPIN", 0);
+    session.write().set_object_filter_visible(le::ObjectFilter::ROUTE_SHAPE, "FOLLOWPIN", false);
     le::gui::GuiProvider provider(handle);
     provider.refresh();
     const auto &state = provider.state().layer_manager;
@@ -138,16 +182,11 @@ TEST_F(GuiProviderFixture, LayerManagerListsStatusesAndShapesAndQueuesTheirComma
     EXPECT_FALSE(followpin->visible);
     EXPECT_EQ(state.route_shapes.back().value, "UNSET");
 
-    auto queued = [&]
-    {
-        const char *command = le_take_next_pending_tcl_command(handle);
-        return command ? std::string(command) : std::string();
-    };
-    provider.set_object_filter_visible(LE_OBJECT_FILTER_PLACEMENT_STATUS, "FIXED", false);
+    provider.set_object_filter_visible(le::ObjectFilter::PLACEMENT_STATUS, "FIXED", false);
     EXPECT_EQ(queued(), "set_placement_status_visible \"FIXED\" false");
-    provider.set_object_filter_selectable(LE_OBJECT_FILTER_ROUTING_STATUS, "COVER", true);
+    provider.set_object_filter_selectable(le::ObjectFilter::ROUTING_STATUS, "COVER", true);
     EXPECT_EQ(queued(), "set_routing_status_selectable \"COVER\" true");
-    provider.set_object_filter_visible(LE_OBJECT_FILTER_ROUTE_SHAPE, "RING", false);
+    provider.set_object_filter_visible(le::ObjectFilter::ROUTE_SHAPE, "RING", false);
     EXPECT_EQ(queued(), "set_route_shape_visible \"RING\" false");
 }
 
@@ -159,35 +198,26 @@ TEST_F(GuiProviderFixture, LockingPlacementsIsQueuedAsATclCommand)
     provider.refresh();
     EXPECT_FALSE(provider.state().placement_move.all_fixed);
     provider.set_selected_placements_fixed(true);
-    const char *command = le_take_next_pending_tcl_command(handle);
-    ASSERT_NE(command, nullptr);
-    EXPECT_EQ(std::string(command), "set_placement_status FIXED");
+    EXPECT_EQ(queued(), "set_placement_status FIXED");
     provider.set_selected_placements_fixed(false);
-    command = le_take_next_pending_tcl_command(handle);
-    ASSERT_NE(command, nullptr);
-    EXPECT_EQ(std::string(command), "set_placement_status PLACED");
+    EXPECT_EQ(queued(), "set_placement_status PLACED");
 }
 
 TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("many_routing_layers.lef").c_str(), "many"), 0);
+    read_lef("many_routing_layers.lef", "many");
 
     le::gui::GuiProvider provider(handle);
     provider.refresh();
-    const auto &layers = provider.state().layer_manager.layers;
-    ASSERT_FALSE(layers.empty());
-    int32_t physical_rows = 0;
-    for (int32_t i = 0; i < le_layer_count(handle); ++i)
-    {
-        const LeLayerRow row = le_layer_at(handle, i);
-        if (row.name && row.has_physical_layer)
-        {
-            ASSERT_LT(static_cast<size_t>(physical_rows), layers.size());
-            EXPECT_EQ(layers[physical_rows].name, row.name);
-            ++physical_rows;
-        }
-    }
-    EXPECT_EQ(layers.size(), static_cast<size_t>(physical_rows));
+    std::vector<std::string> expected;
+    for (const le::LayerRow &row : session.read().layer_rows())
+        if (row.has_physical_layer)
+            expected.push_back(row.name);
+    ASSERT_FALSE(expected.empty());
+    std::vector<std::string> listed;
+    for (const auto &layer : provider.state().layer_manager.layers)
+        listed.push_back(layer.name);
+    EXPECT_EQ(listed, expected);
 }
 
 // Regression test: the GUI thread's per-frame refresh must never wait on the
@@ -197,10 +227,10 @@ TEST_F(GuiProviderFixture, EveryTechnologyLayerIsListedInDeclarationOrder)
 // stale, the case that could need the write lock.
 TEST_F(GuiProviderFixture, RefreshDoesNotBlockWhileARenderHoldsTheHandle)
 {
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-    le_create_library(handle, "EDITED");
+    read_lef("testcell.lef", "testcell");
+    create_library("EDITED");
 
-    std::shared_lock<std::shared_mutex> render(handle->mutex_); // what le_render_pixel_buffer holds
+    std::shared_lock<std::shared_mutex> render(handle->mutex_); // what Renderer::render holds
     le::gui::GuiProvider provider(handle);
     std::future<void> refreshed = std::async(std::launch::async, [&]
                                              { provider.refresh(); });
@@ -218,11 +248,11 @@ TEST_F(GuiProviderFixture, RefreshReportsARunningCommand)
     provider.refresh();
     EXPECT_FALSE(provider.state().is_command_running);
 
-    le_begin_command(handle, "running");
+    session.write().begin_command("running");
     provider.refresh();
     EXPECT_TRUE(provider.state().is_command_running);
 
-    le_end_command(handle, 1);
+    session.write().end_command(true);
     provider.refresh();
     EXPECT_FALSE(provider.state().is_command_running);
 }
@@ -234,13 +264,13 @@ TEST_F(GuiProviderFixture, DbFileQueriesAndWriteDbNow)
     EXPECT_EQ(provider.db_path(), "");
     EXPECT_FALSE(provider.write_db_now("")) << "nowhere to save";
 
-    ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+    read_lef("testcell.lef", "testcell");
     EXPECT_FALSE(provider.database_is_empty());
     const std::string path = le::test::scratch_path("gui_provider_db.led");
-    ASSERT_EQ(le_write_db(handle, path.c_str(), 1), 0);
+    ASSERT_TRUE(session.write().write_db(path, true).has_value());
     EXPECT_EQ(provider.db_path(), path);
 
-    le_create_library(handle, "edited");
+    create_library("edited");
     EXPECT_TRUE(provider.has_unsaved_design());
     EXPECT_TRUE(provider.write_db_now(provider.db_path()));
     EXPECT_FALSE(provider.has_unsaved_design());
@@ -253,17 +283,13 @@ TEST_F(GuiProviderFixture, ViewFlipIsReadAndQueuedAsATclCommand)
 {
     le::gui::GuiProvider provider(handle);
     provider.refresh();
-    EXPECT_EQ(provider.state().database_settings.view_flip, LE_VIEW_FLIP_NONE);
-    ASSERT_EQ(le_set_view_flip(handle, LE_VIEW_FLIP_VERTICAL), 0);
+    EXPECT_EQ(provider.state().database_settings.view_flip, le::ViewFlip::NONE);
+    session.write().set_view_flip(le::ViewFlip::VERTICAL);
     provider.refresh();
-    EXPECT_EQ(provider.state().database_settings.view_flip, LE_VIEW_FLIP_VERTICAL);
+    EXPECT_EQ(provider.state().database_settings.view_flip, le::ViewFlip::VERTICAL);
 
-    provider.set_view_flip(LE_VIEW_FLIP_HORIZONTAL);
-    const char *command = le_take_next_pending_tcl_command(handle);
-    ASSERT_NE(command, nullptr);
-    EXPECT_EQ(std::string(command), "set_view_flip horizontal");
-    provider.set_view_flip(7);
-    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "out of range: nothing queued";
+    provider.set_view_flip(le::ViewFlip::HORIZONTAL);
+    EXPECT_EQ(queued(), "set_view_flip horizontal");
 }
 
 // File > Exit exits straight away unless the design or the settings are unsaved.
@@ -271,28 +297,114 @@ TEST_F(GuiProviderFixture, UnsavedChangesCoverTheDesignAndTheSettings)
 {
     le::gui::GuiProvider provider(handle);
     EXPECT_FALSE(provider.has_unsaved_changes());
-    le_set_label_max_size(handle, 30.0);
+    session.write().set_label_max_size(30.0);
     EXPECT_TRUE(provider.has_unsaved_changes()) << "a setting";
 
-    LeHandle *edited = le_create();
-    {
-        le::gui::GuiProvider edited_provider(edited);
-        le_create_library(edited, "edited");
-        EXPECT_TRUE(edited_provider.has_unsaved_changes()) << "a design edit";
-    }
-    le_destroy(edited);
+    le::Session edited;
+    le::gui::GuiProvider edited_provider(edited.handle());
+    ASSERT_TRUE(edited.write().create_library(le::LibraryData{.name = "edited"}).has_value());
+    EXPECT_TRUE(edited_provider.has_unsaved_changes()) << "a design edit";
 }
 
 TEST_F(GuiProviderFixture, FileMenuQueuesReadAndWriteDbAsTclCommands)
 {
     le::gui::GuiProvider provider(handle);
     provider.write_db("/tmp/a \"b\".led");
-    const char *command = le_take_next_pending_tcl_command(handle);
-    ASSERT_NE(command, nullptr);
-    EXPECT_EQ(std::string(command).rfind("write_db ", 0), 0u) << command;
-    EXPECT_NE(std::string(command).find("\\\"b\\\""), std::string::npos) << command;
+    const std::string write = queued();
+    EXPECT_EQ(write.rfind("write_db ", 0), 0u) << write;
+    EXPECT_NE(write.find("\\\"b\\\""), std::string::npos) << write;
     provider.read_db("/tmp/x.led");
-    command = le_take_next_pending_tcl_command(handle);
-    ASSERT_NE(command, nullptr);
-    EXPECT_EQ(std::string(command), "read_db \"/tmp/x.led\"");
+    EXPECT_EQ(queued(), "read_db \"/tmp/x.led\"");
+}
+
+// The status bar shows the snapped mouse position in microns, and the
+// selection's size; both come from one refresh().
+TEST_F(GuiProviderFixture, StatusBarShowsTheSnappedMousePositionInMicrons)
+{
+    le::gui::GuiProvider provider(handle);
+    provider.refresh();
+    EXPECT_FALSE(provider.state().status_bar.snapped_mouse_position) << "no Technology, no mouse";
+
+    read_lef("testcell.lef", "testcell");
+    {
+        le::WriteView view = session.write();
+        ASSERT_TRUE(view.open_abstract(view.root().get_design_ids().front()).has_value());
+        view.set_viewport_size(200, 200);
+        view.fit_view();
+        view.set_mouse_position(100, 100);
+    }
+    provider.refresh();
+    const auto &position = provider.state().status_bar.snapped_mouse_position;
+    ASSERT_TRUE(position);
+    const le::ReadView view = session.read();
+    const le::Point snapped = *view.snapped_mouse_position();
+    const auto [x, y] = view.display_point(snapped);
+    EXPECT_DOUBLE_EQ(position->x, x / view.units()->dbu_per_um());
+    EXPECT_DOUBLE_EQ(position->y, y / view.units()->dbu_per_um());
+}
+
+// Opening a design from the Browser opens its view and fits it.
+TEST_F(GuiProviderFixture, TheBrowserListsDesignsAndOpensTheirViews)
+{
+    le::gui::GuiProvider provider(handle);
+    EXPECT_TRUE(provider.libraries().empty());
+
+    read_lef("testcell.lef", "testcell");
+    const auto &libraries = provider.libraries();
+    ASSERT_EQ(libraries.size(), 1u);
+    EXPECT_EQ(libraries[0].name, "testcell");
+    const auto design = std::ranges::find_if(libraries[0].designs, [](const auto &d)
+                                             { return d.name == "TESTCELL"; });
+    ASSERT_NE(design, libraries[0].designs.end());
+    EXPECT_TRUE(design->has_abstract);
+    EXPECT_FALSE(design->has_layout);
+    const le::DesignId design_id = design->id; // libraries() rebuilds the tree below
+
+    create_library("later");
+    EXPECT_EQ(provider.libraries().size(), 2u) << "re-read after the database changed";
+
+    session.write().set_viewport_size(200, 200);
+    provider.open_design_abstract(design_id);
+    const le::ViewState view = session.read().view();
+    EXPECT_EQ(view.abstract, abstract_named("TESTCELL"));
+    EXPECT_NE(view.scale, 1.0) << "fitted";
+}
+
+// The Property Viewer's reads: a selected piece is its Shape, which it
+// walks up from to the Library, and an Abstract links to its children.
+TEST_F(GuiProviderFixture, PropertyViewerReadsAncestryChildrenAndTokens)
+{
+    read_lef("testcell.lef", "testcell");
+    const le::AbstractId abstract = abstract_named("TESTCELL");
+    ASSERT_TRUE(abstract.valid());
+
+    le::gui::GuiProvider provider(handle);
+    const std::vector<le::ObjectId> children = provider.children(abstract);
+    const auto terminal = std::ranges::find_if(children, [](const le::ObjectId &id)
+                                               { return std::holds_alternative<le::TerminalId>(id); });
+    ASSERT_NE(terminal, children.end());
+
+    const std::vector<le::ObjectId> chain = provider.ancestry(*terminal);
+    ASSERT_GE(chain.size(), 4u); // Library, Design, Abstract, Terminal
+    EXPECT_TRUE(std::holds_alternative<le::LibraryId>(chain.front()));
+    EXPECT_EQ(chain.back(), *terminal);
+    EXPECT_EQ(chain[chain.size() - 2], le::ObjectId{abstract});
+
+    const std::vector<std::string> tokens = provider.tokens({chain.front(), *terminal});
+    EXPECT_EQ(tokens[0], "library:testcell");
+    EXPECT_EQ(tokens[1].rfind("terminal:", 0), 0u) << tokens[1];
+    EXPECT_GT(tokens[1].size(), std::string("terminal:").size());
+
+    // A Shape has no name: its token is its packed id.
+    const std::vector<le::ObjectId> shapes = provider.children(provider.children(*terminal).front());
+    ASSERT_FALSE(shapes.empty());
+    const le::ShapeId shape = std::get<le::ShapeId>(shapes.front());
+    EXPECT_EQ(provider.tokens({shape})[0], "shape:" + std::to_string(uint64_t{shape.generation} << 32 | shape.index));
+
+    EXPECT_FALSE(provider.properties(*terminal).empty());
+    EXPECT_FALSE(provider.selected_object(0)) << "nothing selected";
+    ASSERT_TRUE(session.write().select(shape).has_value());
+    const std::optional<le::ObjectId> selected = provider.selected_object(0);
+    ASSERT_TRUE(selected);
+    EXPECT_EQ(*selected, le::ObjectId{shape});
 }

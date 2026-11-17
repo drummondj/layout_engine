@@ -90,21 +90,21 @@ namespace le::gui
 
     void draw_mode_toolbar(GuiProvider &provider, const std::function<void()> &extra)
     {
-        const int32_t mode = provider.state().mode;
+        const InteractionMode mode = provider.state().mode;
         switch (mode)
         {
-        case LE_MODE_SELECT:
+        case InteractionMode::SELECT:
             if (draw_button(Icon::SelectNone, "Deselect All", "ctrl-d"))
                 provider.deselect_all();
             break;
 
-        case LE_MODE_EDIT:
+        case InteractionMode::EDIT:
         {
             static ToolButtonState move_state;
-            // le_arm_move refuses placements selected alongside anything
+            // arm_move refuses placements selected alongside anything
             // else - they snap differently.
-            const int32_t placement_count = provider.state().placement_move.selected_count;
-            // le_arm_move also refuses FIXED and COVER placements.
+            const size_t placement_count = provider.state().placement_move.selected_count;
+            // arm_move also refuses FIXED and COVER placements.
             const bool mixed_selection = placement_count > 0 && provider.state().status_bar.selection_count > placement_count;
             const bool locked = placement_count > 0 && provider.state().placement_move.locked_count > 0;
             draw_tool_button(Icon::Move, "Move", "ctrl-m", provider.state().is_move_armed, move_state,
@@ -121,7 +121,7 @@ namespace le::gui
             draw_tool_button(Icon::Resize, "Resize", "ctrl-r", provider.state().is_resize_armed, resize_state,
                              [&]
                              { provider.arm_resize(); },
-                             // le_arm_resize refuses a selection with a
+                             // arm_resize refuses a selection with a
                              // placement in it.
                              provider.state().placement_move.selected_count > 0 ? "Not available while a placement is selected" : nullptr);
 
@@ -153,12 +153,9 @@ namespace le::gui
             break;
         }
 
-        case LE_MODE_RULER:
+        case InteractionMode::RULER:
             if (draw_button(Icon::ClearRulers, "Clear Rulers", nullptr))
                 provider.clear_rulers();
-            break;
-
-        default:
             break;
         }
         if (extra)

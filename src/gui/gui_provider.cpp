@@ -2,380 +2,292 @@
 
 #include "../core/themes.hpp"
 
+#include <algorithm>
 #include <cstdio>
+#include <type_traits>
+#include <variant>
 
 namespace le::gui
 {
     namespace
     {
-        // Same helpers property_viewer.cpp's own object_children free
-        // function used before it moved here - see that function's own
-        // history for why each exists (LeObjectRef <-> a concrete LeXxxId
-        // pair share the same {index, generation} shape, so these are
-        // trivial field copies, not real conversions).
-        template <typename IdT>
-        IdT ref_to_id(const LeObjectRef &ref)
+        constexpr int kFitScenePaddingPx = 10;
+
+        template <class T>
+        size_t count_selected(std::span<const SelectedObject> selection)
         {
-            IdT id{};
-            id.index = ref.index;
-            id.generation = ref.generation;
-            return id;
+            return static_cast<size_t>(std::ranges::count_if(selection, [](const SelectedObject &selected)
+                                                             { return std::holds_alternative<T>(selected); }));
         }
 
-        LeObjectRef make_ref(int32_t kind, uint32_t index, uint32_t generation)
+        void refresh_filter(const ReadView &view, ObjectFilter filter, std::vector<GuiProvider::FilterRow> &rows)
         {
-            LeObjectRef ref;
-            ref.kind = kind;
-            ref.index = index;
-            ref.generation = generation;
-            return ref;
+            rows.clear();
+            for (const std::string &value : view.object_filter_values(filter))
+                rows.push_back(GuiProvider::FilterRow{value, view.object_filter_visible(filter, value), view.object_filter_selectable(filter, value)});
         }
     }
 
     void GuiProvider::refresh()
     {
-        state_.mode = le_get_mode(handle_);
-        state_.is_rendering = le_is_rendering(handle_) != 0;
-        state_.is_command_running = le_is_command_running(handle_) != 0;
-        state_.is_move_armed = le_is_move_armed(handle_) != 0;
-        state_.is_resize_armed = le_is_resize_armed(handle_) != 0;
-        state_.resize.hover_axis = state_.is_resize_armed ? le_resize_hover_axis(handle_) : LE_RESIZE_AXIS_NONE;
-        state_.resize.selected_piece_kinds = state_.is_resize_armed ? le_selected_piece_kinds(handle_) : 0;
-        state_.resize.move_snap_piece_kinds = state_.is_move_armed ? le_selected_move_snap_piece_kinds(handle_) : 0;
+        // Lock-free, so read before the view: a frame learns a render or
+        // command is running even if the view has to wait.
+        const Renderer renderer(handle_);
+        state_.is_rendering = renderer.is_rendering();
+        state_.is_command_running = renderer.renders_held();
+
+        const ReadView view(handle_);
+        state_.mode = view.mode();
+        state_.is_move_armed = view.move_armed();
+        state_.is_resize_armed = view.resize_armed();
+        state_.resize.hover_axis = state_.is_resize_armed ? view.resize_hover_axis() : std::nullopt;
+        state_.resize.selected_piece_kinds = state_.is_resize_armed ? view.selected_piece_kinds() : 0;
+        state_.resize.move_snap_piece_kinds = state_.is_move_armed ? view.selected_move_snap_piece_kinds() : 0;
         if (state_.is_resize_armed || state_.resize.move_snap_piece_kinds != 0)
         {
-            for (int32_t kind = LE_PIECE_KIND_RECT; kind <= LE_PIECE_KIND_VIA; ++kind)
+            for (size_t kind = 0; kind < state_.resize.snap_modes.size(); ++kind)
             {
-                state_.resize.snap_modes[kind] = le_get_shape_snap_mode(handle_, kind);
-                for (int32_t mode = LE_SHAPE_SNAP_NONE; mode <= LE_SHAPE_SNAP_TRACKS; ++mode)
-                    state_.resize.snap_available[kind][mode] = le_is_shape_snap_mode_available(handle_, kind, mode) != 0;
+                const auto piece = static_cast<PieceKind>(kind);
+                state_.resize.snap_modes[kind] = view.shape_snap_mode(piece);
+                for (size_t mode = 0; mode < state_.resize.snap_available[kind].size(); ++mode)
+                    state_.resize.snap_available[kind][mode] = view.shape_snap_mode_available(piece, static_cast<ShapeSnapMode>(mode));
             }
         }
 
-        state_.status_bar.tooltip_message = le_tooltip_message(handle_);
-        state_.status_bar.snapped_mouse_position = le_snapped_mouse_position(handle_);
-        state_.status_bar.selection_count = le_selection_count(handle_);
+        const std::span<const SelectedObject> selection = view.selection();
+        const std::expected<Units, std::string> units = view.units();
+        state_.status_bar.tooltip_message = view.tooltip();
+        state_.status_bar.snapped_mouse_position.reset();
+        if (const std::optional<Point> snapped = view.snapped_mouse_position(); snapped && units)
+        {
+            const auto [x, y] = view.display_point(*snapped);
+            state_.status_bar.snapped_mouse_position = PointUm{x / units->dbu_per_um(), y / units->dbu_per_um()};
+        }
+        state_.status_bar.selection_count = selection.size();
 
-        state_.settings.hierarchy_depth = le_hierarchy_depth(handle_);
-        state_.settings.flightline_max_fanout = le_flightline_max_fanout(handle_);
-        state_.settings.undo_limit = le_undo_limit(handle_);
-        state_.settings.max_concurrency = le_max_concurrency(handle_);
-        state_.settings.minor_grid_um = le_grid_spacing_um(handle_, 0);
-        state_.settings.major_grid_um = le_grid_spacing_um(handle_, 1);
-        state_.settings.manufacturing_grid_um = le_manufacturing_grid_um(handle_);
-        state_.settings.ruler_label_size_px = le_ruler_label_size(handle_);
-        state_.settings.confirm_overwrite = le_confirm_overwrite(handle_) != 0;
-        state_.settings.theme = le::find_theme(le_theme(handle_)).value_or(0);
-        state_.settings.label_min_size_px = le_label_min_size(handle_);
-        state_.settings.label_max_size_px = le_label_max_size(handle_);
-        state_.database_settings.view_flip = le_view_flip(handle_);
+        state_.settings.hierarchy_depth = view.hierarchy_depth();
+        state_.settings.flightline_max_fanout = view.flightline_max_fanout();
+        state_.settings.undo_limit = view.undo_limit();
+        state_.settings.max_concurrency = view.max_concurrency();
+        state_.settings.minor_grid_um = view.grid_spacing_um(false);
+        state_.settings.major_grid_um = view.grid_spacing_um(true);
+        const std::optional<int64_t> manufacturing_grid = view.manufacturing_grid();
+        state_.settings.manufacturing_grid_um = manufacturing_grid && units ? units->to_um(*manufacturing_grid) : 0.0;
+        state_.settings.ruler_label_size_px = view.ruler_label_size();
+        state_.settings.confirm_overwrite = view.confirm_overwrite();
+        state_.settings.theme = view.theme();
+        state_.settings.label_min_size_px = view.label_min_size();
+        state_.settings.label_max_size_px = view.label_max_size();
+        state_.database_settings.view_flip = view.view().flip;
 
-        state_.placement_move.selected_count = state_.mode == LE_MODE_EDIT ? le_selected_placement_count(handle_) : 0;
-        state_.selected_shape_piece_count = state_.mode == LE_MODE_EDIT ? le_selected_shape_piece_count(handle_) : 0;
+        const bool edit_mode = state_.mode == InteractionMode::EDIT;
+        state_.placement_move.selected_count = edit_mode ? count_selected<PlacementId>(selection) : 0;
+        state_.selected_shape_piece_count = edit_mode ? count_selected<ShapePiece>(selection) : 0;
         if (state_.placement_move.selected_count > 0)
         {
-            state_.placement_move.snap_mode = le_get_placement_snap_mode(handle_);
-            for (int32_t mode = LE_PLACEMENT_SNAP_NONE; mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID; ++mode)
-                state_.placement_move.snap_available[mode] = le_is_placement_snap_mode_available(handle_, mode) != 0;
-            state_.placement_move.orientation_ops_enabled = le_placement_orientation_ops_enabled(handle_);
-            state_.placement_move.is_move_anchored = le_is_move_anchored(handle_) != 0;
-            state_.placement_move.all_fixed = le_selected_placements_all_fixed(handle_) != 0;
-            state_.placement_move.locked_count = le_selected_locked_placement_count(handle_);
+            state_.placement_move.snap_mode = view.placement_snap_mode();
+            for (size_t mode = 0; mode < state_.placement_move.snap_available.size(); ++mode)
+                state_.placement_move.snap_available[mode] = view.placement_snap_mode_available(static_cast<PlacementSnapMode>(mode));
+            state_.placement_move.orientation_ops_enabled = view.placement_orientation_ops_enabled();
+            state_.placement_move.is_move_anchored = view.move_anchored();
+            state_.placement_move.all_fixed = view.selected_placements_all_fixed();
+            state_.placement_move.locked_count = view.selected_locked_placement_count();
         }
 
-        // Same build-every-frame shape layer_manager.cpp's own local
-        // layers/purposes vectors used before this moved here - see
-        // State's own doc comment (gui_provider.hpp) for why this is safe
-        // to do unconditionally every frame (layer_manager.cpp already
-        // walked every layer/purpose row every frame regardless of any
-        // expand/collapse state, so nothing gets more eager here).
+        // Technology layers only: a pseudo-row with no physical Layer (ROW,
+        // BOUNDARY, DEBUG, FLIGHTLINE, ...) has one purpose column, already
+        // listed under purposes; listing it here too would be a second
+        // checkbox for the same flag.
         state_.layer_manager.layers.clear();
-        const int32_t layer_count = le_layer_count(handle_);
-        state_.layer_manager.layers.reserve(static_cast<size_t>(layer_count));
-        for (int32_t i = 0; i < layer_count; ++i)
-        {
-            const LeLayerRow row = le_layer_at(handle_, i);
-            // Technology layers only: a pseudo-row with no physical Layer
-            // (ROW, BOUNDARY, DEBUG, FLIGHTLINE, ...) has exactly one
-            // purpose column, already listed in `purposes` below - listing
-            // it here too would be a duplicate checkbox for the same flag
-            // (see gui_provider_test.cpp's regression test).
-            if (row.name == nullptr || !row.has_physical_layer)
-                continue;
-            const bool visible = le_is_layer_name_visible(handle_, row.name);
-            const bool selectable = le_is_layer_name_selectable(handle_, row.name) != 0;
-            state_.layer_manager.layers.push_back(LayerRow{.name = row.name,
-                                                         .color_r = row.color_r,
-                                                         .color_g = row.color_g,
-                                                         .color_b = row.color_b,
-                                                         .visible = visible,
-                                                         .selectable = selectable});
-        }
+        for (const le::LayerRow &row : view.layer_rows())
+            if (row.has_physical_layer)
+                state_.layer_manager.layers.push_back(LayerRow{.name = row.name,
+                                                               .color = view.layer_color(row.name).value_or(row.color),
+                                                               .visible = view.layer_visible(row.name),
+                                                               .selectable = view.layer_selectable(row.name)});
 
         state_.layer_manager.purposes.clear();
-        const int32_t purpose_count = le_purpose_count(handle_);
-        state_.layer_manager.purposes.reserve(static_cast<size_t>(purpose_count));
-        for (int32_t i = 0; i < purpose_count; ++i)
-        {
-            const int32_t ordinal = le_purpose_at(handle_, i);
-            const bool visible = le_is_purpose_visible(handle_, ordinal) != 0;
-            const bool selectable = le_is_purpose_selectable(handle_, ordinal) != 0;
-            const char *name = le_purpose_name(ordinal);
-            state_.layer_manager.purposes.push_back(
-                PurposeRow{ordinal, name ? name : "?", visible, selectable, le_purpose_has_selectable_objects(ordinal) != 0});
-        }
+        for (const ViewLayerPurpose purpose : view.purposes())
+            state_.layer_manager.purposes.push_back(PurposeRow{.purpose = purpose,
+                                                               .name = kViewLayerPurposes[static_cast<size_t>(purpose)].label.data(),
+                                                               .visible = view.purpose_visible(purpose),
+                                                               .selectable = view.purpose_selectable(purpose),
+                                                               .has_selectable_objects = purpose_has_selectable_objects(purpose)});
 
-        const auto refresh_filter = [this](int32_t filter, std::vector<FilterRow> &rows)
+        refresh_filter(view, ObjectFilter::PLACEMENT_TYPE, state_.layer_manager.placement_types);
+        refresh_filter(view, ObjectFilter::PLACEMENT_STATUS, state_.layer_manager.placement_statuses);
+        refresh_filter(view, ObjectFilter::ROUTE_USE, state_.layer_manager.route_uses);
+        refresh_filter(view, ObjectFilter::ROUTING_STATUS, state_.layer_manager.routing_statuses);
+        refresh_filter(view, ObjectFilter::ROUTE_SHAPE, state_.layer_manager.route_shapes);
+    }
+
+    std::optional<ObjectId> GuiProvider::selected_object(size_t index) const
+    {
+        const ReadView view(handle_);
+        const std::span<const SelectedObject> selection = view.selection();
+        if (index >= selection.size())
+            return std::nullopt;
+        // A piece is its Shape, or its Wire for routed wiring; the Property
+        // Viewer walks up from there to the owning Route, Terminal, ...
+        return std::visit([](const auto &selected) -> ObjectId
+                          {
+                              using T = std::decay_t<decltype(selected)>;
+                              if constexpr (std::is_same_v<T, ShapePiece>)
+                              {
+                                  if (selected.wire_id.valid())
+                                      return selected.wire_id;
+                                  return selected.shape_id;
+                              }
+                              else
+                                  return selected; },
+                          selection[index]);
+    }
+
+    std::vector<ObjectId> GuiProvider::ancestry(const ObjectId &id) const
+    {
+        const ReadView view(handle_);
+        if (view.properties(id).empty())
+            return {};
+        std::vector<ObjectId> chain{id};
+        for (std::optional<ObjectId> parent = view.parent(id); parent; parent = view.parent(*parent))
+            chain.push_back(*parent);
+        std::ranges::reverse(chain);
+        return chain;
+    }
+
+    std::vector<PropertyValue> GuiProvider::properties(const ObjectId &id) const
+    {
+        return ReadView(handle_).properties(id);
+    }
+
+    std::vector<ObjectId> GuiProvider::children(const ObjectId &id) const
+    {
+        const ReadView view(handle_);
+        const Root &root = view.root();
+        std::vector<ObjectId> children;
+        const auto add = [&](const auto &ids)
         {
-            rows.clear();
-            const int32_t count = le_object_filter_value_count(handle_, filter);
-            rows.reserve(static_cast<size_t>(count));
-            for (int32_t i = 0; i < count; ++i)
-                if (const char *value = le_object_filter_value_at(handle_, filter, i))
-                    rows.push_back(FilterRow{value, le_is_object_filter_value_visible(handle_, filter, value) != 0,
-                                             le_is_object_filter_value_selectable(handle_, filter, value) != 0});
+            for (const auto child : ids)
+                children.emplace_back(child);
         };
-        refresh_filter(LE_OBJECT_FILTER_PLACEMENT_TYPE, state_.layer_manager.placement_types);
-        refresh_filter(LE_OBJECT_FILTER_PLACEMENT_STATUS, state_.layer_manager.placement_statuses);
-        refresh_filter(LE_OBJECT_FILTER_ROUTE_USE, state_.layer_manager.route_uses);
-        refresh_filter(LE_OBJECT_FILTER_ROUTING_STATUS, state_.layer_manager.routing_statuses);
-        refresh_filter(LE_OBJECT_FILTER_ROUTE_SHAPE, state_.layer_manager.route_shapes);
-    }
-
-    LeObjectRef GuiProvider::object_parent(LeObjectRef ref) const
-    {
-        return le_object_parent(handle_, ref);
-    }
-
-    const char *GuiProvider::object_kind_name(int32_t kind) { return le_object_kind_name(kind); }
-
-    bool GuiProvider::object_kind_is_named(int32_t kind) { return le_object_kind_is_named(kind) != 0; }
-
-    LeObjectRef GuiProvider::selected_object_ref(int32_t selection_index) const
-    {
-        return le_selected_object_ref(handle_, selection_index);
-    }
-
-    int32_t GuiProvider::object_property_count(LeObjectRef ref) const
-    {
-        return le_object_property_count(handle_, ref);
-    }
-
-    LeProperty GuiProvider::object_property_at(LeObjectRef ref, int32_t index) const
-    {
-        return le_object_property_at(handle_, ref, index);
-    }
-
-    // Moved verbatim from property_viewer.cpp's own object_children free
-    // function - see gui_provider.hpp's own doc comment on this method
-    // for why the LE_OBJECT_KIND_DESIGN case stays the one exception
-    // still on the older search surface.
-    std::vector<LeObjectRef> GuiProvider::object_children(LeObjectRef ref) const
-    {
-        std::vector<LeObjectRef> children;
-        switch (ref.kind)
-        {
-        case LE_OBJECT_KIND_LIBRARY:
-        {
-            const LeLibraryId library_id = ref_to_id<LeLibraryId>(ref);
-            const int32_t count = le_library_designs_count(handle_, library_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeDesignId id = le_library_designs_at(handle_, library_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_DESIGN, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_DESIGN:
-        {
-            if (state_.is_rendering)
-                break;
-            const LeDesignId design_id = ref_to_id<LeDesignId>(ref);
-            const int32_t count = le_get_abstracts(handle_, design_id, nullptr);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeAbstractId id = le_search_result_abstract_at(handle_, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_ABSTRACT, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_ABSTRACT:
-        {
-            const LeAbstractId abstract_id = ref_to_id<LeAbstractId>(ref);
-            const int32_t terminal_count = le_abstract_terminals_count(handle_, abstract_id);
-            for (int32_t i = 0; i < terminal_count; ++i)
-            {
-                const LeTerminalId id = le_abstract_terminals_at(handle_, abstract_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_TERMINAL, id.index, id.generation));
-            }
-            const int32_t obstruction_count = le_abstract_obstructions_count(handle_, abstract_id);
-            for (int32_t i = 0; i < obstruction_count; ++i)
-            {
-                const LeObstructionId id = le_abstract_obstructions_at(handle_, abstract_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_OBSTRUCTION, id.index, id.generation));
-            }
-            const int32_t free_shape_count = le_abstract_free_shapes_count(handle_, abstract_id);
-            for (int32_t i = 0; i < free_shape_count; ++i)
-            {
-                const LeShapeId id = le_abstract_free_shapes_at(handle_, abstract_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_LAYOUT:
-        {
-            const LeLayoutId layout_id = ref_to_id<LeLayoutId>(ref);
-            const int32_t free_shape_count = le_layout_free_shapes_count(handle_, layout_id);
-            for (int32_t i = 0; i < free_shape_count; ++i)
-            {
-                const LeShapeId id = le_layout_free_shapes_at(handle_, layout_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_TERMINAL:
-        {
-            const LeTerminalId terminal_id = ref_to_id<LeTerminalId>(ref);
-            const int32_t count = le_terminal_ports_count(handle_, terminal_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeTerminalPortId id = le_terminal_ports_at(handle_, terminal_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_TERMINAL_PORT, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_TERMINAL_PORT:
-        {
-            const LeTerminalPortId port_id = ref_to_id<LeTerminalPortId>(ref);
-            const int32_t count = le_terminal_port_shapes_count(handle_, port_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeShapeId id = le_terminal_port_shapes_at(handle_, port_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_OBSTRUCTION:
-        {
-            const LeObstructionId obstruction_id = ref_to_id<LeObstructionId>(ref);
-            const int32_t count = le_obstruction_shapes_count(handle_, obstruction_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeShapeId id = le_obstruction_shapes_at(handle_, obstruction_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_BLOCKAGE:
-        {
-            const LeBlockageId blockage_id = ref_to_id<LeBlockageId>(ref);
-            const int32_t count = le_blockage_shapes_count(handle_, blockage_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeShapeId id = le_blockage_shapes_at(handle_, blockage_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_ROUTE:
-        {
-            const LeRouteId route_id = ref_to_id<LeRouteId>(ref);
-            const int32_t wire_count = le_route_wires_count(handle_, route_id);
-            for (int32_t i = 0; i < wire_count; ++i)
-            {
-                const LeWireId id = le_route_wires_at(handle_, route_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_WIRE, id.index, id.generation));
-            }
-            const int32_t count = le_route_shapes_count(handle_, route_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeShapeId id = le_route_shapes_at(handle_, route_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT:
-        {
-            const LePhysicalPortSegmentId segment_id = ref_to_id<LePhysicalPortSegmentId>(ref);
-            const int32_t count = le_physical_port_segment_shapes_count(handle_, segment_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LeShapeId id = le_physical_port_segment_shapes_at(handle_, segment_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_SHAPE, id.index, id.generation));
-            }
-            break;
-        }
-        case LE_OBJECT_KIND_PHYSICAL_PORT:
-        {
-            const LePhysicalPortId port_id = ref_to_id<LePhysicalPortId>(ref);
-            const int32_t count = le_physical_port_segments_count(handle_, port_id);
-            for (int32_t i = 0; i < count; ++i)
-            {
-                const LePhysicalPortSegmentId id = le_physical_port_segments_at(handle_, port_id, i);
-                children.push_back(make_ref(LE_OBJECT_KIND_PHYSICAL_PORT_SEGMENT, id.index, id.generation));
-            }
-            break;
-        }
-        default:
-            break;
-        }
+        std::visit([&](const auto typed)
+                   {
+                       using T = std::decay_t<decltype(typed)>;
+                       if constexpr (std::is_same_v<T, LibraryId>)
+                           add(root.get_library_designs(typed));
+                       else if constexpr (std::is_same_v<T, DesignId>)
+                       {
+                           if (const AbstractId abstract = root.get_design_abstract(typed); root.get_abstract(abstract))
+                               children.emplace_back(abstract);
+                       }
+                       else if constexpr (std::is_same_v<T, AbstractId>)
+                       {
+                           add(root.get_abstract_terminals(typed));
+                           add(root.get_abstract_obstructions(typed));
+                           add(root.get_abstract_free_shapes(typed));
+                       }
+                       else if constexpr (std::is_same_v<T, LayoutId>)
+                           add(root.get_layout_free_shapes(typed));
+                       else if constexpr (std::is_same_v<T, TerminalId>)
+                           add(root.get_terminal_ports(typed));
+                       else if constexpr (std::is_same_v<T, TerminalPortId>)
+                           add(root.get_terminal_port_shapes(typed));
+                       else if constexpr (std::is_same_v<T, ObstructionId>)
+                           add(root.get_obstruction_shapes(typed));
+                       else if constexpr (std::is_same_v<T, BlockageId>)
+                           add(root.get_blockage_shapes(typed));
+                       else if constexpr (std::is_same_v<T, RouteId>)
+                       {
+                           add(root.get_route_wires(typed));
+                           add(root.get_route_shapes(typed));
+                       }
+                       else if constexpr (std::is_same_v<T, PhysicalPortSegmentId>)
+                           add(root.get_physical_port_segment_shapes(typed));
+                       else if constexpr (std::is_same_v<T, PhysicalPortId>)
+                           add(root.get_physical_port_segments(typed)); },
+                   id);
         return children;
     }
 
-    LeObjectRef GuiProvider::invalid_ref() const
+    std::vector<std::string> GuiProvider::tokens(const std::vector<ObjectId> &ids) const
     {
-        return le_object_invalid_ref();
+        const ReadView view(handle_);
+        std::vector<std::string> tokens;
+        tokens.reserve(ids.size());
+        for (const ObjectId &id : ids)
+        {
+            std::string token(object_kind_name(id));
+            token += ':';
+            if (object_kind_is_named(id))
+            {
+                for (const PropertyValue &property : view.properties(id))
+                    if (property.name == "name")
+                    {
+                        token += property.string_value;
+                        break;
+                    }
+            }
+            else
+            {
+                const auto [index, generation] = std::visit([](const auto typed)
+                                                            { return std::pair<uint64_t, uint64_t>{typed.index, typed.generation}; },
+                                                            id);
+                token += std::to_string(generation << 32 | index);
+            }
+            tokens.push_back(std::move(token));
+        }
+        return tokens;
     }
 
-    int32_t GuiProvider::library_count() const
+    const std::vector<GuiProvider::LibraryEntry> &GuiProvider::libraries()
     {
-        return le_library_count(handle_);
+        const ReadView view(handle_);
+        const Root &root = view.root();
+        if (libraries_version_ == root.mutation_version())
+            return libraries_;
+        libraries_.clear();
+        for (const LibraryId library_id : root.get_library_ids())
+        {
+            const LibraryData *library = root.get_library(library_id);
+            if (!library)
+                continue;
+            LibraryEntry &entry = libraries_.emplace_back(LibraryEntry{.name = library->name, .designs = {}});
+            for (const DesignId design_id : root.get_library_designs(library_id))
+                if (const DesignData *design = root.get_design(design_id))
+                    entry.designs.push_back(DesignEntry{.id = design_id,
+                                                        .name = design->name,
+                                                        .has_abstract = root.get_design_abstract(design_id).valid(),
+                                                        .has_layout = root.get_design_layout(design_id).valid()});
+        }
+        libraries_version_ = root.mutation_version();
+        return libraries_;
     }
 
-    LeLibraryInfo GuiProvider::library_at(int32_t index) const
+    void GuiProvider::open_design_abstract(DesignId design)
     {
-        return le_library_at(handle_, index);
+        WriteView view(handle_);
+        if (view.open_abstract(design))
+            view.fit_view(kFitScenePaddingPx);
     }
 
-    int32_t GuiProvider::library_design_count(int32_t library_index) const
+    void GuiProvider::open_design_layout(DesignId design)
     {
-        return le_library_design_count(handle_, library_index);
+        WriteView view(handle_);
+        if (view.open_layout(design))
+            view.fit_view(kFitScenePaddingPx);
     }
 
-    LeDesignInfo GuiProvider::library_design_at(int32_t library_index, int32_t design_index) const
-    {
-        return le_library_design_at(handle_, library_index, design_index);
-    }
-
-    namespace
-    {
-        constexpr int32_t kFitScenePaddingPx = 10;
-    }
-
-    void GuiProvider::open_design_abstract(LeDesignId design_id)
-    {
-        le_set_current_design_abstract_by_id(handle_, design_id);
-        le_fit_scene(handle_, kFitScenePaddingPx);
-    }
-
-    void GuiProvider::open_design_layout(LeDesignId design_id)
-    {
-        le_set_current_design_layout_by_id(handle_, design_id);
-        le_fit_scene(handle_, kFitScenePaddingPx);
-    }
-
-    void GuiProvider::set_mode(int32_t mode)
+    void GuiProvider::set_mode(InteractionMode mode)
     {
         switch (mode)
         {
-        case LE_MODE_EDIT:
+        case InteractionMode::EDIT:
             run_tcl_command("set_mode edit");
             break;
-        case LE_MODE_RULER:
+        case InteractionMode::RULER:
             run_tcl_command("set_mode ruler");
             break;
-        case LE_MODE_SELECT:
-        default:
+        case InteractionMode::SELECT:
             run_tcl_command("set_mode select");
             break;
         }
@@ -388,30 +300,31 @@ namespace le::gui
 
     void GuiProvider::set_selected_placements_fixed(bool fixed) { run_tcl_command(fixed ? "set_placement_status FIXED" : "set_placement_status PLACED"); }
 
-    void GuiProvider::set_shape_snap_mode(int32_t kind, int32_t mode)
+    void GuiProvider::set_shape_snap_mode(PieceKind kind, ShapeSnapMode mode)
     {
-        static const char *const kKinds[] = {"rect", "polygon", "path", "via"};
-        static const char *const kModes[] = {"none", "user", "manufacturing", "fin", "tracks"};
-        if (kind < LE_PIECE_KIND_RECT || kind > LE_PIECE_KIND_VIA || mode < LE_SHAPE_SNAP_NONE || mode > LE_SHAPE_SNAP_TRACKS)
+        static constexpr const char *kKinds[] = {"rect", "polygon", "path", "via"};
+        static constexpr const char *kModes[] = {"none", "user", "manufacturing", "fin", "tracks"};
+        const auto kind_index = static_cast<size_t>(kind);
+        const auto mode_index = static_cast<size_t>(mode);
+        if (kind_index >= std::size(kKinds) || mode_index >= std::size(kModes))
             return;
-        run_tcl_command(std::string("set_shape_snap_mode ") + kKinds[kind] + " " + kModes[mode]);
+        run_tcl_command(std::string("set_shape_snap_mode ") + kKinds[kind_index] + " " + kModes[mode_index]);
     }
 
-    void GuiProvider::set_placement_snap_mode(int32_t mode)
+    void GuiProvider::set_placement_snap_mode(PlacementSnapMode mode)
     {
         switch (mode)
         {
-        case LE_PLACEMENT_SNAP_NONE:
+        case PlacementSnapMode::NONE:
             run_tcl_command("set_placement_snap_mode none");
             break;
-        case LE_PLACEMENT_SNAP_FIN_GRID:
+        case PlacementSnapMode::FIN_GRID:
             run_tcl_command("set_placement_snap_mode fin");
             break;
-        case LE_PLACEMENT_SNAP_MANUFACTURING_GRID:
+        case PlacementSnapMode::MANUFACTURING_GRID:
             run_tcl_command("set_placement_snap_mode manufacturing");
             break;
-        case LE_PLACEMENT_SNAP_SITE:
-        default:
+        case PlacementSnapMode::SITE:
             run_tcl_command("set_placement_snap_mode site");
             break;
         }
@@ -424,24 +337,33 @@ namespace le::gui
     void GuiProvider::redo() { run_tcl_command("redo"); }
     void GuiProvider::clear_rulers() { run_tcl_command("clear_rulers"); }
 
-    void GuiProvider::set_hierarchy_depth(int32_t depth)
+    void GuiProvider::set_hierarchy_depth(int depth)
     {
         run_tcl_command("set_hierarchy_depth " + std::to_string(depth));
     }
 
-    void GuiProvider::set_view_flip(int32_t flip)
+    void GuiProvider::set_view_flip(ViewFlip flip)
     {
-        static constexpr const char *kNames[] = {"none", "horizontal", "vertical"};
-        if (flip >= LE_VIEW_FLIP_NONE && flip <= LE_VIEW_FLIP_VERTICAL)
-            run_tcl_command(std::string("set_view_flip ") + kNames[flip]);
+        switch (flip)
+        {
+        case ViewFlip::NONE:
+            run_tcl_command("set_view_flip none");
+            break;
+        case ViewFlip::HORIZONTAL:
+            run_tcl_command("set_view_flip horizontal");
+            break;
+        case ViewFlip::VERTICAL:
+            run_tcl_command("set_view_flip vertical");
+            break;
+        }
     }
 
-    void GuiProvider::set_flightline_max_fanout(int32_t max_fanout)
+    void GuiProvider::set_flightline_max_fanout(int max_fanout)
     {
         run_tcl_command("set_flightline_max_fanout " + std::to_string(max_fanout));
     }
 
-    void GuiProvider::set_undo_limit(int32_t limit)
+    void GuiProvider::set_undo_limit(int limit)
     {
         if (limit >= 0)
             run_tcl_command("set_undo_limit " + std::to_string(limit));
@@ -461,7 +383,6 @@ namespace le::gui
 
     namespace
     {
-
         // Enough digits for any spacing a user types, without float noise
         // (0.1 stays "0.1", not "0.10000000000000001").
         std::string tcl_number(double value)
@@ -491,29 +412,33 @@ namespace le::gui
         if (theme < le::kThemes.size())
             run_tcl_command("set_theme " + std::string(le::kThemes[theme].name));
     }
-    void GuiProvider::set_max_concurrency(int32_t threads) { run_tcl_command("set_max_concurrency " + std::to_string(threads)); }
+    void GuiProvider::set_max_concurrency(int threads) { run_tcl_command("set_max_concurrency " + std::to_string(threads)); }
     void GuiProvider::set_label_min_size(double px) { run_tcl_command("set_label_min_size " + tcl_number(px)); }
     void GuiProvider::set_label_max_size(double px) { run_tcl_command("set_label_max_size " + tcl_number(px)); }
     void GuiProvider::save_settings(const std::string &path) { run_tcl_command(path.empty() ? "save_settings" : "save_settings " + tcl_quote(path)); }
     void GuiProvider::load_settings(const std::string &path) { run_tcl_command(path.empty() ? "load_settings" : "load_settings " + tcl_quote(path)); }
 
-    bool GuiProvider::has_unsaved_design() const { return le_has_unsaved_database_changes(handle_) != 0; }
-    bool GuiProvider::has_unsaved_settings() const { return le_has_unsaved_settings(handle_) != 0; }
-    bool GuiProvider::has_unsaved_changes() const { return has_unsaved_design() || has_unsaved_settings(); }
-    bool GuiProvider::save_settings_now() { return le_save_settings(handle_, "") == 0; }
+    bool GuiProvider::has_unsaved_design() const { return ReadView(handle_).has_unsaved_database(); }
+    bool GuiProvider::has_unsaved_settings() const { return ReadView(handle_).has_unsaved_settings(); }
+    bool GuiProvider::has_unsaved_changes() const
+    {
+        const ReadView view(handle_);
+        return view.has_unsaved_database() || view.has_unsaved_settings();
+    }
+    bool GuiProvider::save_settings_now() { return WriteView(handle_).save_settings().has_value(); }
 
-    bool GuiProvider::write_db_now(const std::string &path) { return !path.empty() && le_write_db(handle_, path.c_str(), 1) == 0; }
+    bool GuiProvider::write_db_now(const std::string &path) { return !path.empty() && WriteView(handle_).write_db(path, true).has_value(); }
 
     void GuiProvider::read_db(const std::string &path) { run_tcl_command("read_db " + tcl_quote(path)); }
     void GuiProvider::write_db(const std::string &path) { run_tcl_command("write_db " + tcl_quote(path)); }
-    std::string GuiProvider::db_path() const { return le_db_path(handle_); }
-    bool GuiProvider::database_is_empty() const { return le_database_is_empty(handle_) != 0; }
+    std::string GuiProvider::db_path() const { return ReadView(handle_).db_path(); }
+    bool GuiProvider::database_is_empty() const { return ReadView(handle_).database_is_empty(); }
 
-    void GuiProvider::set_layer_color(const std::string &layer_name, uint8_t r, uint8_t g, uint8_t b)
+    void GuiProvider::set_layer_color(const std::string &layer_name, Color color)
     {
-        char color[8];
-        std::snprintf(color, sizeof(color), "#%02x%02x%02x", r, g, b);
-        run_tcl_command("set_layer_color " + tcl_quote(layer_name) + " " + color);
+        char hex[8];
+        std::snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
+        run_tcl_command("set_layer_color " + tcl_quote(layer_name) + " " + hex);
     }
 
     void GuiProvider::reset_layer_color(const std::string &layer_name)
@@ -531,64 +456,62 @@ namespace le::gui
         run_tcl_command("set_layer_selectable " + tcl_quote(layer_name) + " " + (value ? "true" : "false"));
     }
 
-    void GuiProvider::set_purpose_visible(const std::string &purpose_name, bool value)
+    void GuiProvider::set_purpose_visible(std::string_view purpose_name, bool value)
     {
-        run_tcl_command("set_purpose_visible " + tcl_quote(purpose_name) + " " + (value ? "true" : "false"));
+        run_tcl_command("set_purpose_visible " + tcl_quote(std::string(purpose_name)) + " " + (value ? "true" : "false"));
     }
 
-    void GuiProvider::set_purpose_selectable(const std::string &purpose_name, bool value)
+    void GuiProvider::set_purpose_selectable(std::string_view purpose_name, bool value)
     {
-        run_tcl_command("set_purpose_selectable " + tcl_quote(purpose_name) + " " + (value ? "true" : "false"));
+        run_tcl_command("set_purpose_selectable " + tcl_quote(std::string(purpose_name)) + " " + (value ? "true" : "false"));
     }
 
     namespace
     {
-        // The <noun> of an LeObjectFilter's set_<noun>_visible/_selectable.
-        const char *object_filter_command_noun(int32_t filter)
+        // The <noun> of a filter's set_<noun>_visible/_selectable.
+        const char *object_filter_command_noun(ObjectFilter filter)
         {
             switch (filter)
             {
-            case LE_OBJECT_FILTER_PLACEMENT_TYPE:
+            case ObjectFilter::PLACEMENT_TYPE:
                 return "placement_type";
-            case LE_OBJECT_FILTER_PLACEMENT_STATUS:
+            case ObjectFilter::PLACEMENT_STATUS:
                 return "placement_status";
-            case LE_OBJECT_FILTER_ROUTING_STATUS:
+            case ObjectFilter::ROUTING_STATUS:
                 return "routing_status";
-            case LE_OBJECT_FILTER_ROUTE_SHAPE:
+            case ObjectFilter::ROUTE_SHAPE:
                 return "route_shape";
-            default:
-                return "route_use";
+            case ObjectFilter::ROUTE_USE:
+                break;
             }
+            return "route_use";
         }
     }
 
-    void GuiProvider::set_object_filter_visible(int32_t filter, const std::string &value, bool visible)
+    void GuiProvider::set_object_filter_visible(ObjectFilter filter, const std::string &value, bool visible)
     {
         run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_visible " + tcl_quote(value) + " " + (visible ? "true" : "false"));
     }
 
-    void GuiProvider::set_object_filter_selectable(int32_t filter, const std::string &value, bool selectable)
+    void GuiProvider::set_object_filter_selectable(ObjectFilter filter, const std::string &value, bool selectable)
     {
         run_tcl_command(std::string("set_") + object_filter_command_noun(filter) + "_selectable " + tcl_quote(value) + " " + (selectable ? "true" : "false"));
     }
 
     void GuiProvider::run_tcl_command(const std::string &script)
     {
-        le_enqueue_tcl_command(handle_, script.c_str());
+        SessionRequests(handle_).enqueue_tcl_command(script);
     }
 
-    void GuiProvider::set_mouse_position(int32_t x, int32_t y) { le_set_mouse_position(handle_, x, y); }
-    void GuiProvider::clear_mouse_position() { le_clear_mouse_position(handle_); }
-    void GuiProvider::mouse_down(int32_t x, int32_t y) { le_mouse_down(handle_, x, y); }
-    void GuiProvider::mouse_up(int32_t x, int32_t y) { le_mouse_up(handle_, x, y); }
-    void GuiProvider::cancel_drag() { le_cancel_drag(handle_); }
-    void GuiProvider::zoom(double factor, int32_t x, int32_t y) { le_zoom(handle_, factor, x, y); }
-    void GuiProvider::zoom_drag_down(int32_t x, int32_t y) { le_zoom_drag_down(handle_, x, y); }
-    void GuiProvider::key_down(int32_t key_code) { le_key_down(handle_, key_code); }
-    void GuiProvider::key_up(int32_t key_code) { le_key_up(handle_, key_code); }
-    void GuiProvider::clear_all_keys() { le_clear_all_keys(handle_); }
-    void GuiProvider::set_viewport_size(int32_t width_px, int32_t height_px)
-    {
-        le_set_viewport_size(handle_, width_px, height_px);
-    }
+    void GuiProvider::set_mouse_position(int x, int y) { WriteView(handle_).set_mouse_position(x, y); }
+    void GuiProvider::clear_mouse_position() { WriteView(handle_).clear_mouse_position(); }
+    void GuiProvider::mouse_down(int x, int y) { WriteView(handle_).mouse_down(x, y); }
+    void GuiProvider::mouse_up(int x, int y) { WriteView(handle_).mouse_up(x, y); }
+    void GuiProvider::cancel_drag() { WriteView(handle_).cancel_drag(); }
+    void GuiProvider::zoom(double factor, int x, int y) { WriteView(handle_).zoom(factor, x, y); }
+    void GuiProvider::zoom_drag_down(int x, int y) { WriteView(handle_).zoom_drag_down(x, y); }
+    void GuiProvider::key_down(Key key) { WriteView(handle_).key_down(key); }
+    void GuiProvider::key_up(Key key) { WriteView(handle_).key_up(key); }
+    void GuiProvider::clear_all_keys() { WriteView(handle_).clear_keys(); }
+    void GuiProvider::set_viewport_size(int width_px, int height_px) { WriteView(handle_).set_viewport_size(width_px, height_px); }
 }

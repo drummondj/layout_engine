@@ -2,9 +2,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Layout Engine's C API - the one surface every front end calls: the
-// Dear ImGui GUI (src/gui/, via GuiProvider) and the Tcl shim
-// (src/tcl/le_tcl_shim.cpp). Deliberately plain C (not C++) in every
+// Layout Engine's C API. Front ends call the C++ API (views.hpp) instead;
+// this remains for src/api/tests and extensions' handle() calls until
+// it's removed. Deliberately plain C (not C++) in every
 // public declaration - no std:: types, no default arguments, no
 // overloads - so LeHandle/LePixelBuffer have a stable,
 // toolchain-independent ABI and any C FFI generator can parse this
@@ -13,10 +13,9 @@
 // Thread safety: every function below is safe to call concurrently from
 // multiple threads on the *same* LeHandle, except le_destroy() (see its
 // own doc comment) - each internally locks a mutex owned by the handle.
-// This is needed, not defensive: le_shell's GUI renders on a background
-// thread (le_render_pixel_buffer()) while the GUI thread forwards input
-// (le_set_mouse_position(), le_mouse_down()/up(), le_zoom(), ...) and the
-// Tcl console thread runs commands - all on the same handle.
+// This is needed, not defensive: le_shell renders on a background thread
+// while the GUI thread forwards input and the Tcl console thread runs
+// commands, all on the same handle.
 //
 // Returned strings: a `const char*` result or struct field is owned by the
 // function that returned it and the calling thread, never by the caller.

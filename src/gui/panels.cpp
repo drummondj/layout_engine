@@ -303,12 +303,12 @@ namespace le::ext
 
     int32_t ExtGuiContext::selection_count() const
     {
-        return provider_.state().status_bar.selection_count;
+        return static_cast<int32_t>(provider_.state().status_bar.selection_count);
     }
 
-    LeObjectRef ExtGuiContext::selected_object(int32_t index) const
+    std::optional<ObjectId> ExtGuiContext::selected_object(size_t index) const
     {
-        return provider_.selected_object_ref(index);
+        return provider_.selected_object(index);
     }
 
     void ExtGuiContext::run_tcl_command(const std::string &script)

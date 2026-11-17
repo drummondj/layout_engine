@@ -9,15 +9,15 @@ namespace le::gui
 {
     namespace
     {
-        const char *mode_label(int32_t mode)
+        const char *mode_label(InteractionMode mode)
         {
             switch (mode)
             {
-            case LE_MODE_SELECT:
+            case InteractionMode::SELECT:
                 return "Select";
-            case LE_MODE_EDIT:
+            case InteractionMode::EDIT:
                 return "Edit";
-            case LE_MODE_RULER:
+            case InteractionMode::RULER:
                 return "Ruler";
             default:
                 return "?";
@@ -61,17 +61,17 @@ namespace le::gui
         // overlay on the design view covers that signal.
 
         ImGui::TableSetColumnIndex(1);
-        const LeSnappedMousePosition &pos = state.status_bar.snapped_mouse_position;
+        const std::optional<PointUm> &pos = state.status_bar.snapped_mouse_position;
         char coords_text[64];
-        if (pos.has_position)
+        if (pos)
         {
-            std::snprintf(coords_text, sizeof(coords_text), "X: %.3f Y: %.3f", pos.x_um, pos.y_um);
+            std::snprintf(coords_text, sizeof(coords_text), "X: %.3f Y: %.3f", pos->x, pos->y);
         }
         else
         {
             std::snprintf(coords_text, sizeof(coords_text), "X: - Y: -");
         }
-        ImGui::Text("%s   Selected: %d", coords_text, state.status_bar.selection_count);
+        ImGui::Text("%s   Selected: %zu", coords_text, state.status_bar.selection_count);
 
         ImGui::EndTable();
     }

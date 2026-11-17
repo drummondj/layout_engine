@@ -9,7 +9,7 @@ namespace le::gui
     /// cheap without a GPU.
     ///
     /// Blocks the calling thread forever, running this process's own
-    /// GUI-owning loop: idles (polling le_take_show_gui_request()) until
+    /// GUI-owning loop: idles (polling SessionRequests::take_show_gui_request()) until
     /// the Tcl console's `show_gui` command requests a window, then opens
     /// a GLFW + Dear ImGui window rendering `handle`'s own pixel buffer
     /// (le_render_pixel_buffer) and driving its mouse/keyboard input

@@ -20,7 +20,7 @@ namespace le::gui
         }
 
         // Layer/purpose visibility+selectability changes go through a Tcl
-        // command rather than a direct C API call - see
+        // command rather than a direct view call - see
         // GuiProvider::run_tcl_command's own doc comment (gui_provider.hpp).
 
         // A checkbox bound to a value this GUI doesn't own the truth
@@ -79,9 +79,9 @@ namespace le::gui
             static float edit[3] = {0.0f, 0.0f, 0.0f};
             if (ImGui::IsWindowAppearing())
             {
-                edit[0] = static_cast<float>(row.color_r) / 255.0f;
-                edit[1] = static_cast<float>(row.color_g) / 255.0f;
-                edit[2] = static_cast<float>(row.color_b) / 255.0f;
+                edit[0] = static_cast<float>(row.color.r) / 255.0f;
+                edit[1] = static_cast<float>(row.color.g) / 255.0f;
+                edit[2] = static_cast<float>(row.color.b) / 255.0f;
             }
             ImGui::TextUnformatted(row.name.c_str());
             ImGui::ColorPicker3("##picker", edit, ImGuiColorEditFlags_NoAlpha | ImGuiColorEditFlags_DisplayHex);
@@ -89,7 +89,7 @@ namespace le::gui
             {
                 const auto channel = [](float v)
                 { return static_cast<uint8_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
-                provider.set_layer_color(row.name, channel(edit[0]), channel(edit[1]), channel(edit[2]));
+                provider.set_layer_color(row.name, Color{.r = channel(edit[0]), .g = channel(edit[1]), .b = channel(edit[2])});
             }
             if (ImGui::Button("Default"))
             {
@@ -127,7 +127,7 @@ namespace le::gui
             ImGui::PopID();
         }
 
-        // Labels (le_purpose_name) of the purposes with per-value filter
+        // Labels of the purposes with per-value filter
         // rows beneath them - a label is a purpose's stable identity.
         constexpr std::string_view kRoutePurpose = "route";
         constexpr std::string_view kPlacementPurpose = "placement";
@@ -135,9 +135,9 @@ namespace le::gui
         // One of a purpose's value filters (e.g. a route's use or status),
         // indented under its row: a heading, then a row per value - each
         // hides or locks just the objects with that value.
-        void draw_filter_rows(GuiProvider &provider, int32_t filter, const char *heading, const std::vector<GuiProvider::FilterRow> &rows)
+        void draw_filter_rows(GuiProvider &provider, ObjectFilter filter, const char *heading, const std::vector<GuiProvider::FilterRow> &rows)
         {
-            ImGui::PushID(filter);
+            ImGui::PushID(static_cast<int>(filter));
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::Indent();
@@ -371,14 +371,14 @@ namespace le::gui
                 continue;
             if (purpose.name == kPlacementPurpose)
             {
-                draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_TYPE, "Type", state.layer_manager.placement_types);
-                draw_filter_rows(provider, LE_OBJECT_FILTER_PLACEMENT_STATUS, "Status", state.layer_manager.placement_statuses);
+                draw_filter_rows(provider, ObjectFilter::PLACEMENT_TYPE, "Type", state.layer_manager.placement_types);
+                draw_filter_rows(provider, ObjectFilter::PLACEMENT_STATUS, "Status", state.layer_manager.placement_statuses);
             }
             else if (purpose.name == kRoutePurpose)
             {
-                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_USE, "Use", state.layer_manager.route_uses);
-                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTING_STATUS, "Status", state.layer_manager.routing_statuses);
-                draw_filter_rows(provider, LE_OBJECT_FILTER_ROUTE_SHAPE, "Shape", state.layer_manager.route_shapes);
+                draw_filter_rows(provider, ObjectFilter::ROUTE_USE, "Use", state.layer_manager.route_uses);
+                draw_filter_rows(provider, ObjectFilter::ROUTING_STATUS, "Status", state.layer_manager.routing_statuses);
+                draw_filter_rows(provider, ObjectFilter::ROUTE_SHAPE, "Shape", state.layer_manager.route_shapes);
             }
         }
 
@@ -421,8 +421,8 @@ namespace le::gui
                 [&]
                 {
                     const ImVec4 color(
-                        static_cast<float>(layer.color_r) / 255.0f, static_cast<float>(layer.color_g) / 255.0f,
-                        static_cast<float>(layer.color_b) / 255.0f, 1.0f);
+                        static_cast<float>(layer.color.r) / 255.0f, static_cast<float>(layer.color.g) / 255.0f,
+                        static_cast<float>(layer.color.b) / 255.0f, 1.0f);
                     // Clicking the swatch opens a color picker; the choice
                     // is saved
                     // with the settings file.

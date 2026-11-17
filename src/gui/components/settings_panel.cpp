@@ -117,7 +117,7 @@ namespace le::gui
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Nets connecting more pins than this (besides the selected one) draw no flightlines - 0 for no limit");
         static CommittedField<int32_t> undo_limit_field;
-        draw_committed_int_field("##undo_limit", "Undo Steps", settings.undo_limit, undo_limit_field,
+        draw_committed_int_field("##undo_limit", "Undo Steps", static_cast<int32_t>(settings.undo_limit), undo_limit_field,
                                  [&](int32_t value)
                                  { provider.set_undo_limit(value); });
         if (ImGui::IsItemHovered())
@@ -144,7 +144,7 @@ namespace le::gui
         static bool dialog_saves = false;
         static std::string status;
         const bool busy = dialog.active();
-        const std::string default_path = le_default_settings_path();
+        const std::string default_path = default_settings_path();
 
         ImGui::BeginDisabled(busy || default_path.empty());
         if (ImGui::Button("Save"))
@@ -200,9 +200,9 @@ namespace le::gui
         // Saved with the design's session, not in the settings file above.
         section("Database Settings");
         static constexpr const char *kFlipLabels[] = {"None", "Horizontal", "Vertical"};
-        int flip = provider.state().database_settings.view_flip;
+        int flip = static_cast<int>(provider.state().database_settings.view_flip);
         if (ImGui::Combo("View flip", &flip, kFlipLabels, IM_ARRAYSIZE(kFlipLabels)))
-            provider.set_view_flip(flip);
+            provider.set_view_flip(static_cast<ViewFlip>(flip));
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Mirrors the design view. While flipped, the status bar's X/Y are mirrored too, with the centre of the boundary at 0, 0.\nSaved with the design (write_db), not in the settings file.");
         if (extra)

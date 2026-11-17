@@ -3,25 +3,22 @@
 #include "gui_provider.hpp"
 #include "imgui.h"
 
+#include <algorithm>
 #include <cctype>
-#include <cstdint>
 #include <cstring>
 
 namespace le::gui
 {
     namespace
     {
-        bool contains_ignore_case(const char *haystack, const char *needle)
+        bool contains_ignore_case(const std::string &haystack_text, const char *needle)
         {
             if (needle == nullptr || needle[0] == '\0')
             {
                 return true;
             }
-            if (haystack == nullptr)
-            {
-                return false;
-            }
-            const size_t haystack_len = std::strlen(haystack);
+            const char *haystack = haystack_text.c_str();
+            const size_t haystack_len = haystack_text.size();
             const size_t needle_len = std::strlen(needle);
             if (needle_len > haystack_len)
             {
@@ -51,7 +48,7 @@ namespace le::gui
         // own name, or (so a search like "layout" surfaces every design
         // that has one) one of its real leaf labels. Empty filter always
         // matches, same as contains_ignore_case's own "no needle" case.
-        bool design_matches_filter(const LeDesignInfo &design, const char *filter, bool has_abstract, bool has_layout)
+        bool design_matches_filter(const GuiProvider::DesignEntry &design, const char *filter, bool has_abstract, bool has_layout)
         {
             if (filter[0] == '\0')
             {
@@ -75,20 +72,19 @@ namespace le::gui
         // One Design row - a tree node (if it has at least one real leaf
         // to show) or a plain leaf itself otherwise - 0, 1, or
         // both of "Abstract"/"Layout" (one leaf per view the Design
-        // actually has, see LeDesignInfo's own abstract_id/layout_id doc
-        // comments for when either can be invalid). Clicking the design
+        // actually has). Clicking the design
         // row itself only expands/collapses its own view list - opening
         // a view is unambiguous only for its "Abstract"/"Layout" leaves
         // below, each its own click target.
-        void draw_design_node(GuiProvider &provider, const LeDesignInfo &design, bool has_abstract, bool has_layout)
+        void draw_design_node(GuiProvider &provider, const GuiProvider::DesignEntry &design, bool has_abstract, bool has_layout)
         {
             if (!has_abstract && !has_layout)
             {
-                ImGui::TreeNodeEx(design.name, ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen);
+                ImGui::TreeNodeEx(design.name.c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen);
                 return;
             }
 
-            if (!ImGui::TreeNode(design.name))
+            if (!ImGui::TreeNode(design.name.c_str()))
             {
                 return;
             }
@@ -112,13 +108,11 @@ namespace le::gui
         }
     }
 
-    bool design_shown_in_browser(const LeDesignInfo &design, const char *filter, bool show_designs_without_views)
+    bool design_shown_in_browser(const GuiProvider::DesignEntry &design, const char *filter, bool show_designs_without_views)
     {
-        const bool has_abstract = design.abstract_id.index != UINT32_MAX;
-        const bool has_layout = design.layout_id.index != UINT32_MAX;
-        if (!has_abstract && !has_layout && !show_designs_without_views)
+        if (!design.has_abstract && !design.has_layout && !show_designs_without_views)
             return false;
-        return design_matches_filter(design, filter, has_abstract, has_layout);
+        return design_matches_filter(design, filter, design.has_abstract, design.has_layout);
     }
 
     void draw_library_browser(GuiProvider &provider)
@@ -137,44 +131,23 @@ namespace le::gui
         // collapsed/expanded by hand while a filter is active.
         const bool filter_changed = ImGui::InputTextWithHint("##library_browser_filter", "filter", filter_buf, sizeof(filter_buf));
 
-        const int32_t library_count = provider.library_count();
-        if (library_count == 0)
+        const std::vector<GuiProvider::LibraryEntry> &libraries = provider.libraries();
+        if (libraries.empty())
         {
             ImGui::TextDisabled("Nothing loaded yet");
             return;
         }
 
-        for (int32_t library_index = 0; library_index < library_count; ++library_index)
+        for (const GuiProvider::LibraryEntry &library : libraries)
         {
-            const LeLibraryInfo library = provider.library_at(library_index);
-            if (library.name == nullptr)
-            {
-                continue;
-            }
-            const int32_t design_count = provider.library_design_count(library_index);
             const bool library_name_matches = contains_ignore_case(library.name, filter_buf);
 
             // A library is shown if its own name matches, or at least
             // one of its designs does (an ancestor stays reachable
             // whenever any descendant still matches, even if the
             // ancestor's own title doesn't).
-            bool library_visible = library_name_matches;
-            if (!library_visible)
-            {
-                for (int32_t design_index = 0; design_index < design_count; ++design_index)
-                {
-                    const LeDesignInfo design = provider.library_design_at(library_index, design_index);
-                    if (design.name == nullptr)
-                    {
-                        continue;
-                    }
-                    if (design_shown_in_browser(design, filter_buf, show_designs_without_views))
-                    {
-                        library_visible = true;
-                        break;
-                    }
-                }
-            }
+            const bool library_visible = library_name_matches || std::ranges::any_of(library.designs, [&](const GuiProvider::DesignEntry &design)
+                                                                                     { return design_shown_in_browser(design, filter_buf, show_designs_without_views); });
             if (!library_visible)
             {
                 continue;
@@ -182,33 +155,26 @@ namespace le::gui
 
             if (filter_changed)
                 ImGui::SetNextItemOpen(filter_buf[0] != '\0', ImGuiCond_Always);
-            if (!ImGui::TreeNode(library.name))
+            if (!ImGui::TreeNode(library.name.c_str()))
             {
                 continue;
             }
-            for (int32_t design_index = 0; design_index < design_count; ++design_index)
+            for (const GuiProvider::DesignEntry &design : library.designs)
             {
-                const LeDesignInfo design = provider.library_design_at(library_index, design_index);
-                if (design.name == nullptr)
-                {
-                    continue;
-                }
-                const bool has_abstract = design.abstract_id.index != UINT32_MAX;
-                const bool has_layout = design.layout_id.index != UINT32_MAX;
                 // The library itself matching its own name (not a
                 // descendant match) still shows every one of its
                 // designs unfiltered - only a library shown *because* a
                 // descendant matched needs its own designs individually
                 // filtered.
-                if (!has_abstract && !has_layout && !show_designs_without_views)
+                if (!design.has_abstract && !design.has_layout && !show_designs_without_views)
                 {
                     continue;
                 }
-                if (!library_name_matches && !design_matches_filter(design, filter_buf, has_abstract, has_layout))
+                if (!library_name_matches && !design_matches_filter(design, filter_buf, design.has_abstract, design.has_layout))
                 {
                     continue;
                 }
-                draw_design_node(provider, design, has_abstract, has_layout);
+                draw_design_node(provider, design, design.has_abstract, design.has_layout);
             }
             ImGui::TreePop();
         }
