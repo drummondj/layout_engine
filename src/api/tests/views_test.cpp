@@ -255,3 +255,120 @@ TEST(Renderer, ATransactionDefersTheWakeUntilItEnds)
     EXPECT_FALSE(renderer.renders_held());
     EXPECT_TRUE(finishes(wait));
 }
+
+// Taking a session's lock on a thread that already holds it deadlocks; debug
+// builds abort instead, naming both.
+class LockChecks : public ::testing::Test
+{
+protected:
+    void SetUp() override
+    {
+#ifdef NDEBUG
+        GTEST_SKIP() << "lock checks are debug-only";
+#endif
+        GTEST_FLAG_SET(death_test_style, "threadsafe");
+    }
+
+    le::Session session;
+};
+
+TEST_F(LockChecks, AWriteViewInsideAReadViewAborts)
+{
+    EXPECT_DEATH(
+        {
+            const le::ReadView read = session.read();
+            le::WriteView write = session.write();
+        },
+        "opening a WriteView on a session while this thread already holds a ReadView");
+}
+
+TEST_F(LockChecks, AReadViewInsideAWriteViewAborts)
+{
+    EXPECT_DEATH(
+        {
+            le::WriteView write = session.write();
+            const le::ReadView read = session.read();
+        },
+        "opening a ReadView on a session while this thread already holds a WriteView");
+}
+
+TEST_F(LockChecks, ASecondWriteViewAborts)
+{
+    EXPECT_DEATH(
+        {
+            le::WriteView first = session.write("first");
+            le::WriteView second = session.write();
+        },
+        "opening a WriteView on a session while this thread already holds a WriteView");
+}
+
+// A second shared lock deadlocks too, once a writer queues between them.
+TEST_F(LockChecks, ASecondReadViewAborts)
+{
+    EXPECT_DEATH(
+        {
+            const le::ReadView first = session.read();
+            const le::ReadView second = session.try_read();
+        },
+        "opening a ReadView on a session while this thread already holds a ReadView");
+}
+
+TEST_F(LockChecks, ATransactionInsideAViewAborts)
+{
+    EXPECT_DEATH(
+        {
+            const le::ReadView read = session.read();
+            le::Transaction transaction = session.transaction("edit");
+        },
+        "opening a Transaction on a session while this thread already holds a ReadView");
+}
+
+TEST_F(LockChecks, ARenderInsideAViewAborts)
+{
+    EXPECT_DEATH(
+        {
+            le::WriteView write = session.write();
+            session.renderer().render();
+        },
+        "opening a render on a session while this thread already holds a WriteView");
+}
+
+TEST_F(LockChecks, ViewsOnTwoSessionsOnOneThreadAreFine)
+{
+    le::Session other;
+    const le::ReadView read = session.read();
+    le::WriteView write = other.write();
+    EXPECT_TRUE(read.valid());
+}
+
+TEST_F(LockChecks, ClosingAViewLetsTheThreadOpenAnother)
+{
+    {
+        le::WriteView write = session.write("edit");
+        ASSERT_TRUE(write.create_library({.name = "lib"}));
+    }
+    {
+        le::Transaction transaction = session.transaction("more");
+        add_library(session, "other");
+    }
+    EXPECT_EQ(session.read().root().get_library_ids().size(), 2u);
+    EXPECT_FALSE(session.renderer().render().data);
+}
+
+// A try_read that fails while another thread writes doesn't count as held.
+TEST_F(LockChecks, AFailedTryReadHoldsNothing)
+{
+    std::promise<void> writing;
+    std::promise<void> done;
+    std::thread writer([&]
+                       {
+                           le::WriteView view = session.write();
+                           writing.set_value();
+                           done.get_future().wait(); });
+    writing.get_future().wait();
+    EXPECT_FALSE(session.try_read().valid());
+    done.set_value();
+    writer.join();
+    le::WriteView write = session.write();
+    EXPECT_TRUE(write.root().get_library_ids().empty());
+}

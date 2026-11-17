@@ -62,7 +62,7 @@
 // panel reads run concurrently with an in-progress render instead of
 // blocking behind it for however long it takes. Everything that mutates
 // handle or Root state - a WriteView, Transaction or typed command - takes
-// it exclusive (HandleWriteLock), so a real edit waits for an in-progress
+// it exclusive, so a real edit waits for an in-progress
 // render to finish rather than racing it.
 //
 // ensure_view_layers_current() looks read-only but rebuilds view_layers
@@ -216,7 +216,8 @@ struct LeHandle
     // render_needed_mutex_.
     bool render_wait_cancelled_ = false;
 
-    // Called by HandleWriteLock's destructor (below) - every
+    // Called as every exclusive lock is released (WriteView's and
+    // Transaction's, views.cpp) - every
     // std::unique_lock<std::shared_mutex> acquisition on mutex_ is, by
     // that mutex's own doc comment above, always a real mutation, so
     // notifying unconditionally on release, from one single mechanical
@@ -1743,35 +1744,3 @@ struct LeHandle
 // extension.cpp.
 void dispatch_mutation_listeners(LeHandle *handle);
 
-// Every genuine mutation of a LeHandle takes its exclusive lock through
-// this (a std::unique_lock<std::shared_mutex> is *only* ever taken by a
-// real write), so notify_render_needed() fires on every mutating call
-// site without a hand-picked list of them.
-class HandleWriteLock
-{
-public:
-    explicit HandleWriteLock(LeHandle *handle)
-        : handle_(handle), lock_(handle->mutex_), begin_(handle->root.change_log().end_sequence())
-    {
-    }
-
-    // Listeners hear about a typed command's changes once, when it ends
-    // (begin_command holds renders until then).
-    ~HandleWriteLock()
-    {
-        handle_->note_write_finished(begin_);
-        const bool deliver = !handle_->renders_held();
-        lock_.unlock();
-        handle_->notify_render_needed();
-        if (deliver)
-            dispatch_mutation_listeners(handle_);
-    }
-
-    HandleWriteLock(const HandleWriteLock &) = delete;
-    HandleWriteLock &operator=(const HandleWriteLock &) = delete;
-
-private:
-    LeHandle *handle_;
-    std::unique_lock<std::shared_mutex> lock_;
-    uint64_t begin_;
-};

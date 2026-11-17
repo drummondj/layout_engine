@@ -85,13 +85,15 @@ namespace le
 
     /// @brief A shared-locked, read-only view of the session for as long as
     /// it lives. Don't open another view (or anything else that takes the
-    /// session's lock) on the same thread while holding one.
+    /// session's lock) on the same thread while holding one: it deadlocks,
+    /// and debug builds abort saying so.
     class ReadView
     {
     public:
         explicit ReadView(LeHandle *handle);
         /// @brief Doesn't wait: invalid if the lock isn't free right now.
         ReadView(LeHandle *handle, std::try_to_lock_t);
+        ~ReadView();
         ReadView(const ReadView &) = delete;
         ReadView &operator=(const ReadView &) = delete;
 

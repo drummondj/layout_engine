@@ -73,8 +73,9 @@ TEST(SessionHandle, InjectedHandleIsSharedNotFresh)
 
     // Proof 2: a Terminal created via Tcl is visible through a view on
     // the same session, bypassing Tcl entirely.
-    const le::AbstractId abstract = session.read().root().get_design_abstract(session.read().root().get_design_ids().front());
-    const auto found = session.read().get_terminals({.of_abstract = abstract, .filter = ".name == SESSION_HANDLE_TEST"});
+    const le::ReadView view = session.read();
+    const le::AbstractId abstract = view.root().get_design_abstract(view.root().get_design_ids().front());
+    const auto found = view.get_terminals({.of_abstract = abstract, .filter = ".name == SESSION_HANDLE_TEST"});
     ASSERT_TRUE(found);
     EXPECT_EQ(found->size(), 1u);
 
