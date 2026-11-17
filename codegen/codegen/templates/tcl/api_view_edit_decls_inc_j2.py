@@ -17,8 +17,4 @@ std::expected<void, std::string> delete_{{snake}}_batch(std::span<const {{klass.
 /// @brief Makes {{klass.name}} `id` the current one (`current_{{klass.to_snake_case()}}` in Tcl); an error if it doesn't exist.
 std::expected<void, std::string> set_current_{{klass.to_snake_case()}}({{klass.name}}Id id);
 {% endfor %}
-{% for klass in current_access_classes %}
-/// @brief Makes {{klass.name}} `id` the current one (`current_{{klass.to_snake_case()}}` in Tcl); an error if it doesn't exist.
-std::expected<void, std::string> set_current_{{klass.to_snake_case()}}({{klass.name}}Id id);
-{% endfor %}
 """
