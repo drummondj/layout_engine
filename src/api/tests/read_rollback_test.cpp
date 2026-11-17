@@ -1,7 +1,7 @@
 // A failed read changes nothing: the database writes the same bytes
 // before and after it.
 
-#include "../api.hpp"
+#include "session_test.hpp"
 #include "../le_handle.hpp"
 #include "../../io/read_rollback.hpp"
 #include "../../test_support/scratch_dir.hpp"
@@ -16,40 +16,34 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    std::string api_fixture(const std::string &name) { return std::string(API_TEST_FIXTURES_DIR) + "/" + name; }
+    std::string api_fixture(const std::string &name) { return le::test::fixture_path(name); }
     std::string io_fixture(const std::string &name) { return std::string(IO_TEST_FIXTURES_DIR) + "/" + name; }
 
-    struct ReadRollbackApi : ::testing::Test
+    struct ReadRollbackApi : le::test::SessionTest
     {
         void SetUp() override
         {
             dir = le::test::scratch_path("le_read_rollback");
             fs::create_directories(dir);
-            handle = le_create();
         }
-        void TearDown() override
-        {
-            le_destroy(handle);
-            fs::remove_all(dir);
-        }
+        void TearDown() override { fs::remove_all(dir); }
 
         // The database as write_db -no_session stores it.
         std::string database_bytes()
         {
             const fs::path path = dir / ("snapshot" + std::to_string(snapshots++) + ".led");
-            EXPECT_EQ(le_write_db(handle, path.string().c_str(), 0), 0);
+            EXPECT_TRUE(write().write_db(path.string()));
             std::ifstream in(path, std::ios::binary);
             return std::string(std::istreambuf_iterator<char>(in), {});
         }
 
         void read_testcell()
         {
-            ASSERT_EQ(le_read_lef(handle, api_fixture("testcell.lef").c_str(), "cells"), 0);
-            ASSERT_EQ(le_read_def(handle, api_fixture("testcell.def").c_str(), "cells"), 0);
+            ASSERT_TRUE(read_lef(api_fixture("testcell.lef"), "cells"));
+            ASSERT_TRUE(read_def(api_fixture("testcell.def"), "cells"));
         }
 
         fs::path dir;
-        LeHandle *handle = nullptr;
         int snapshots = 0;
     };
 }
@@ -60,7 +54,7 @@ TEST_F(ReadRollbackApi, ALefParseErrorAfterAMacroLeavesTheDatabaseAsItWas)
     const std::string before = database_bytes();
     const le::TechnologyData technology = *handle->root.get_technology(handle->root.get_technology_ids().front());
 
-    EXPECT_NE(le_read_lef(handle, api_fixture("fails_after_macro.lef").c_str(), "cells"), 0);
+    EXPECT_FALSE(read_lef(api_fixture("fails_after_macro.lef"), "cells"));
     EXPECT_EQ(database_bytes(), before);
     // The Technology fields the read set in place are back too.
     const le::TechnologyData &after = *handle->root.get_technology(handle->root.get_technology_ids().front());
@@ -69,46 +63,45 @@ TEST_F(ReadRollbackApi, ALefParseErrorAfterAMacroLeavesTheDatabaseAsItWas)
     EXPECT_EQ(after.capacitance_units_pf, technology.capacitance_units_pf);
 
     // And the next read works as if the failed one never happened.
-    EXPECT_EQ(le_read_lef(handle, api_fixture("othercell.lef").c_str(), "cells"), 0);
+    EXPECT_TRUE(read_lef(api_fixture("othercell.lef"), "cells"));
 }
 
 TEST_F(ReadRollbackApi, AnOldLefVersionLeavesTheDatabaseAsItWas)
 {
     read_testcell();
     const std::string before = database_bytes();
-    EXPECT_NE(le_read_lef(handle, io_fixture("version_5_3.lef").c_str(), "cells"), 0);
+    EXPECT_FALSE(read_lef(io_fixture("version_5_3.lef"), "cells"));
     EXPECT_EQ(database_bytes(), before);
 }
 
 TEST_F(ReadRollbackApi, LefGeometryWithoutUnitsLeavesAFreshSessionEmpty)
 {
     const std::string before = database_bytes();
-    EXPECT_NE(le_read_lef(handle, io_fixture("no_units_with_geometry.lef").c_str(), "cells"), 0);
+    EXPECT_FALSE(read_lef(io_fixture("no_units_with_geometry.lef"), "cells"));
     EXPECT_EQ(database_bytes(), before);
-    EXPECT_EQ(le_database_is_empty(handle), 1);
+    EXPECT_TRUE(read().database_is_empty());
 }
 
 TEST_F(ReadRollbackApi, AMissingFileLeavesNoTechnologyBehind)
 {
-    EXPECT_NE(le_read_lef(handle, (dir / "missing.lef").string().c_str(), "cells"), 0);
-    EXPECT_NE(le_read_def(handle, (dir / "missing.def").string().c_str(), "cells"), 0);
+    EXPECT_FALSE(read_lef((dir / "missing.lef").string(), "cells"));
+    EXPECT_FALSE(read_def((dir / "missing.def").string(), "cells"));
     EXPECT_TRUE(handle->root.get_technology_ids().empty());
-    EXPECT_EQ(le_database_is_empty(handle), 1);
+    EXPECT_TRUE(read().database_is_empty());
 
     // So read_db, which needs an empty session, still works.
-    LeHandle *source = le_create();
-    ASSERT_EQ(le_read_lef(source, api_fixture("testcell.lef").c_str(), "cells"), 0);
+    le::Session source;
+    ASSERT_TRUE(source.write().read_lef(api_fixture("testcell.lef"), "cells"));
     const std::string saved = (dir / "saved.led").string();
-    ASSERT_EQ(le_write_db(source, saved.c_str(), 0), 0);
-    le_destroy(source);
-    EXPECT_EQ(le_read_db(handle, saved.c_str(), 0), 0);
+    ASSERT_TRUE(source.write().write_db(saved));
+    EXPECT_TRUE(write().read_db(saved));
 }
 
 TEST_F(ReadRollbackApi, ADefParseErrorAfterComponentsLeavesTheDatabaseAsItWas)
 {
     read_testcell();
     const std::string before = database_bytes();
-    EXPECT_NE(le_read_def(handle, api_fixture("fails_after_rows.def").c_str(), "cells"), 0);
+    EXPECT_FALSE(read_def(api_fixture("fails_after_rows.def"), "cells"));
     EXPECT_EQ(database_bytes(), before);
 }
 
@@ -120,13 +113,12 @@ TEST_F(ReadRollbackApi, ARefusedNetlistReadLeavesTheDatabaseAsItWas)
         std::ofstream out(verilog);
         out << "module TOP();\n  wire n1;\n  TESTCELL u1(.A(n1));\nendmodule\n";
     }
-    const std::string path = verilog.string();
-    const char *paths[] = {path.c_str()};
-    ASSERT_EQ(le_read_verilog(handle, paths, 1, /*is_netlist=*/1, "top"), 0);
+    const std::string paths[] = {verilog.string()};
+    ASSERT_TRUE(write().read_verilog(paths, true, "top"));
     const std::string before = database_bytes();
 
     // TOP already has a Schematic in library top.
-    EXPECT_NE(le_read_verilog(handle, paths, 1, /*is_netlist=*/1, "top"), 0);
+    EXPECT_FALSE(write().read_verilog(paths, true, "top"));
     EXPECT_EQ(database_bytes(), before);
 }
 

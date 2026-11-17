@@ -1,5 +1,4 @@
 #include "views.hpp"
-#include "api.hpp"
 
 #include <gtest/gtest.h>
 
@@ -89,8 +88,9 @@ TEST(Session, AReleasedHandleOutlivesTheSession)
 TEST(Session, ANewSessionHasNothingUnsaved)
 {
     le::Session session;
-    EXPECT_EQ(le_has_unsaved_database_changes(session.handle()), 0);
-    EXPECT_EQ(le_has_unsaved_settings(session.handle()), 0);
+    const le::ReadView view = session.read();
+    EXPECT_FALSE(view.has_unsaved_database());
+    EXPECT_FALSE(view.has_unsaved_settings());
 }
 
 TEST(Session, TryReadFailsWhileAnotherThreadWrites)
@@ -119,9 +119,9 @@ TEST(Transaction, GroupsEveryEditIntoOneUndoStep)
         add_library(session, "b");
     }
     EXPECT_EQ(session.read().root().get_library_ids().size(), 2u);
-    EXPECT_EQ(le_undo(session.handle()), 1);
+    EXPECT_EQ(session.write().undo(), true);
     EXPECT_TRUE(session.read().root().get_library_ids().empty());
-    EXPECT_EQ(le_can_undo(session.handle()), 0);
+    EXPECT_FALSE(session.read().can_undo());
 }
 
 TEST(Transaction, InsideAnOpenStepDoesNothing)
@@ -137,7 +137,7 @@ TEST(Transaction, InsideAnOpenStepDoesNothing)
         add_library(session, "b");
     }
     EXPECT_FALSE(session.renderer().renders_held());
-    EXPECT_EQ(le_undo(session.handle()), 1);
+    EXPECT_EQ(session.write().undo(), true);
     EXPECT_TRUE(session.read().root().get_library_ids().empty());
 }
 
@@ -149,7 +149,7 @@ TEST(Transaction, AFailedOneIsStillUndoable)
         add_library(session, "a");
         transaction.fail();
     }
-    EXPECT_EQ(le_undo(session.handle()), 1);
+    EXPECT_EQ(session.write().undo(), true);
     EXPECT_TRUE(session.read().root().get_library_ids().empty());
 }
 

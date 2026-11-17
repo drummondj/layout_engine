@@ -1,4 +1,4 @@
-#include "../api.hpp"
+#include "session_test.hpp"
 #include "../le_handle.hpp"
 #include "../../io/native_format.hpp"
 #include <filesystem>
@@ -12,15 +12,29 @@
 #include <vector>
 #include <unistd.h>
 
-// le_write_db / le_read_db / le_db_info - the native database file at the
-// API level: session state after a
-// load, the empty-session rule, and the unsaved-changes flag.
+// write_db / read_db / db_info - the native database file through the
+// views: session state after a load, the empty-session rule, and the
+// unsaved-changes flag.
 
 namespace
 {
     namespace fs = std::filesystem;
 
-    std::string fixture_path(const std::string &name) { return std::string(API_TEST_FIXTURES_DIR) + "/" + name; }
+    using le::test::fixture_path;
+
+    // db_info's description, or "error: " and why.
+    std::string db_info_text(const std::string &path)
+    {
+        const auto info = le::db_info(path);
+        return info ? *info : "error: " + info.error();
+    }
+
+    // migrate_db's summary, or "error: " and why.
+    std::string migrate_db_text(const std::string &in, const std::string &out)
+    {
+        const auto summary = le::migrate_db(in, out);
+        return summary ? *summary : "error: " + summary.error();
+    }
 
     struct NativeDbApi : public ::testing::Test
     {
@@ -29,159 +43,149 @@ namespace
             dir = le::test::scratch_path("le_native_db_api");
             fs::create_directories(dir);
             path = (dir / "testcell.led").string();
-            source = le_create();
-            ASSERT_EQ(le_read_lef(source, fixture_path("testcell.lef").c_str(), "testcell"), 0);
-            ASSERT_EQ(le_read_def(source, fixture_path("testcell.def").c_str(), "testcell"), 0);
+            ASSERT_TRUE(source.read_lef(fixture_path("testcell.lef").c_str(), "testcell"));
+            ASSERT_TRUE(source.read_def(fixture_path("testcell.def").c_str(), "testcell"));
         }
         void TearDown() override
         {
-            le_destroy(source);
             fs::remove_all(dir);
         }
 
         fs::path dir;
         std::string path;
-        LeHandle *source = nullptr;
+        le::test::SessionHelpers source;
     };
 }
 
 TEST_F(NativeDbApi, WriteThenReadIntoAFreshSessionRestoresTheDesign)
 {
-    ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
+    ASSERT_TRUE(source.write().write_db(path, true).has_value());
 
-    LeHandle *loaded = le_create();
-    ASSERT_EQ(le_read_db(loaded, path.c_str(), 1), 0);
-    EXPECT_EQ(le_design_count(loaded), le_design_count(source));
-    EXPECT_EQ(le_layer_count(loaded), le_layer_count(source));
-    ASSERT_EQ(le_library_design_count(loaded, 0), 1);
-    const LeDesignInfo design = le_library_design_at(loaded, 0, 0);
+    le::test::SessionHelpers loaded;
+    ASSERT_TRUE(loaded.write().read_db(path, true).has_value());
+    EXPECT_EQ(static_cast<int>(loaded.design_count()), static_cast<int>(source.design_count()));
+    EXPECT_EQ(loaded.read().layer_rows().size(), source.read().layer_rows().size());
+    ASSERT_EQ(loaded.library_design_count(0), 1);
+    const le::test::SessionHelpers::DesignInfo design = loaded.library_design_at(0, 0);
     EXPECT_NE(design.abstract_id.index, UINT32_MAX);
     EXPECT_NE(design.layout_id.index, UINT32_MAX);
 
     // A freshly loaded file is saved, with nothing to undo.
-    EXPECT_EQ(le_has_unsaved_database_changes(loaded), 0);
-    EXPECT_EQ(le_can_undo(loaded), 0);
-    le_destroy(loaded);
+    EXPECT_EQ(loaded.read().has_unsaved_database(), 0);
+    EXPECT_EQ(loaded.read().can_undo(), 0);
 }
 
 TEST_F(NativeDbApi, WriteSavesPendingEdits)
 {
-    le_create_library(source, "EDITLIB");
-    EXPECT_EQ(le_has_unsaved_database_changes(source), 1);
-    EXPECT_NE(le_write_db(source, (dir / "no_such_dir" / "x.led").string().c_str(), 1), 0);
-    EXPECT_EQ(le_has_unsaved_database_changes(source), 1); // a failed write saves nothing
-    ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
-    EXPECT_EQ(le_has_unsaved_database_changes(source), 0);
+    source.write().create_library({.name = "EDITLIB"}).value_or(le::LibraryId{});
+    EXPECT_EQ(source.read().has_unsaved_database(), 1);
+    EXPECT_FALSE(source.write().write_db((dir / "no_such_dir" / "x.led").string(), true).has_value());
+    EXPECT_EQ(source.read().has_unsaved_database(), 1); // a failed write saves nothing
+    ASSERT_TRUE(source.write().write_db(path, true).has_value());
+    EXPECT_EQ(source.read().has_unsaved_database(), 0);
 }
 
 TEST_F(NativeDbApi, ReadIntoANonEmptySessionFailsAndChangesNothing)
 {
-    ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
-    const int32_t designs = le_design_count(source);
-    EXPECT_NE(le_read_db(source, path.c_str(), 1), 0);
-    EXPECT_EQ(le_design_count(source), designs);
+    ASSERT_TRUE(source.write().write_db(path, true).has_value());
+    const int32_t designs = static_cast<int>(source.design_count());
+    EXPECT_FALSE(source.write().read_db(path, true).has_value());
+    EXPECT_EQ(static_cast<int>(source.design_count()), designs);
 }
 
 TEST_F(NativeDbApi, MissingOrCorruptFilesFail)
 {
-    LeHandle *loaded = le_create();
-    EXPECT_NE(le_read_db(loaded, (dir / "absent.led").string().c_str(), 1), 0);
-    EXPECT_NE(le_read_db(loaded, fixture_path("testcell.def").c_str(), 1), 0);
-    EXPECT_NE(le_read_db(loaded, nullptr, 1), 0);
-    EXPECT_EQ(le_design_count(loaded), 0);
-    le_destroy(loaded);
+    le::test::SessionHelpers loaded;
+    EXPECT_FALSE(loaded.write().read_db((dir / "absent.led").string(), true).has_value());
+    EXPECT_FALSE(loaded.write().read_db(fixture_path("testcell.def"), true).has_value());
+    EXPECT_EQ(static_cast<int>(loaded.design_count()), 0);
 }
 
 TEST_F(NativeDbApi, WriteFailureIsReported)
 {
-    EXPECT_NE(le_write_db(source, (dir / "no_such_dir" / "x.led").string().c_str(), 1), 0);
-    EXPECT_NE(le_write_db(source, "", 1), 0);
-    EXPECT_NE(le_write_db(nullptr, path.c_str(), 1), 0);
+    EXPECT_FALSE(source.write().write_db((dir / "no_such_dir" / "x.led").string(), true).has_value());
+    EXPECT_FALSE(source.write().write_db("", true).has_value());
 }
 
 TEST_F(NativeDbApi, DbInfoDescribesTheFile)
 {
-    ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
-    const std::string info = le_db_info(path.c_str());
+    ASSERT_TRUE(source.write().write_db(path, true).has_value());
+    const std::string info = db_info_text(path);
     EXPECT_NE(info.find("same schema"), std::string::npos) << info;
     EXPECT_NE(info.find("Technology"), std::string::npos) << info;
     EXPECT_NE(info.find("Layout"), std::string::npos) << info;
     EXPECT_NE(info.find("migrations to run: none"), std::string::npos) << info;
 
-    const std::string missing = le_db_info((dir / "absent.led").string().c_str());
+    const std::string missing = db_info_text((dir / "absent.led").string());
     EXPECT_EQ(missing.rfind("error: ", 0), 0u) << missing;
 }
 
 // migrate_db rewrites a file without touching any session's database.
 TEST_F(NativeDbApi, MigrateDbRewritesAFile)
 {
-    ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
+    ASSERT_TRUE(source.write().write_db(path, true).has_value());
     const std::string out = (dir / "migrated.led").string();
-    const std::string summary = le_migrate_db(path.c_str(), out.c_str());
+    const std::string summary = migrate_db_text(path, out);
     EXPECT_EQ(summary.rfind("migrated " + path, 0), 0u) << summary;
-    EXPECT_NE(std::string(le_db_info(out.c_str())).find("session: yes"), std::string::npos);
+    EXPECT_NE(std::string(db_info_text(out)).find("session: yes"), std::string::npos);
 
-    LeHandle *loaded = le_create();
-    EXPECT_EQ(le_read_db(loaded, out.c_str(), 1), 0);
-    EXPECT_EQ(le_design_count(loaded), le_design_count(source));
-    le_destroy(loaded);
+    le::test::SessionHelpers loaded;
+    EXPECT_TRUE(loaded.write().read_db(out, true).has_value());
+    EXPECT_EQ(static_cast<int>(loaded.design_count()), static_cast<int>(source.design_count()));
 
-    EXPECT_EQ(std::string(le_migrate_db((dir / "absent.led").string().c_str(), out.c_str())).rfind("error: ", 0), 0u);
-    EXPECT_EQ(std::string(le_migrate_db(path.c_str(), "")).rfind("error: ", 0), 0u);
-    EXPECT_EQ(std::string(le_migrate_db(nullptr, out.c_str())).rfind("error: ", 0), 0u);
+    EXPECT_EQ(std::string(migrate_db_text((dir / "absent.led").string(), out)).rfind("error: ", 0), 0u);
+    EXPECT_EQ(std::string(migrate_db_text(path, "")).rfind("error: ", 0), 0u);
 }
 
 // The session saved beside the database: the open view, viewport, current
 // objects and layer/purpose/filter visibility come back with the file.
 TEST_F(NativeDbApi, TheSessionComesBackWithTheFile)
 {
-    ASSERT_EQ(le_set_current_design_layout(source, le_design_count(source) - 1), 0);
-    source->set_pan(le::Point{1234, -567});
-    source->set_scale(0.125);
-    ASSERT_EQ(le_set_view_flip(source, LE_VIEW_FLIP_VERTICAL), 0);
-    le_set_layer_name_visible(source, "M1", false);
-    le_set_layer_name_selectable(source, "M1", 0);
+    ASSERT_TRUE(source.open_layout(source.design_at(source.design_count() - 1)));
+    source.handle->set_pan(le::Point{1234, -567});
+    source.handle->set_scale(0.125);
+    source.write().set_view_flip(le::ViewFlip::VERTICAL);
+    source.write().set_layer_visible("M1", false);
+    source.write().set_layer_selectable("M1", 0);
     const auto routes = le::purpose_from_label("route");
     ASSERT_TRUE(routes.has_value());
-    le_set_purpose_visible(source, static_cast<int32_t>(*routes), 0);
-    le_set_object_filter_value_visible(source, LE_OBJECT_FILTER_ROUTE_USE, "CLOCK", 0);
-    le_set_object_filter_value_visible(source, LE_OBJECT_FILTER_ROUTE_SHAPE, "FOLLOWPIN", 0);
-    le_set_object_filter_value_selectable(source, LE_OBJECT_FILTER_ROUTING_STATUS, "FIXED", 0);
-    le_set_object_filter_value_visible(source, LE_OBJECT_FILTER_PLACEMENT_STATUS, "COVER", 0);
-    const le::LayoutId layout = source->current_layout();
-    ASSERT_TRUE(source->root.get_layout(layout));
-    ASSERT_EQ(le_write_db(source, path.c_str(), 1), 0);
-    EXPECT_EQ(std::string(le_db_path(source)), path);
+    source.write().set_purpose_visible(*routes, 0);
+    source.write().set_object_filter_visible(le::ObjectFilter::ROUTE_USE, "CLOCK", 0);
+    source.write().set_object_filter_visible(le::ObjectFilter::ROUTE_SHAPE, "FOLLOWPIN", 0);
+    source.write().set_object_filter_selectable(le::ObjectFilter::ROUTING_STATUS, "FIXED", 0);
+    source.write().set_object_filter_visible(le::ObjectFilter::PLACEMENT_STATUS, "COVER", 0);
+    const le::LayoutId layout = source.handle->current_layout();
+    ASSERT_TRUE(source.handle->root.get_layout(layout));
+    ASSERT_TRUE(source.write().write_db(path, true).has_value());
+    EXPECT_EQ(source.read().db_path(), path);
 
-    LeHandle *loaded = le_create();
-    EXPECT_EQ(le_database_is_empty(loaded), 1);
-    ASSERT_EQ(le_read_db(loaded, path.c_str(), 1), 0);
-    EXPECT_EQ(le_database_is_empty(loaded), 0);
-    EXPECT_EQ(std::string(le_db_path(loaded)), path);
-    ASSERT_TRUE(loaded->root.get_layout(loaded->current_layout()));
-    EXPECT_EQ(loaded->root.get_layout(loaded->current_layout())->design, source->root.get_layout(layout)->design);
-    EXPECT_EQ(loaded->current_layout_id, loaded->current_layout());
-    EXPECT_EQ(loaded->pan().x, 1234);
-    EXPECT_EQ(loaded->pan().y, -567);
-    EXPECT_DOUBLE_EQ(loaded->scale(), 0.125);
-    EXPECT_EQ(le_view_flip(loaded), LE_VIEW_FLIP_VERTICAL);
-    EXPECT_FALSE(le_is_layer_name_visible(loaded, "M1"));
-    EXPECT_EQ(le_is_layer_name_selectable(loaded, "M1"), 0);
-    EXPECT_EQ(le_is_purpose_visible(loaded, static_cast<int32_t>(*routes)), 0);
-    EXPECT_EQ(le_is_object_filter_value_visible(loaded, LE_OBJECT_FILTER_ROUTE_USE, "CLOCK"), 0);
-    EXPECT_EQ(le_is_object_filter_value_visible(loaded, LE_OBJECT_FILTER_ROUTE_SHAPE, "FOLLOWPIN"), 0);
-    EXPECT_EQ(le_is_object_filter_value_selectable(loaded, LE_OBJECT_FILTER_ROUTING_STATUS, "FIXED"), 0);
-    EXPECT_EQ(le_is_object_filter_value_visible(loaded, LE_OBJECT_FILTER_PLACEMENT_STATUS, "COVER"), 0);
-    EXPECT_EQ(le_has_unsaved_database_changes(loaded), 0) << "restoring the session isn't an edit";
-    le_destroy(loaded);
+    le::test::SessionHelpers loaded;
+    EXPECT_TRUE(loaded.read().database_is_empty());
+    ASSERT_TRUE(loaded.write().read_db(path, true).has_value());
+    EXPECT_FALSE(loaded.read().database_is_empty());
+    EXPECT_EQ(loaded.read().db_path(), path);
+    ASSERT_TRUE(loaded.handle->root.get_layout(loaded.handle->current_layout()));
+    EXPECT_EQ(loaded.handle->root.get_layout(loaded.handle->current_layout())->design, source.handle->root.get_layout(layout)->design);
+    EXPECT_EQ(loaded.handle->current_layout_id, loaded.handle->current_layout());
+    EXPECT_EQ(loaded.handle->pan().x, 1234);
+    EXPECT_EQ(loaded.handle->pan().y, -567);
+    EXPECT_DOUBLE_EQ(loaded.handle->scale(), 0.125);
+    EXPECT_EQ(loaded.read().view().flip, le::ViewFlip::VERTICAL);
+    EXPECT_FALSE(loaded.read().layer_visible("M1"));
+    EXPECT_EQ(loaded.read().layer_selectable("M1"), 0);
+    EXPECT_EQ(loaded.read().purpose_visible(*routes), 0);
+    EXPECT_EQ(loaded.read().object_filter_visible(le::ObjectFilter::ROUTE_USE, "CLOCK"), 0);
+    EXPECT_EQ(loaded.read().object_filter_visible(le::ObjectFilter::ROUTE_SHAPE, "FOLLOWPIN"), 0);
+    EXPECT_EQ(loaded.read().object_filter_selectable(le::ObjectFilter::ROUTING_STATUS, "FIXED"), 0);
+    EXPECT_EQ(loaded.read().object_filter_visible(le::ObjectFilter::PLACEMENT_STATUS, "COVER"), 0);
+    EXPECT_EQ(loaded.read().has_unsaved_database(), 0) << "restoring the session isn't an edit";
 
     // Read without the session: the defaults.
-    loaded = le_create();
-    ASSERT_EQ(le_read_db(loaded, path.c_str(), 0), 0);
-    EXPECT_FALSE(loaded->root.get_layout(loaded->current_layout()));
-    EXPECT_NE(le_is_purpose_visible(loaded, static_cast<int32_t>(*routes)), 0);
-    EXPECT_EQ(le_view_flip(loaded), LE_VIEW_FLIP_NONE);
-    le_destroy(loaded);
+    le::test::SessionHelpers without_session;
+    ASSERT_TRUE(without_session.write().read_db(path, false).has_value());
+    EXPECT_FALSE(without_session.handle->root.get_layout(without_session.handle->current_layout()));
+    EXPECT_TRUE(without_session.read().purpose_visible(*routes));
+    EXPECT_EQ(without_session.read().view().flip, le::ViewFlip::NONE);
 }
 
 TEST_F(NativeDbApi, AMistypedSessionLoadsTheDesignAndSkipsWhatItCantRead)
@@ -192,29 +196,27 @@ TEST_F(NativeDbApi, AMistypedSessionLoadsTheDesignAndSkipsWhatItCantRead)
         "view": {"layout": {"index": "zero"}, "abstract": {"index": 99999999999}},
         "viewport": {"pan": ["x", 1], "scale": "big", "flip": 3},
         "layers": {"visible": {"M1": "no"}}})";
-    ASSERT_TRUE(le::persistence::save_native(source->root, path, le::persistence::SaveOptions{.session_json = session}).ok());
+    ASSERT_TRUE(le::persistence::save_native(source.handle->root, path, le::persistence::SaveOptions{.session_json = session}).ok());
 
-    LeHandle *loaded = le_create();
-    ASSERT_EQ(le_read_db(loaded, path.c_str(), 1), 0);
-    EXPECT_EQ(le_design_count(loaded), le_design_count(source));
-    EXPECT_FALSE(loaded->root.get_layout(loaded->current_layout()));
-    EXPECT_TRUE(le_is_layer_name_visible(loaded, "M1"));
-    EXPECT_EQ(le_view_flip(loaded), LE_VIEW_FLIP_NONE);
-    le_destroy(loaded);
+    le::test::SessionHelpers loaded;
+    ASSERT_TRUE(loaded.write().read_db(path, true).has_value());
+    EXPECT_EQ(static_cast<int>(loaded.design_count()), static_cast<int>(source.design_count()));
+    EXPECT_FALSE(loaded.handle->root.get_layout(loaded.handle->current_layout()));
+    EXPECT_TRUE(loaded.read().layer_visible("M1"));
+    EXPECT_EQ(loaded.read().view().flip, le::ViewFlip::NONE);
 }
 
 TEST_F(NativeDbApi, NoSessionSavesTheDatabaseOnly)
 {
-    ASSERT_EQ(le_set_current_design_layout(source, le_design_count(source) - 1), 0);
-    le_set_layer_name_visible(source, "M1", false);
-    ASSERT_EQ(le_write_db(source, path.c_str(), 0), 0);
-    EXPECT_NE(std::string(le_db_info(path.c_str())).find("session: no"), std::string::npos);
+    ASSERT_TRUE(source.open_layout(source.design_at(source.design_count() - 1)));
+    source.write().set_layer_visible("M1", false);
+    ASSERT_TRUE(source.write().write_db(path, false).has_value());
+    EXPECT_NE(std::string(db_info_text(path)).find("session: no"), std::string::npos);
 
-    LeHandle *loaded = le_create();
-    ASSERT_EQ(le_read_db(loaded, path.c_str(), 1), 0);
-    EXPECT_FALSE(loaded->root.get_layout(loaded->current_layout()));
-    EXPECT_TRUE(le_is_layer_name_visible(loaded, "M1"));
-    le_destroy(loaded);
+    le::test::SessionHelpers loaded;
+    ASSERT_TRUE(loaded.write().read_db(path, true).has_value());
+    EXPECT_FALSE(loaded.handle->root.get_layout(loaded.handle->current_layout()));
+    EXPECT_TRUE(loaded.read().layer_visible("M1"));
 }
 
 // The vendored LEF/DEF parsers and writers keep process-wide state: two
@@ -229,14 +231,12 @@ TEST(LefDefAcrossHandles, ConcurrentReadsAndWritesMatchSequentialOnes)
     };
     // Reads the testcell fixtures into a fresh handle and writes them back.
     const auto round_trip = [&](const std::string &tag) {
-        LeHandle *handle = le_create();
-        bool ok = le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell") == 0 &&
-                  le_read_def(handle, fixture_path("testcell.def").c_str(), "testcell") == 0;
-        const LeDesignInfo design = le_library_design_at(handle, 0, 0);
-        ok = ok && le_write_lef(handle, (dir / (tag + ".lef")).string().c_str(), nullptr, 0, le_library_at(handle, 0).id,
-                                LE_LEF_LAYER_WRITE_MODE_INCLUDE_WITH_ABSTRACT) == 0;
-        ok = ok && le_write_def(handle, (dir / (tag + ".def")).string().c_str(), design.layout_id) == 0;
-        le_destroy(handle);
+        le::test::SessionHelpers session;
+        bool ok = session.read_lef(fixture_path("testcell.lef"), "testcell") && session.read_def(fixture_path("testcell.def"), "testcell");
+        const le::test::SessionHelpers::DesignInfo design = session.library_design_at(0, 0);
+        const le::LibraryId library = session.library_at(0).id;
+        ok = ok && session.write().write_lef((dir / (tag + ".lef")).string(), {}, library, le::LefLayerWriteMode::INCLUDE_WITH_ABSTRACT).has_value();
+        ok = ok && session.write().write_def((dir / (tag + ".def")).string(), design.layout_id).has_value();
         return ok;
     };
     ASSERT_TRUE(round_trip("expected"));

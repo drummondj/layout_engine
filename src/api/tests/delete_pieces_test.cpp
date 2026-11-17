@@ -1,3 +1,4 @@
+#include "session_test.hpp"
 #include "../le_handle.hpp"
 #include <gtest/gtest.h>
 
@@ -11,14 +12,13 @@
 
 namespace
 {
-    std::string fixture_path(const std::string &name) { return std::string(API_TEST_FIXTURES_DIR) + "/" + name; }
+    using le::test::fixture_path;
 
-    struct DeletePiecesFixture : public ::testing::Test
+    struct DeletePiecesFixture : le::test::SessionTest
     {
         void SetUp() override
         {
-            handle = le_create();
-            ASSERT_EQ(le_read_lef(handle, fixture_path("testcell.lef").c_str(), "testcell"), 0);
+            ASSERT_TRUE(read_lef(fixture_path("testcell.lef").c_str(), "testcell"));
             le::Root &root = handle->root;
             const le::LibraryId library = root.create_library(le::LibraryData{.name = "TOPLIB"});
             const le::DesignId design = root.create_design(le::DesignData{.library = library, .name = "TOP"});
@@ -36,11 +36,8 @@ namespace
                                                                 .location = le::Point{1000, 1000}, .orientation = le::Orientation::N});
             root.bump_mutation_version();
         }
-        void TearDown() override { le_destroy(handle); }
 
         const le::ShapeData &data() const { return *handle->root.get_shape(shape); }
-
-        LeHandle *handle = nullptr;
         le::ShapeId shape;
         le::PlacementId placement;
     };
@@ -54,8 +51,8 @@ TEST_F(DeletePiecesFixture, DeletesOnlyTheSelectedPiecesAndKeepsTheShapeAndOther
     handle->select(shape, le::PieceKind::VIA, 1);
     handle->select(placement);
 
-    EXPECT_EQ(le_selected_shape_piece_count(handle), 4);
-    EXPECT_EQ(le_delete_selected_pieces(handle), 4);
+    EXPECT_EQ(selected_shape_piece_count(), 4);
+    EXPECT_EQ(static_cast<int>(write().delete_selected_pieces()), 4);
 
     ASSERT_NE(handle->root.get_shape(shape), nullptr);
     ASSERT_EQ(data().rects.size(), 1u);
@@ -64,8 +61,8 @@ TEST_F(DeletePiecesFixture, DeletesOnlyTheSelectedPiecesAndKeepsTheShapeAndOther
     ASSERT_EQ(data().vias.size(), 1u);
     EXPECT_EQ(data().vias[0].via_name, "V0");
     EXPECT_NE(handle->root.get_placement(placement), nullptr);
-    EXPECT_EQ(le_selection_count(handle), 1); // only the placement is left selected
-    EXPECT_EQ(le_selected_shape_piece_count(handle), 0);
+    EXPECT_EQ(selection_count(), 1); // only the placement is left selected
+    EXPECT_EQ(selected_shape_piece_count(), 0);
 }
 
 TEST_F(DeletePiecesFixture, IsOneUndoableStep)
@@ -73,15 +70,15 @@ TEST_F(DeletePiecesFixture, IsOneUndoableStep)
     const le::ShapeData before = data();
     handle->select(shape, le::PieceKind::RECT, 1);
     handle->select(shape, le::PieceKind::VIA, 0);
-    ASSERT_EQ(le_delete_selected_pieces(handle), 2);
+    ASSERT_EQ(static_cast<int>(write().delete_selected_pieces()), 2);
 
-    ASSERT_NE(le_undo(handle), 0); // nonzero: something was undone
+    ASSERT_NE(write().undo(), 0); // nonzero: something was undone
     EXPECT_EQ(data().rects.size(), before.rects.size());
     EXPECT_EQ(data().rects[1].ll.x, 20);
     ASSERT_EQ(data().vias.size(), 2u);
     EXPECT_EQ(data().vias[0].via_name, "V0");
 
-    ASSERT_NE(le_redo(handle), 0);
+    ASSERT_NE(write().redo(), 0);
     EXPECT_EQ(data().rects.size(), 2u);
     EXPECT_EQ(data().vias.size(), 1u);
 }
@@ -94,20 +91,20 @@ TEST_F(DeletePiecesFixture, AShapeLeftWithNoGeometryIsDeletedAndUndoBringsItBack
     handle->select(shape, le::PieceKind::PATH, 0);
     handle->select(shape, le::PieceKind::VIA, 0);
     handle->select(shape, le::PieceKind::VIA, 1);
-    EXPECT_EQ(le_delete_selected_pieces(handle), 6);
+    EXPECT_EQ(static_cast<int>(write().delete_selected_pieces()), 6);
     EXPECT_EQ(handle->root.get_shape(shape), nullptr);
     EXPECT_TRUE(handle->root.get_route_shapes(route).empty());
     EXPECT_NE(handle->root.get_route(route), nullptr); // its owner stays
-    EXPECT_EQ(le_selection_count(handle), 0);
+    EXPECT_EQ(selection_count(), 0);
 
-    ASSERT_NE(le_undo(handle), 0);
+    ASSERT_NE(write().undo(), 0);
     ASSERT_EQ(handle->root.get_route_shapes(route).size(), 1u);
     const le::ShapeData &restored = *handle->root.get_shape(handle->root.get_route_shapes(route).front());
     EXPECT_EQ(restored.rects.size(), 3u);
     EXPECT_EQ(restored.paths.size(), 1u);
     EXPECT_EQ(restored.vias.size(), 2u);
 
-    ASSERT_NE(le_redo(handle), 0);
+    ASSERT_NE(write().redo(), 0);
     EXPECT_TRUE(handle->root.get_route_shapes(route).empty());
 }
 
@@ -115,7 +112,7 @@ TEST_F(DeletePiecesFixture, AShapeWithGeometryLeftIsKept)
 {
     for (size_t i = 0; i < 3; ++i)
         handle->select(shape, le::PieceKind::RECT, i);
-    EXPECT_EQ(le_delete_selected_pieces(handle), 3);
+    EXPECT_EQ(static_cast<int>(write().delete_selected_pieces()), 3);
     ASSERT_NE(handle->root.get_shape(shape), nullptr); // its path and vias remain
     EXPECT_TRUE(data().rects.empty());
     EXPECT_EQ(data().paths.size(), 1u);
@@ -125,17 +122,17 @@ TEST_F(DeletePiecesFixture, ARectsDefMaskGoesWithIt)
 {
     handle->root.get_shape(shape)->rect_masks = {1, 2, 3};
     handle->select(shape, le::PieceKind::RECT, 1);
-    ASSERT_EQ(le_delete_selected_pieces(handle), 1);
+    ASSERT_EQ(static_cast<int>(write().delete_selected_pieces()), 1);
     EXPECT_EQ(data().rect_masks, (std::vector<int>{1, 3})); // still index-parallel to the rects
-    ASSERT_NE(le_undo(handle), 0);
+    ASSERT_NE(write().undo(), 0);
     EXPECT_EQ(data().rect_masks, (std::vector<int>{1, 2, 3}));
 }
 
 TEST_F(DeletePiecesFixture, WithNoPiecesSelectedNothingIsDeletedOrRecorded)
 {
     handle->select(placement);
-    EXPECT_EQ(le_delete_selected_pieces(handle), 0);
-    EXPECT_EQ(le_can_undo(handle), 0);
+    EXPECT_EQ(static_cast<int>(write().delete_selected_pieces()), 0);
+    EXPECT_EQ(read().can_undo(), 0);
     EXPECT_EQ(data().rects.size(), 3u);
 }
 
@@ -143,19 +140,19 @@ TEST_F(DeletePiecesFixture, TheDelKeyDeletesInEditModeOnly)
 {
     handle->select(shape, le::PieceKind::RECT, 0);
 
-    le_set_mode(handle, LE_MODE_SELECT);
-    le_key_down(handle, LE_KEY_DELETE);
-    le_key_up(handle, LE_KEY_DELETE);
+    write().set_mode(le::InteractionMode::SELECT);
+    write().key_down(le::Key::DELETE);
+    write().key_up(le::Key::DELETE);
     EXPECT_EQ(data().rects.size(), 3u);
 
-    le_set_mode(handle, LE_MODE_EDIT);
-    le_key_down(handle, LE_KEY_CTRL);
-    le_key_down(handle, LE_KEY_DELETE); // bare only
-    le_key_up(handle, LE_KEY_DELETE);
-    le_key_up(handle, LE_KEY_CTRL);
+    write().set_mode(le::InteractionMode::EDIT);
+    write().key_down(le::Key::CTRL);
+    write().key_down(le::Key::DELETE); // bare only
+    write().key_up(le::Key::DELETE);
+    write().key_up(le::Key::CTRL);
     EXPECT_EQ(data().rects.size(), 3u);
 
-    le_key_down(handle, LE_KEY_DELETE);
-    le_key_up(handle, LE_KEY_DELETE);
+    write().key_down(le::Key::DELETE);
+    write().key_up(le::Key::DELETE);
     EXPECT_EQ(data().rects.size(), 2u);
 }

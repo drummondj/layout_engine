@@ -1,26 +1,14 @@
-// Schematic<->Layout link mutation side-effects:
-// le_delete_net_cascade/le_rename_net_propagate/le_rename_instance_propagate
-// (api.hpp). Built directly against LeHandle (like le_handle_test.cpp -
-// "constructed directly, no C API layer" for the *setup* side, since
-// these fixtures need no Technology/LEF read at all - every object here
-// is created via Root:: directly, sidestepping le_create_placement's own
-// unconditional "no Technology has been read yet" gate, which nothing
-// under test actually depends on), but exercising the real api.hpp
-// mutation functions themselves (not Root:: directly) so the transaction-
-// recording/locking wrapper is covered too, not just
-// rename_propagation.hpp's own pure logic.
+// Schematic<->Layout link mutation side-effects: WriteView's
+// delete_net_cascade, rename_net and rename_instance. The fixtures build
+// their objects on the handle's Root directly (they need no Technology),
+// then edit through the view so its undo recording and locking are
+// covered too, not just rename_propagation.hpp's logic.
 
-#include "../api.hpp"
 #include "../le_handle.hpp"
+#include "../views.hpp"
 #include <gtest/gtest.h>
 
 using namespace le;
-
-namespace
-{
-    LeNetId to_c(NetId id) { return LeNetId{.index = id.index, .generation = id.generation}; }
-    LeInstanceId to_c(InstanceId id) { return LeInstanceId{.index = id.index, .generation = id.generation}; }
-}
 
 TEST(MutationCascade, DeleteNetCascadesToRouteDeleteAndClearsDanglingReferences)
 {
@@ -41,7 +29,7 @@ TEST(MutationCascade, DeleteNetCascadesToRouteDeleteAndClearsDanglingReferences)
     const PhysicalPortId physical_port = root.create_physical_port(
         PhysicalPortData{.layout = layout, .name = "n1_pin", .net_name = "n1", .net = net});
 
-    ASSERT_EQ(le_delete_net_cascade(&handle, to_c(net)), 0);
+    ASSERT_TRUE(WriteView(&handle).delete_net_cascade(net));
 
     EXPECT_EQ(root.get_net(net), nullptr);
     EXPECT_EQ(root.get_route(route), nullptr);
@@ -76,7 +64,7 @@ TEST(MutationCascade, DeleteNetIsUndoable)
     const WireId wire = root.create_wire(WireData{.route = route});
     const ShapeId shape = root.create_shape(ShapeData{.owner = ShapeOwner::route(route)});
 
-    ASSERT_EQ(le_delete_net_cascade(&handle, to_c(net)), 0);
+    ASSERT_TRUE(WriteView(&handle).delete_net_cascade(net));
     EXPECT_EQ(root.get_net(net), nullptr);
     EXPECT_EQ(root.get_route(route), nullptr);
     EXPECT_EQ(root.get_wire(wire), nullptr);
@@ -100,7 +88,7 @@ TEST(MutationCascade, DeleteNetIsUndoable)
 TEST(MutationCascade, DeleteNetFailsForUnknownId)
 {
     LeHandle handle;
-    EXPECT_NE(le_delete_net_cascade(&handle, LeNetId{.index = UINT32_MAX, .generation = 0}), 0);
+    EXPECT_FALSE(WriteView(&handle).delete_net_cascade(NetId{}));
 }
 
 TEST(MutationCascade, RenameNetPropagatesToLinkedRouteAndPhysicalPort)
@@ -116,7 +104,7 @@ TEST(MutationCascade, RenameNetPropagatesToLinkedRouteAndPhysicalPort)
     const PhysicalPortId physical_port =
         root.create_physical_port(PhysicalPortData{.layout = layout, .name = "n1", .net_name = "n1", .net = net});
 
-    ASSERT_EQ(le_rename_net_propagate(&handle, to_c(net), "n1_renamed"), 0);
+    ASSERT_TRUE(WriteView(&handle).rename_net(net, "n1_renamed"));
 
     EXPECT_EQ(root.get_net(net)->name, "n1_renamed");
     EXPECT_EQ(root.get_route(route)->name, "n1_renamed");
@@ -135,8 +123,7 @@ TEST(MutationCascade, RenameNetRejectsEmptyName)
     const SchematicId schematic = root.create_schematic(SchematicData{.design = design});
     const NetId net = root.create_net(NetData{.schematic = schematic, .name = "n1"});
 
-    EXPECT_NE(le_rename_net_propagate(&handle, to_c(net), ""), 0);
-    EXPECT_NE(le_rename_net_propagate(&handle, to_c(net), nullptr), 0);
+    EXPECT_FALSE(WriteView(&handle).rename_net(net, ""));
     EXPECT_EQ(root.get_net(net)->name, "n1");
 }
 
@@ -192,7 +179,7 @@ TEST(MutationCascade, RenameInstancePropagatesToOwnAndDescendantPlacementsAndRou
 {
     RenameInstanceFixture f;
 
-    ASSERT_EQ(le_rename_instance_propagate(&f.handle, to_c(f.inst_a), "a_renamed"), 0);
+    ASSERT_TRUE(WriteView(&f.handle).rename_instance(f.inst_a, "a_renamed"));
 
     EXPECT_EQ(f.root.get_instance(f.inst_a)->name, "a_renamed");
     EXPECT_EQ(f.root.get_placement(f.placement_a)->name, "a_renamed");
@@ -203,7 +190,7 @@ TEST(MutationCascade, RenameInstancePropagatesToOwnAndDescendantPlacementsAndRou
 TEST(MutationCascade, RenameInstanceIsUndoable)
 {
     RenameInstanceFixture f;
-    ASSERT_EQ(le_rename_instance_propagate(&f.handle, to_c(f.inst_a), "a_renamed"), 0);
+    ASSERT_TRUE(WriteView(&f.handle).rename_instance(f.inst_a, "a_renamed"));
     ASSERT_TRUE(f.handle.command_history.undo().replayed);
 
     EXPECT_EQ(f.root.get_instance(f.inst_a)->name, "a");
@@ -226,7 +213,7 @@ TEST(MutationCascade, RenameInstanceWithNoLinkedPlacementSkipsDescendantPropagat
     const InstanceId instance =
         root.create_instance(InstanceData{.schematic = schematic, .name = "a", .reference_design = design});
 
-    ASSERT_EQ(le_rename_instance_propagate(&handle, to_c(instance), "a_renamed"), 0);
+    ASSERT_TRUE(WriteView(&handle).rename_instance(instance, "a_renamed"));
     EXPECT_EQ(root.get_instance(instance)->name, "a_renamed");
 }
 
@@ -240,7 +227,7 @@ TEST(MutationCascade, RenameInstanceRejectsEmptyName)
     const InstanceId instance =
         root.create_instance(InstanceData{.schematic = schematic, .name = "a", .reference_design = design});
 
-    EXPECT_NE(le_rename_instance_propagate(&handle, to_c(instance), ""), 0);
+    EXPECT_FALSE(WriteView(&handle).rename_instance(instance, ""));
     EXPECT_EQ(root.get_instance(instance)->name, "a");
 }
 
@@ -282,12 +269,12 @@ namespace
 TEST(MutationCascade, RenamingAnInstanceOfAModuleInstantiatedTwiceRenamesBothCopies)
 {
     SharedModule f;
-    ASSERT_EQ(le_rename_instance_propagate(&f.handle, to_c(f.x), "y"), 0);
+    ASSERT_TRUE(WriteView(&f.handle).rename_instance(f.x, "y"));
     EXPECT_EQ(f.name(f.p_u1x), "u1/y");
     EXPECT_EQ(f.name(f.p_u2x), "u2/y");
     EXPECT_EQ(f.name(f.p_u1), "u1");
 
-    ASSERT_EQ(le_rename_instance_propagate(&f.handle, to_c(f.u2), "v2"), 0);
+    ASSERT_TRUE(WriteView(&f.handle).rename_instance(f.u2, "v2"));
     EXPECT_EQ(f.name(f.p_u2), "v2");
     EXPECT_EQ(f.name(f.p_u2x), "v2/y");
     EXPECT_EQ(f.root.get_route(f.r_u2n)->name, "v2/n");
@@ -298,7 +285,7 @@ TEST(MutationCascade, RenamingAnInstanceOfAModuleInstantiatedTwiceRenamesBothCop
 TEST(MutationCascade, RenamingANetInAModuleInstantiatedTwiceKeepsEachRoutesPrefix)
 {
     SharedModule f;
-    ASSERT_EQ(le_rename_net_propagate(&f.handle, to_c(f.n), "m"), 0);
+    ASSERT_TRUE(WriteView(&f.handle).rename_net(f.n, "m"));
     EXPECT_EQ(f.root.get_route(f.r_u1n)->name, "u1/m");
     EXPECT_EQ(f.root.get_route(f.r_u2n)->name, "u2/m");
 }
@@ -322,7 +309,7 @@ TEST(MutationCascade, RenamingKeepsEscapedSegmentsAndEscapesTheNewName)
     const PlacementId p_deep = root.create_placement(PlacementData{.layout = layout, .name = "blk\\[0\\]\\/q/a/deep", .reference_design = leaf});
     const PlacementId p_sibling = root.create_placement(PlacementData{.layout = layout, .name = "blk\\[0\\]\\/q/ab", .reference_design = leaf});
 
-    ASSERT_EQ(le_rename_instance_propagate(&handle, to_c(a), "b/c"), 0);
+    ASSERT_TRUE(WriteView(&handle).rename_instance(a, "b/c"));
     EXPECT_EQ(root.get_placement(p_a)->name, "blk\\[0\\]\\/q/b\\/c");
     EXPECT_EQ(root.get_placement(p_deep)->name, "blk\\[0\\]\\/q/b\\/c/deep");
     EXPECT_EQ(root.get_placement(p_sibling)->name, "blk\\[0\\]\\/q/ab"); // whole segments only
@@ -335,7 +322,7 @@ TEST(MutationCascade, ARenameThatWouldClashIsRefusedAndChangesNothing)
     const PlacementId taken = f.place("u2/y", f.leaf, InstanceId{});
     const uint64_t version = f.root.mutation_version();
 
-    EXPECT_NE(le_rename_instance_propagate(&f.handle, to_c(f.x), "y"), 0);
+    EXPECT_FALSE(WriteView(&f.handle).rename_instance(f.x, "y"));
     EXPECT_EQ(f.root.get_instance(f.x)->name, "x");
     EXPECT_EQ(f.name(f.p_u1x), "u1/x");
     EXPECT_EQ(f.name(f.p_u2x), "u2/x");

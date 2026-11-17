@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -126,6 +127,12 @@ namespace le::test
         }
 
         int selection_count() const { return static_cast<int>(read().selection().size()); }
+        /// @brief How many selection entries are pieces of a Shape or Wire.
+        int selected_shape_piece_count() const
+        {
+            const ReadView view = read();
+            return static_cast<int>(std::ranges::count_if(view.selection(), [](const SelectedObject &entry) { return std::holds_alternative<ShapePiece>(entry); }));
+        }
         /// @brief Selection entry `index` as the Property Viewer shows it (a
         /// piece as its Shape or Wire); nullopt past the end.
         std::optional<ObjectId> selected(size_t index) const;

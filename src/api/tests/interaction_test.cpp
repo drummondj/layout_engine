@@ -1,5 +1,4 @@
 #include "views.hpp"
-#include "api.hpp"
 
 #include <gtest/gtest.h>
 
@@ -238,7 +237,7 @@ TEST_F(InteractionFixture, MoveCommitsAsOneUndoStep)
     EXPECT_EQ(after.ll.y, before.ll.y);
     EXPECT_TRUE(session.read().move_armed()); // Move stays armed
 
-    EXPECT_EQ(le_undo(session.handle()), 1);
+    EXPECT_EQ(session.write().undo(), true);
     EXPECT_EQ(session.read().root().get_shape(shape)->rects[0].ll.x, before.ll.x);
 }
 
@@ -253,7 +252,7 @@ TEST_F(InteractionFixture, DeleteActsInEditModeOnly)
     EXPECT_EQ(session.read().root().get_shape(shape), nullptr); // its only rect went, so it did too
     EXPECT_EQ(session.read().selection().size(), 0u);
 
-    EXPECT_EQ(le_undo(session.handle()), 1);
+    EXPECT_EQ(session.write().undo(), true);
     EXPECT_NE(session.read().root().get_shape(shape), nullptr);
 }
 
@@ -287,7 +286,7 @@ TEST_F(InteractionFixture, RotateRotatesTheSelectedPlacement)
     ASSERT_NE(session.read().placement_orientation_ops_enabled() & (1u << static_cast<uint32_t>(le::OrientationOp::ROTATE_CCW)), 0u);
     ASSERT_TRUE(session.write().apply_placement_orientation_op(le::OrientationOp::ROTATE_CCW));
     EXPECT_EQ(session.read().root().get_placement(placement)->orientation, le::Orientation::W);
-    EXPECT_EQ(le_undo(session.handle()), 1);
+    EXPECT_EQ(session.write().undo(), true);
     EXPECT_EQ(session.read().root().get_placement(placement)->orientation, le::Orientation::N);
 }
 
@@ -304,7 +303,7 @@ TEST_F(InteractionFixture, RotateJoinsAnOpenUndoStep)
         session.write().create_library({.name = "AFTER"}).value();
     }
     EXPECT_EQ(session.read().root().get_library_ids().size(), 4u); // testcell, TOPLIB and the two new ones
-    EXPECT_EQ(le_undo(session.handle()), 1);
+    EXPECT_EQ(session.write().undo(), true);
     EXPECT_EQ(session.read().root().get_library_ids().size(), 2u);
     EXPECT_EQ(session.read().root().get_placement(placement)->orientation, le::Orientation::N);
 }
