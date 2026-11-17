@@ -39,7 +39,7 @@ namespace le
         /// test. Without it a point hit-test on a 1M-shape design costs
         /// ~17ms (dominated by path_to_polygons, a Boost.Geometry buffer
         /// operation, running on every visible path), too slow for every
-        /// pointer-move event (see le_set_mouse_position). With it, most
+        /// pointer-move event (see set_mouse_position). With it, most
         /// candidates are rejected by four integer comparisons before any
         /// Boost.Geometry call.
         static std::optional<HitPiece> find_hit_piece(const ShapeData &shape, const Point &point)
@@ -163,7 +163,7 @@ namespace le
         /// @brief Every rect/polygon/path piece of `shape` containing
         /// `point`, in rects/polygons/paths order (find_hit_piece's own
         /// priority) - for click-cycling through overlapping pieces
-        /// (le_mouse_up). `first_only` stops at the first, which is what
+        /// (mouse_up). `first_only` stops at the first, which is what
         /// find_hit_piece returns.
         static std::vector<HitPiece> find_hit_pieces(const ShapeData &shape, const Point &point, bool first_only = false)
         {

@@ -52,13 +52,6 @@ class TestSearch(unittest.TestCase):
         self.assertIn("return std::unexpected(expr.error());", defs)
         self.assertNotIn("from_c(", defs)
 
-    def test_the_c_search_is_a_shim_over_the_cpp_one(self):
-        text = self.read("search.inc")
-        for klass in self.readable:
-            plural = klass.tcl_plural_snake_case()
-            self.assertIn(f"le::edit::get_{plural}(*handle, query)", text)
-        self.assertNotIn("evaluate_filter", text)
-
 
 if __name__ == "__main__":
     unittest.main()

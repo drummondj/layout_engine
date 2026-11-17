@@ -145,10 +145,10 @@ namespace le::api_detail
         {
             if (!filters.contains(key) || !filters[key].is_object())
                 continue;
-            for (const auto &[list, filter] : {std::pair{"placement_types", LE_OBJECT_FILTER_PLACEMENT_TYPE}, std::pair{"route_uses", LE_OBJECT_FILTER_ROUTE_USE},
-                                               std::pair{"placement_statuses", LE_OBJECT_FILTER_PLACEMENT_STATUS},
-                                               std::pair{"routing_statuses", LE_OBJECT_FILTER_ROUTING_STATUS},
-                                               std::pair{"route_shapes", LE_OBJECT_FILTER_ROUTE_SHAPE}})
+            for (const auto &[list, filter] : {std::pair{"placement_types", le::ObjectFilter::PLACEMENT_TYPE}, std::pair{"route_uses", le::ObjectFilter::ROUTE_USE},
+                                               std::pair{"placement_statuses", le::ObjectFilter::PLACEMENT_STATUS},
+                                               std::pair{"routing_statuses", le::ObjectFilter::ROUTING_STATUS},
+                                               std::pair{"route_shapes", le::ObjectFilter::ROUTE_SHAPE}})
                 if (filters[key].contains(list) && filters[key][list].is_array())
                     for (const auto &value : filters[key][list])
                         if (value.is_string())
@@ -170,7 +170,7 @@ namespace le::api_detail
         if (const auto id = session_id<le::LayoutId>(current.value("layout", nlohmann::json())); root.get_layout(id))
             handle->current_layout_id = id;
 
-        // Only one view is open at a time (le_set_current_design_layout).
+        // Only one view is open at a time (open_layout).
         const nlohmann::json &view = object("view");
         if (const auto layout = session_id<le::LayoutId>(view.value("layout", nlohmann::json())); root.get_layout(layout))
         {

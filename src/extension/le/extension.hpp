@@ -4,13 +4,11 @@
 // LE_EXTENSION_API_VERSION (set by the le::extension_sdk CMake target); an
 // extension states the version it targets with a static_assert.
 
-#include "api.hpp"
 #include "views.hpp"
 #include "core/session_types.hpp"
 #include "database.hpp"
 #include "database/wire_helpers.hpp"
 #include "generated/api/edit_types.hpp"
-#include "generated/api/id_conversions.hpp"
 #include "geometry/shape_op_types.hpp"
 #include "le/register_all.hpp"
 
@@ -54,7 +52,7 @@ namespace le::ext
     /// `"extensions": {"<name>": {"version": N, ...}}`, saved and loaded with
     /// the core settings (nlohmann::json, which the SDK provides). Both
     /// callbacks run with the session locked, so they may only use
-    /// ctx.data<T>() - no read()/write() or le_* calls.
+    /// ctx.data<T>() - no read() or write().
     struct SettingsSection
     {
         /// @brief The section's format version, written beside its keys.
@@ -103,8 +101,8 @@ namespace le::ext
         const std::vector<std::pair<std::string, void (*)(OverlayContext &)>> &overlays() const { return overlays_; }
 
         /// @brief Calls `on_mutation` after the database changes: once per
-        /// typed Tcl command, GUI edit or other C API call, after its lock
-        /// is released - so it may read(), write() and call le_*. It runs on
+        /// typed Tcl command, GUI edit or WriteView, after its lock is
+        /// released - so it may read() and write(). It runs on
         /// the thread that made the change, one call at a time per session.
         /// Changes it (or another listener) makes during the call aren't
         /// reported back to listeners; ones another thread makes meanwhile
@@ -148,14 +146,12 @@ namespace le::ext
     using le::Units;
     using le::WriteView;
 
-    /// @brief An extension's access to one session (LeHandle).
+    /// @brief An extension's access to one session (Session::handle()).
     class ExtensionContext
     {
     public:
         ExtensionContext(LeHandle *handle, std::string_view extension_name);
 
-        /// @brief For C API calls (le_*), e.g. undoable edits.
-        LeHandle *handle() const { return handle_; }
         ReadView read() const { return ReadView(handle_); }
         WriteView write() { return WriteView(handle_); }
         /// @brief A WriteView whose edits are one undo step labelled `label`.

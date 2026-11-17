@@ -26,7 +26,7 @@ class TestEditOps(unittest.TestCase):
     def read(self, name):
         return (Path(self.out.name) / "api" / name).read_text()
 
-    def test_changes_hold_exactly_what_le_update_can_change(self):
+    def test_changes_hold_exactly_what_update_can_change(self):
         text = self.read("edit_types.hpp")
         for klass in self.readable:
             body = re.search(rf"struct {klass.name}Changes\n    {{\n(.*?)    }};", text, re.S)
@@ -38,15 +38,7 @@ class TestEditOps(unittest.TestCase):
             expected += [f.name for f in klass.get_create_fields()]
             self.assertEqual(members, expected, klass.name)
 
-    def test_each_c_body_calls_its_op(self):
-        text = self.read("property_accessors_public.inc")
-        for klass in self.readable:
-            snake = klass.to_snake_case()
-            for op in ("create", "update", "delete"):
-                self.assertIn(f"le::edit::{op}_{snake}(*handle", text)
-
-    def test_ops_record_undo_and_the_c_bodies_do_not(self):
-        self.assertNotIn("command_history", self.read("property_accessors_public.inc"))
+    def test_ops_record_undo(self):
         ops = self.read("edit_ops_defs.inc")
         for klass in self.readable:
             snake = klass.to_snake_case()

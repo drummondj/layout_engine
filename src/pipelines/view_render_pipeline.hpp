@@ -83,9 +83,9 @@ namespace le
 
         /// @brief HierarchyResolverStage's most recent output (null before
         /// the first run) - the render tree click selection queries
-        /// (selection.cpp). Read it only while run() isn't executing: the C API
-        /// renders under the handle's shared lock and selects under its
-        /// write lock.
+        /// (selection.cpp). Read it only while run() isn't executing: a
+        /// render holds the handle's shared lock and a selection its write
+        /// lock.
         HierarchyResolverStage::OutputHandle resolved_output() const { return hierarchy_resolver_.latest_result(); }
 
         /// @brief Runs the full Cold+Warm chain for `root` under `options`
@@ -126,11 +126,10 @@ namespace le
 
         /// @brief The same cascade run() itself uses to decide whether to
         /// submit the graph at all, exposed separately so a caller (
-        /// api.cpp's own le_render_pixel_buffer) can know *before* calling
+        /// api.cpp's own Renderer::render) can know *before* calling
         /// run() whether it's about to do real work - to bracket
         /// LeHandle::is_rendering_ around only the actual recompute,
-        /// rather than the whole call (le_is_rendering's own doc comment,
-        /// api.hpp). `options.root` does not need to be pre-set by the
+        /// rather than the whole call (Renderer::is_rendering, views.hpp). `options.root` does not need to be pre-set by the
         /// caller here the way run() requires of its own `root` parameter
         /// - every options_did_change() this cascades through compares
         /// fields other than `root` itself (root_mutation_version stands

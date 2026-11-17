@@ -1,17 +1,15 @@
 TEMPLATE = """#pragma once
 // GENERATED - do not edit by hand. The build regenerates it
-// (codegen --target tcl). #include'd from api.cpp and input.cpp, alongside the
-// other generated/api/*.inc includes - a real
-// standalone header (not a .inc fragment spliced into an existing scope
-// like every other generated/api/ file), since these free functions need
-// to be callable from anywhere that already has a <Klass>Data value in
-// hand - not just the generic create_api_body()/update_api_body()
-// recording hook these back, but also editing::MoveCommand's own commit
-// path (input.cpp's move_click_unlocked).
+// (codegen --target tcl). #include'd from api.cpp, input.cpp and
+// edit_ops.cpp - a real standalone header (not a .inc fragment spliced
+// into an existing scope like most generated/api/ files), since these free
+// functions need to be callable from anywhere that already has a
+// <Klass>Data value in hand: the generated edit ops' undo recording, and
+// editing::MoveCommand's own commit path (input.cpp's move_click_unlocked).
 //
 // One apply_<snake>_snapshot(Root&, <Klass>Id, const <Klass>Data&) per
-// class - see c_api.apply_snapshot_body() (codegen/emitters/c_api.py) for how the body
-// is built. Reduces a *whole* field snapshot to a single real
+// class - see edit_ops.apply_snapshot_body() (codegen/emitters/edit_ops.py)
+// for how the body is built. Reduces a *whole* field snapshot to a single real
 // Root::update_<klass>() call, so it stays consistent with every index/
 // uniqueness invariant update_<klass>() itself already maintains - no
 // raw-pointer-overwrite shortcut that could silently corrupt a
@@ -23,7 +21,7 @@ namespace le
 {% for klass in classes %}
     inline bool apply_{{klass.to_snake_case()}}_snapshot(Root &root, {{klass.name}}Id id, const {{klass.name}}Data &data)
     {
-{{emit.c_api.apply_snapshot_body(klass)}}
+{{emit.edit_ops.apply_snapshot_body(klass)}}
     }
 {% endfor %}
 }

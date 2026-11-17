@@ -1,4 +1,5 @@
 #include "le/extension.hpp"
+#include "session_test.hpp"
 #include "../../test_support/scratch_dir.hpp"
 
 #include <gtest/gtest.h>
@@ -17,6 +18,15 @@
 
 namespace
 {
+    using WriteViewEdits = le::test::SessionTest;
+    using ExtensionContext = le::test::SessionTest;
+    using SessionFiles = le::test::SessionTest;
+    using SessionRulers = le::test::SessionTest;
+    using ExtensionData = le::test::SessionTest;
+    using ShapeBuilder = le::test::SessionTest;
+    using Units = le::test::SessionTest;
+    using ViewShapeOps = le::test::SessionTest;
+    using SessionSelection = le::test::SessionTest;
     // Runs `f` on its own thread and returns what it returned, or nullopt if
     // it hasn't finished in a few seconds - so a deadlock fails the test
     // instead of hanging it. A thread that never finishes is left running.
@@ -42,9 +52,12 @@ namespace
         return future.get();
     }
 
-    LeLayoutId add_layout(LeHandle *handle)
+    le::LayoutId add_layout(le::test::SessionHelpers &s)
     {
-        return le_create_layout(handle, le_create_design(handle, le_create_library(handle, "lib"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
+        le::WriteView view = s.write();
+        const le::LibraryId library = view.create_library({.name = "lib"}).value();
+        const le::DesignId design = view.create_design({.library = library, .name = "top"}).value();
+        return view.create_layout({.design = design}).value();
     }
 
     le::AbstractId add_abstract(le::ext::WriteView &view)
@@ -55,54 +68,40 @@ namespace
     }
 }
 
-TEST(ExtensionIds, RoundTripBetweenTheCApiAndTheDatabase)
+TEST_F(ExtensionContext, CurrentObjectsAreInvalidUntilSet)
 {
-    const le::LayoutId id{.index = 7, .generation = 3};
-    const LeLayoutId c = le::ext::to_c(id);
-    EXPECT_EQ(c.index, 7u);
-    EXPECT_EQ(c.generation, 3u);
-    EXPECT_EQ(le::ext::from_c(c), id);
-}
-
-TEST(ExtensionIds, AnInvalidIdStaysInvalid)
-{
-    EXPECT_EQ(le::ext::to_c(le::DesignId{}).index, UINT32_MAX);
-    EXPECT_FALSE(le::ext::from_c(LeDesignId{UINT32_MAX, 0}).valid());
-}
-
-TEST(ExtensionContext, CurrentObjectsAreInvalidUntilSet)
-{
-    LeHandle *handle = le_create();
     const le::ext::ExtensionContext ctx(handle, "test_ext");
     EXPECT_FALSE(ctx.current_technology().valid());
     EXPECT_FALSE(ctx.current_abstract().valid());
     EXPECT_FALSE(ctx.current_schematic().valid());
     EXPECT_FALSE(ctx.current_layout().valid());
-    le_destroy(handle);
 }
 
-TEST(ExtensionContext, CurrentObjectsMatchWhatWasSet)
+TEST_F(ExtensionContext, CurrentObjectsMatchWhatWasSet)
 {
-    LeHandle *handle = le_create();
-    const LeLayoutId layout = add_layout(handle);
-    const LeSchematicId schematic = le_create_schematic(handle, le_create_design(handle, le_create_library(handle, "logic"), LeDesignId{.index = UINT32_MAX, .generation = 0}, "top"));
-    ASSERT_EQ(le_set_current_layout(handle, layout), 0);
-    ASSERT_EQ(le_set_current_schematic(handle, schematic), 0);
+    const le::LayoutId layout = add_layout(*this);
+    le::SchematicId schematic;
+    {
+        le::WriteView view = write();
+        const le::LibraryId library = view.create_library({.name = "logic"}).value();
+        const le::DesignId design = view.create_design({.library = library, .name = "top"}).value();
+        schematic = view.create_schematic({.design = design}).value();
+        ASSERT_TRUE(view.set_current_layout(layout));
+        ASSERT_TRUE(view.set_current_schematic(schematic));
+    }
 
     const le::ext::ExtensionContext ctx(handle, "test_ext");
-    EXPECT_EQ(ctx.current_layout(), le::ext::from_c(layout));
-    EXPECT_EQ(ctx.current_schematic(), le::ext::from_c(schematic));
-    le_destroy(handle);
+    EXPECT_EQ(ctx.current_layout(), layout);
+    EXPECT_EQ(ctx.current_schematic(), schematic);
 }
 
-TEST(ExtensionContext, CurrentObjectsAreReadableInsideViewsAndTransactions)
+TEST_F(ExtensionContext, CurrentObjectsAreReadableInsideViewsAndTransactions)
 {
-    LeHandle *handle = le_create();
-    const LeLayoutId layout = add_layout(handle);
-    ASSERT_EQ(le_set_current_layout(handle, layout), 0);
-    const le::LayoutId expected = le::ext::from_c(layout);
+    const le::LayoutId layout = add_layout(*this);
+    ASSERT_TRUE(write().set_current_layout(layout));
+    const le::LayoutId expected = layout;
 
-    const auto in_read = within_timeout([handle]() {
+    const auto in_read = within_timeout([handle = handle]() {
         le::ext::ExtensionContext ctx(handle, "test_ext");
         const le::ext::ReadView view = ctx.read();
         return view.current_layout();
@@ -110,7 +109,7 @@ TEST(ExtensionContext, CurrentObjectsAreReadableInsideViewsAndTransactions)
     ASSERT_TRUE(in_read.has_value()) << "ReadView::current_layout deadlocked";
     EXPECT_EQ(*in_read, expected);
 
-    const auto in_write = within_timeout([handle]() {
+    const auto in_write = within_timeout([handle = handle]() {
         le::ext::ExtensionContext ctx(handle, "test_ext");
         const le::ext::WriteView view = ctx.write();
         return view.current_layout();
@@ -118,15 +117,13 @@ TEST(ExtensionContext, CurrentObjectsAreReadableInsideViewsAndTransactions)
     ASSERT_TRUE(in_write.has_value()) << "WriteView::current_layout deadlocked";
     EXPECT_EQ(*in_write, expected);
 
-    const auto in_transaction = within_timeout([handle]() {
+    const auto in_transaction = within_timeout([handle = handle]() {
         le::ext::ExtensionContext ctx(handle, "test_ext");
         const le::ext::Transaction transaction = ctx.transaction("test");
         return ctx.current_layout();
     });
     ASSERT_TRUE(in_transaction.has_value()) << "ExtensionContext::current_layout deadlocked in a transaction";
     EXPECT_EQ(*in_transaction, expected);
-
-    le_destroy(handle);
 }
 
 // Writing straight to the database has to be asked for by name: root()
@@ -134,9 +131,8 @@ TEST(ExtensionContext, CurrentObjectsAreReadableInsideViewsAndTransactions)
 static_assert(std::is_same_v<decltype(std::declval<le::ext::WriteView &>().root()), const le::Root &>);
 static_assert(std::is_same_v<decltype(std::declval<le::ext::WriteView &>().unrecorded_root()), le::Root &>);
 
-TEST(WriteViewEdits, ALabelledViewIsOneUndoStep)
+TEST_F(WriteViewEdits, ALabelledViewIsOneUndoStep)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     le::LibraryId library;
     {
@@ -144,24 +140,22 @@ TEST(WriteViewEdits, ALabelledViewIsOneUndoStep)
         library = view.create_library({.name = "lib"}).value();
         ASSERT_TRUE(view.update_library(library, {.name = "renamed"}));
     }
-    ASSERT_EQ(le_command_history_count(handle), 1);
-    EXPECT_STREQ(le_command_history_at(handle, 0), "add library");
+    ASSERT_EQ(static_cast<int>(read().command_history_size()), 1);
+    EXPECT_EQ(read().command_history_at(0), "add library");
     EXPECT_EQ(ctx.read().root().get_library(library)->name, "renamed");
 
-    ASSERT_EQ(le_undo(handle), 1);
+    ASSERT_EQ(write().undo(), true);
     EXPECT_TRUE(ctx.read().root().get_library_ids().empty());
-    ASSERT_EQ(le_redo(handle), 1);
+    ASSERT_EQ(write().redo(), 1);
     {
         const le::ext::ReadView view = ctx.read();
         ASSERT_EQ(view.root().get_library_ids().size(), 1u);
         EXPECT_EQ(view.root().get_library(view.root().get_library_ids().front())->name, "renamed");
     }
-    le_destroy(handle);
 }
 
-TEST(WriteViewEdits, RenamesKeepTheGlobalNameIndexThroughUndoAndRedo)
+TEST_F(WriteViewEdits, RenamesKeepTheGlobalNameIndexThroughUndoAndRedo)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     le::LibraryId library;
     le::LayerId layer;
@@ -186,16 +180,14 @@ TEST(WriteViewEdits, RenamesKeepTheGlobalNameIndexThroughUndoAndRedo)
         EXPECT_FALSE(view.root().get_layer_by_name(stale_layer_name).valid());
     };
     expect_names("renamed", "lib", "M9", "M1");
-    ASSERT_EQ(le_undo(handle), 1);
+    ASSERT_EQ(write().undo(), true);
     expect_names("lib", "renamed", "M1", "M9");
-    ASSERT_EQ(le_redo(handle), 1);
+    ASSERT_EQ(write().redo(), 1);
     expect_names("renamed", "lib", "M9", "M1");
-    le_destroy(handle);
 }
 
-TEST(WriteViewEdits, ADuplicateGlobalNameIsAnErrorAndRecordsNothing)
+TEST_F(WriteViewEdits, ADuplicateGlobalNameIsAnErrorAndRecordsNothing)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     le::LibraryId other;
     {
@@ -214,43 +206,37 @@ TEST(WriteViewEdits, ADuplicateGlobalNameIsAnErrorAndRecordsNothing)
     }
     EXPECT_EQ(ctx.read().root().get_library_ids().size(), 2u);
     EXPECT_EQ(ctx.read().root().get_library(other)->name, "other");
-    le_destroy(handle);
 }
 
-TEST(WriteViewEdits, AnUnlabelledViewRecordsNothing)
+TEST_F(WriteViewEdits, AnUnlabelledViewRecordsNothing)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write();
         ASSERT_TRUE(view.create_library({.name = "lib"}));
     }
-    EXPECT_EQ(le_command_history_count(handle), 0);
-    EXPECT_EQ(le_can_undo(handle), 0);
-    le_destroy(handle);
+    EXPECT_EQ(static_cast<int>(read().command_history_size()), 0);
+    EXPECT_EQ(read().can_undo(), 0);
 }
 
-TEST(WriteViewEdits, ALabelledViewJoinsAnOpenStep)
+TEST_F(WriteViewEdits, ALabelledViewJoinsAnOpenStep)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
-    le_begin_command(handle, "outer");
+    write().begin_command("outer");
     {
         le::ext::WriteView view = ctx.write("inner");
         ASSERT_TRUE(view.create_library({.name = "lib"}));
     }
-    EXPECT_EQ(le_is_command_running(handle), 1);
-    le_end_command(handle, 1);
-    ASSERT_EQ(le_command_history_count(handle), 1);
-    EXPECT_STREQ(le_command_history_at(handle, 0), "outer");
-    ASSERT_EQ(le_undo(handle), 1);
+    EXPECT_EQ(session.renderer().renders_held(), 1);
+    write().end_command(1);
+    ASSERT_EQ(static_cast<int>(read().command_history_size()), 1);
+    EXPECT_EQ(read().command_history_at(0), "outer");
+    ASSERT_EQ(write().undo(), true);
     EXPECT_TRUE(ctx.read().root().get_library_ids().empty());
-    le_destroy(handle);
 }
 
-TEST(WriteViewEdits, ErrorsComeBackAsValues)
+TEST_F(WriteViewEdits, ErrorsComeBackAsValues)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write("errors");
@@ -277,12 +263,10 @@ TEST(WriteViewEdits, ErrorsComeBackAsValues)
         ASSERT_FALSE(ownerless);
         EXPECT_EQ(ownerless.error(), "an owner is required");
     }
-    le_destroy(handle);
 }
 
-TEST(WriteViewEdits, ACascadingDeleteUndoes)
+TEST_F(WriteViewEdits, ACascadingDeleteUndoes)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write("setup");
@@ -302,11 +286,10 @@ TEST(WriteViewEdits, ACascadingDeleteUndoes)
     }
     EXPECT_FALSE(abstract_of().valid());
 
-    ASSERT_EQ(le_undo(handle), 1);
+    ASSERT_EQ(write().undo(), true);
     const le::AbstractId restored = abstract_of();
     ASSERT_TRUE(restored.valid());
     EXPECT_EQ(ctx.read().root().get_abstract_terminals(restored).size(), 2u);
-    le_destroy(handle);
 }
 
 namespace
@@ -338,9 +321,8 @@ namespace
     }
 }
 
-TEST(ViewShapeOps, BboxMatchesTheCApi)
+TEST_F(ViewShapeOps, BboxCoversTheGivenShapes)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     ShapeScene scene;
     {
@@ -358,31 +340,20 @@ TEST(ViewShapeOps, BboxMatchesTheCApi)
     EXPECT_EQ(one->ur.x, 1000);
     EXPECT_EQ(one->ur.y, 2000);
 
-    const std::vector<LeObjectRef> c_ids{
-        LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = scene.rects[0].index, .generation = scene.rects[0].generation},
-        LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = scene.rects[1].index, .generation = scene.rects[1].generation},
-    };
-    const LeShapeBbox c_box = le_shape_bbox(handle, c_ids.data(), 2);
-    ASSERT_EQ(c_box.valid, 1);
-    EXPECT_DOUBLE_EQ(c_box.ur_x_um, 4.0);
-    EXPECT_DOUBLE_EQ(c_box.ur_y_um, 4.0);
-
     const auto none = ctx.read().shape_bbox({});
     ASSERT_FALSE(none);
     EXPECT_EQ(none.error(), "no shapes given");
-    le_destroy(handle);
 }
 
-TEST(ViewShapeOps, CreatingOpsReturnTheirIdsAndUndo)
+TEST_F(ViewShapeOps, CreatingOpsReturnTheirIdsAndUndo)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     ShapeScene scene;
     {
         le::ext::WriteView view = ctx.write();
         scene = add_shape_scene(view);
     }
-    ASSERT_EQ(le_set_current_layout(handle, le::ext::to_c(scene.layout)), 0);
+    ASSERT_TRUE(write().set_current_layout(scene.layout));
     {
         le::ext::WriteView view = ctx.write("shape ops");
         // No parent: the open Layout's free shapes.
@@ -399,16 +370,15 @@ TEST(ViewShapeOps, CreatingOpsReturnTheirIdsAndUndo)
         ASSERT_TRUE(view.shape_change_layer({scene.rects[0]}, {.layer = scene.m2}));
         EXPECT_EQ(view.root().get_layout_free_shapes(scene.layout).size(), 5u);
     }
-    ASSERT_EQ(le_undo(handle), 1);
+    ASSERT_EQ(write().undo(), true);
     {
         const le::ext::ReadView view = ctx.read();
         EXPECT_EQ(view.root().get_layout_free_shapes(scene.layout).size(), 2u);
         EXPECT_EQ(view.root().get_shape(scene.rects[0])->layer, scene.m1);
     }
-    le_destroy(handle);
 }
 
-TEST(Units, ConvertAtTheTechnologysScaleRoundingToTheNearestDbu)
+TEST_F(Units, ConvertAtTheTechnologysScaleRoundingToTheNearestDbu)
 {
     const le::ext::Units units(1000.0);
     EXPECT_EQ(units.to_dbu(0.1), 100);
@@ -422,9 +392,8 @@ TEST(Units, ConvertAtTheTechnologysScaleRoundingToTheNearestDbu)
     EXPECT_DOUBLE_EQ(back.ur.y, 3.25);
 }
 
-TEST(Units, NeedATechnology)
+TEST_F(Units, NeedATechnology)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     const auto units = ctx.read().units();
     ASSERT_FALSE(units);
@@ -435,12 +404,10 @@ TEST(Units, NeedATechnology)
         ASSERT_TRUE(view.units());
         EXPECT_DOUBLE_EQ(view.units()->dbu_per_um(), 2000.0);
     }
-    le_destroy(handle);
 }
 
-TEST(ShapeBuilder, BuildsAShapeInMicronsAsOneUndoStep)
+TEST_F(ShapeBuilder, BuildsAShapeInMicronsAsOneUndoStep)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     ShapeScene scene;
     {
@@ -481,14 +448,12 @@ TEST(ShapeBuilder, BuildsAShapeInMicronsAsOneUndoStep)
         EXPECT_DOUBLE_EQ(box.ur.y, 5.05);
         EXPECT_DOUBLE_EQ(view.units()->to_um(data.polygons[0])[1].x, 1.0);
     }
-    ASSERT_EQ(le_undo(handle), 1);
+    ASSERT_EQ(write().undo(), true);
     EXPECT_EQ(ctx.read().root().get_shape(shape), nullptr);
-    le_destroy(handle);
 }
 
-TEST(ShapeBuilder, ALayerlessShapeTakesAPurpose)
+TEST_F(ShapeBuilder, ALayerlessShapeTakesAPurpose)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write();
@@ -498,12 +463,10 @@ TEST(ShapeBuilder, ALayerlessShapeTakesAPurpose)
         EXPECT_FALSE(view.root().get_shape(*built)->layer.valid());
         EXPECT_EQ(view.root().get_shape(*built)->purpose, le::ShapePurpose::DEBUG);
     }
-    le_destroy(handle);
 }
 
-TEST(ShapeBuilder, ReportsTheFirstErrorAndCreatesNothing)
+TEST_F(ShapeBuilder, ReportsTheFirstErrorAndCreatesNothing)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write();
@@ -528,12 +491,10 @@ TEST(ShapeBuilder, ReportsTheFirstErrorAndCreatesNothing)
         EXPECT_EQ(ownerless.error(), "an owner is required");
         EXPECT_EQ(view.root().get_shape_ids().size(), shapes);
     }
-    le_destroy(handle);
 }
 
-TEST(WriteViewEdits, RemovingAShapePieceTakesItsMaskAndUndoes)
+TEST_F(WriteViewEdits, RemovingAShapePieceTakesItsMaskAndUndoes)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     le::ShapeId shape;
     {
@@ -558,23 +519,21 @@ TEST(WriteViewEdits, RemovingAShapePieceTakesItsMaskAndUndoes)
         EXPECT_FALSE(view.remove_shape_piece(shape, le::PieceKind::VIA, 0));
         EXPECT_FALSE(view.remove_shape_piece(le::ShapeId{}, le::PieceKind::RECT, 0));
     }
-    ASSERT_EQ(le_undo(handle), 1);
+    ASSERT_EQ(write().undo(), true);
     {
         const le::ext::ReadView view = ctx.read();
         EXPECT_EQ(view.root().get_shape(shape)->rects.size(), 3u);
         EXPECT_EQ(view.root().get_shape(shape)->rect_masks, (std::vector<int>{1, 2, 3}));
     }
-    le_destroy(handle);
 }
 
 namespace
 {
     // One mutation listener for the whole test binary (the registry is
-    // process-wide); it records events for `watched` only, and can be told
-    // to read or edit from inside the call.
+    // process-wide); it records events for the session watched_session()
+    // made only, and can be told to read or edit from inside the call.
     struct ListenerLog
     {
-        LeHandle *watched = nullptr;
         std::vector<le::ext::MutationEvent> events; // `changes` copied into `changes`
         std::vector<std::vector<le::ChangeLogEntry>> changes;
         std::function<void(le::ext::ExtensionContext &)> respond;
@@ -587,10 +546,16 @@ namespace
         return log;
     }
 
+    // Marks the session the listener watches.
+    struct Watched
+    {
+        bool watched = false;
+    };
+
     void record_mutation(le::ext::ExtensionContext &ctx, const le::ext::MutationEvent &event)
     {
         ListenerLog &log = listener_log();
-        if (ctx.handle() != log.watched)
+        if (!ctx.data<Watched>().watched)
             return;
         log.events.push_back(le::ext::MutationEvent{.everything = event.everything});
         log.changes.emplace_back(event.changes.begin(), event.changes.end());
@@ -599,8 +564,8 @@ namespace
             log.respond(ctx);
     }
 
-    // A handle the listener watches, with its log cleared.
-    LeHandle *watched_handle()
+    // A session the listener watches, with its log cleared.
+    le::Session watched_session()
     {
         static const bool registered = []
         {
@@ -609,9 +574,10 @@ namespace
             return true;
         }();
         (void)registered;
-        LeHandle *handle = le_create();
-        listener_log() = ListenerLog{.watched = handle};
-        return handle;
+        le::Session session;
+        le::ext::ExtensionContext(session.handle(), "mutation_listener_test").data<Watched>().watched = true;
+        listener_log() = ListenerLog{};
+        return session;
     }
 
     bool has_change(const std::vector<le::ChangeLogEntry> &changes, le::ChangeKlass klass, le::ChangeOp op)
@@ -623,23 +589,24 @@ namespace
 
 TEST(MutationListeners, AThrowingListenerIsLoggedAndTheEditStands)
 {
-    LeHandle *handle = watched_handle();
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
     listener_log().respond = [](le::ext::ExtensionContext &) { throw std::runtime_error("listener broke"); };
-    const LeLibraryId library = le_create_library(handle, "lib");
+    const le::LibraryId library = le::WriteView(handle).create_library({.name = "lib"}).value_or(le::LibraryId{});
     EXPECT_EQ(listener_log().events.size(), 1u);
     EXPECT_NE(library.index, UINT32_MAX);
     // The next edit still reaches it.
     listener_log().respond = nullptr;
-    le_create_library(handle, "lib2");
+    le::WriteView(handle).create_library({.name = "lib2"}).value_or(le::LibraryId{});
     EXPECT_EQ(listener_log().events.size(), 2u);
-    EXPECT_EQ(le_library_count(handle), 2);
-    le_destroy(handle);
+    EXPECT_EQ(static_cast<int>(le::ReadView(handle).root().get_library_ids().size()), 2);
 }
 
-TEST(MutationListeners, EachCApiEditIsOneEventListingWhatChanged)
+TEST(MutationListeners, EachEditIsOneEventListingWhatChanged)
 {
-    LeHandle *handle = watched_handle();
-    const LeLibraryId library = le_create_library(handle, "lib");
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
+    const le::LibraryId library = le::WriteView(handle).create_library({.name = "lib"}).value_or(le::LibraryId{});
     ASSERT_EQ(listener_log().events.size(), 1u);
     EXPECT_FALSE(listener_log().events[0].everything);
     ASSERT_EQ(listener_log().changes[0].size(), 1u);
@@ -648,52 +615,52 @@ TEST(MutationListeners, EachCApiEditIsOneEventListingWhatChanged)
     EXPECT_EQ(listener_log().changes[0][0].index, library.index);
     EXPECT_EQ(listener_log().thread, std::this_thread::get_id());
 
-    le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
+    le::WriteView(handle).create_design({.library = library, .name = "top"}).value_or(le::DesignId{});
     ASSERT_EQ(listener_log().events.size(), 2u);
     EXPECT_TRUE(has_change(listener_log().changes[1], le::ChangeKlass::Design, le::ChangeOp::CREATE));
-    le_destroy(handle);
 }
 
 TEST(MutationListeners, ViewChangesAreNotMutations)
 {
-    LeHandle *handle = watched_handle();
-    le_set_mode(handle, LE_MODE_EDIT);
-    le_set_viewport_size(handle, 100, 100);
-    le_deselect_all(handle);
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
+    le::WriteView(handle).set_mode(le::InteractionMode::EDIT);
+    le::WriteView(handle).set_viewport_size(100, 100);
+    le::WriteView(handle).clear_selection();
     EXPECT_TRUE(listener_log().events.empty());
-    le_destroy(handle);
 }
 
 TEST(MutationListeners, ATypedCommandIsOneEventWhenItEnds)
 {
-    LeHandle *handle = watched_handle();
-    le_begin_command(handle, "two edits");
-    const LeLibraryId library = le_create_library(handle, "lib");
-    le_create_design(handle, library, LeDesignId{.index = UINT32_MAX, .generation = 0}, "top");
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
+    le::WriteView(handle).begin_command("two edits");
+    const le::LibraryId library = le::WriteView(handle).create_library({.name = "lib"}).value_or(le::LibraryId{});
+    le::WriteView(handle).create_design({.library = library, .name = "top"}).value_or(le::DesignId{});
     EXPECT_TRUE(listener_log().events.empty());
-    le_end_command(handle, 1);
+    le::WriteView(handle).end_command(1);
     ASSERT_EQ(listener_log().events.size(), 1u);
     EXPECT_EQ(listener_log().changes[0].size(), 2u);
 
-    ASSERT_NE(le_undo(handle), 0);
+    ASSERT_NE(le::WriteView(handle).undo(), 0);
     ASSERT_EQ(listener_log().events.size(), 2u);
     EXPECT_TRUE(has_change(listener_log().changes[1], le::ChangeKlass::Design, le::ChangeOp::DELETE));
-    le_destroy(handle);
 }
 
 TEST(MutationListeners, AFileReadReportsEverything)
 {
-    LeHandle *handle = watched_handle();
-    ASSERT_EQ(le_read_lef(handle, (std::string(API_TEST_FIXTURES_DIR) + "/testcell.lef").c_str(), "testcell"), 0);
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
+    ASSERT_TRUE(le::WriteView(handle).read_lef((std::string(API_TEST_FIXTURES_DIR) + "/testcell.lef"), "testcell").has_value());
     ASSERT_FALSE(listener_log().events.empty());
     EXPECT_TRUE(listener_log().events.back().everything);
     EXPECT_TRUE(listener_log().changes.back().empty());
-    le_destroy(handle);
 }
 
 TEST(MutationListeners, AWriteViewIsOneEvent)
 {
-    LeHandle *handle = watched_handle();
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
     le::ext::ExtensionContext ctx(handle, "mutation_listener_test");
     {
         le::ext::WriteView view = ctx.write("abstract");
@@ -702,50 +669,49 @@ TEST(MutationListeners, AWriteViewIsOneEvent)
     }
     ASSERT_EQ(listener_log().events.size(), 1u);
     EXPECT_TRUE(has_change(listener_log().changes[0], le::ChangeKlass::Abstract, le::ChangeOp::CREATE));
-    le_destroy(handle);
 }
 
 TEST(MutationListeners, AListenerCanReadAndEditButIsNotToldOfItsOwnEdits)
 {
-    LeHandle *handle = watched_handle();
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
     listener_log().respond = [](le::ext::ExtensionContext &ctx)
     {
         const std::size_t libraries = ctx.read().root().get_library_ids().size();
         if (libraries == 1) // the edit below would loop if it were reported back
             ctx.write("derived").create_library({.name = "derived"});
     };
-    const auto outcome = within_timeout([handle]
+    const auto outcome = within_timeout([handle = handle]
                                         {
-                                            le_create_library(handle, "lib");
-                                            return le_library_count(handle); });
+                                            le::WriteView(handle).create_library({.name = "lib"}).value_or(le::LibraryId{});
+                                            return static_cast<int>(le::ReadView(handle).root().get_library_ids().size()); });
     ASSERT_TRUE(outcome.has_value()) << "deadlocked";
     EXPECT_EQ(*outcome, 2);
     EXPECT_EQ(listener_log().events.size(), 1u);
 
     listener_log().respond = nullptr;
-    le_create_library(handle, "later");
+    le::WriteView(handle).create_library({.name = "later"}).value_or(le::LibraryId{});
     ASSERT_EQ(listener_log().events.size(), 2u);
     ASSERT_EQ(listener_log().changes[1].size(), 1u) << "not the listener's earlier edit either";
-    le_destroy(handle);
 }
 
 TEST(MutationListeners, AnotherThreadsEditDuringACallComesInTheNextCall)
 {
-    LeHandle *handle = watched_handle();
-    listener_log().respond = [handle](le::ext::ExtensionContext &)
+    le::Session session = watched_session();
+    LeHandle *handle = session.handle();
+    listener_log().respond = [handle = handle](le::ext::ExtensionContext &)
     {
         listener_log().respond = nullptr;
-        std::thread([handle] { le_create_library(handle, "from_another_thread"); }).join();
+        std::thread([handle = handle] { le::WriteView(handle).create_library({.name = "from_another_thread"}).value_or(le::LibraryId{}); }).join();
     };
-    const auto outcome = within_timeout([handle]
+    const auto outcome = within_timeout([handle = handle]
                                         {
-                                            le_create_library(handle, "lib");
+                                            le::WriteView(handle).create_library({.name = "lib"}).value_or(le::LibraryId{});
                                             return listener_log().events.size(); });
     ASSERT_TRUE(outcome.has_value()) << "deadlocked";
     ASSERT_EQ(*outcome, 2u);
     ASSERT_EQ(listener_log().changes[1].size(), 1u);
     EXPECT_EQ(listener_log().changes[1][0].klass, le::ChangeKlass::Library);
-    le_destroy(handle);
 }
 
 namespace
@@ -756,14 +722,13 @@ namespace
     };
 }
 
-TEST(ExtensionData, WithDataSerializesEveryThreadUsingTheSameState)
+TEST_F(ExtensionData, WithDataSerializesEveryThreadUsingTheSameState)
 {
-    LeHandle *handle = le_create();
     constexpr int kThreads = 4;
     constexpr int kIncrements = 20000;
     std::vector<std::thread> threads;
     for (int t = 0; t < kThreads; ++t)
-        threads.emplace_back([handle]
+        threads.emplace_back([handle = handle]
                              {
             le::ext::ExtensionContext ctx(handle, "data_test");
             for (int i = 0; i < kIncrements; ++i)
@@ -774,12 +739,10 @@ TEST(ExtensionData, WithDataSerializesEveryThreadUsingTheSameState)
     EXPECT_EQ(ctx.with_data<SharedCounter>([](const SharedCounter &counter) { return counter.value; }), kThreads * kIncrements);
     // data<T>() is the same object.
     EXPECT_EQ(ctx.data<SharedCounter>().value, kThreads * kIncrements);
-    le_destroy(handle);
 }
 
-TEST(ExtensionData, WithDataBlocksAnotherThreadUntilTheFirstReturns)
+TEST_F(ExtensionData, WithDataBlocksAnotherThreadUntilTheFirstReturns)
 {
-    LeHandle *handle = le_create();
     std::promise<void> inside, release;
     std::shared_future<void> released = release.get_future().share();
     std::thread holder([&]
@@ -810,19 +773,15 @@ TEST(ExtensionData, WithDataBlocksAnotherThreadUntilTheFirstReturns)
     // Another extension's state of the same type is a separate slot.
     le::ext::ExtensionContext other(handle, "other_ext");
     EXPECT_EQ(other.with_data<SharedCounter>([](const SharedCounter &counter) { return counter.value; }), 0);
-    le_destroy(handle);
 }
 
 namespace
 {
-    LeObjectRef shape_ref(le::ShapeId id) { return LeObjectRef{.kind = LE_OBJECT_KIND_SHAPE, .index = id.index, .generation = id.generation}; }
-
     std::string fixture(const char *name) { return std::string(API_TEST_FIXTURES_DIR) + "/" + name; }
 }
 
-TEST(SessionSelection, MatchesTheCApi)
+TEST_F(SessionSelection, IsTheSessionsSelection)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     ShapeScene scene;
     {
@@ -834,18 +793,17 @@ TEST(SessionSelection, MatchesTheCApi)
         EXPECT_EQ(piece.shape_id, scene.rects[0]);
         EXPECT_EQ(piece.piece_kind, le::PieceKind::RECT);
     }
-    ASSERT_EQ(le_selection_count(handle), 1);
-    const LeObjectRef ref = le_selected_object_ref(handle, 0);
-    EXPECT_EQ(ref.kind, LE_OBJECT_KIND_SHAPE);
-    EXPECT_EQ(ref.index, scene.rects[0].index);
+    ASSERT_EQ(selection_count(), 1);
+    EXPECT_EQ(selected(0), le::ObjectId{scene.rects[0]});
 
-    // The C API's selection is the same one.
-    ASSERT_EQ(le_select_object_ref(handle, shape_ref(scene.rects[1])), 0);
+    // A selection made outside the extension is the same one.
+    ASSERT_TRUE(select(scene.rects[1]));
+    const uint64_t version = read().selection_version();
     {
         const le::ext::ReadView view = ctx.read();
         ASSERT_EQ(view.selection().size(), 2u);
         EXPECT_EQ(std::get<le::ShapePiece>(view.selection()[1]).shape_id, scene.rects[1]);
-        EXPECT_EQ(static_cast<int64_t>(view.selection_version()), le_selection_version(handle));
+        EXPECT_EQ(view.selection_version(), version);
     }
     {
         le::ext::WriteView view = ctx.write();
@@ -854,13 +812,11 @@ TEST(SessionSelection, MatchesTheCApi)
         view.clear_selection();
         EXPECT_TRUE(view.selection().empty());
     }
-    EXPECT_EQ(le_selection_count(handle), 0);
-    le_destroy(handle);
+    EXPECT_EQ(selection_count(), 0);
 }
 
-TEST(SessionSelection, ErrorsComeBackAsValues)
+TEST_F(SessionSelection, ErrorsComeBackAsValues)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     le::ext::WriteView view = ctx.write();
     const ShapeScene scene = add_shape_scene(view);
@@ -884,9 +840,8 @@ TEST(SessionSelection, ErrorsComeBackAsValues)
 
 // Selection, the view and rulers are session state: changing them through a
 // labelled view records no undo step and leaves the database saved.
-TEST(SessionSelection, IsNotADatabaseEdit)
+TEST_F(SessionSelection, IsNotADatabaseEdit)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     ShapeScene scene;
     {
@@ -894,54 +849,55 @@ TEST(SessionSelection, IsNotADatabaseEdit)
         scene = add_shape_scene(view);
     }
     const std::string path = le::test::scratch_path("session_state.led");
-    ASSERT_EQ(le_write_db(handle, path.c_str(), 0), 0);
-    ASSERT_EQ(le_has_unsaved_database_changes(handle), 0);
+    ASSERT_TRUE(write().write_db(path));
+    ASSERT_FALSE(read().has_unsaved_database());
     {
         le::ext::WriteView view = ctx.write("session state");
         ASSERT_TRUE(view.select(scene.rects[0]));
         ASSERT_TRUE(view.add_ruler(std::vector<le::Point>{{0, 0}, {100, 0}}));
         view.set_view_flip(le::ViewFlip::VERTICAL);
     }
-    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
-    EXPECT_EQ(le_undo(handle), 0) << "nothing to undo";
-    EXPECT_EQ(le_selection_count(handle), 1);
-    le_destroy(handle);
+    EXPECT_EQ(read().has_unsaved_database(), 0);
+    EXPECT_EQ(write().undo(), false) << "nothing to undo";
+    EXPECT_EQ(selection_count(), 1);
 }
 
-TEST(SessionView, MatchesTheCApi)
+// An extension's view changes match the same changes made one call at a
+// time on another session.
+TEST(SessionView, MatchesSeparateCalls)
 {
-    LeHandle *c_handle = le_create();
-    LeHandle *handle = le_create();
-    for (LeHandle *h : {c_handle, handle})
+    le::test::SessionHelpers c_handle;
+    le::test::SessionHelpers session;
+    for (le::test::SessionHelpers *h : {&c_handle, &session})
     {
-        add_layout(h);
-        le_set_viewport_size(h, 800, 600);
+        add_layout(*h);
+        h->write().set_viewport_size(800, 600);
     }
-    const LeDesignId design = le_library_design_at(c_handle, 0, 0).id;
+    const le::DesignId design = c_handle.library_design_at(0, 0).id;
 
-    ASSERT_EQ(le_set_current_design_layout_by_id(c_handle, design), 0);
-    le_fit_rect(c_handle, 0, 0, 4000, 2000, 10); // no Technology: microns are dbu
-    le_zoom(c_handle, 0.5, 100, 100);
-    le_pan(c_handle, 0.25, -0.5);
-    ASSERT_EQ(le_set_view_flip(c_handle, LE_VIEW_FLIP_HORIZONTAL), 0);
+    ASSERT_TRUE(c_handle.open_layout(design));
+    c_handle.fit_rect(0, 0, 4000, 2000, 10); // no Technology: microns are dbu
+    c_handle.write().zoom(0.5, 100, 100);
+    c_handle.write().pan(0.25, -0.5);
+    c_handle.write().set_view_flip(le::ViewFlip::HORIZONTAL);
 
-    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::ext::ExtensionContext ctx(session.handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write();
-        ASSERT_TRUE(view.open_layout(le::ext::from_c(design)));
+        ASSERT_TRUE(view.open_layout(design));
         view.fit_rect(le::Rect{{0, 0}, {4000, 2000}}, 10);
         view.zoom(0.5, 100, 100);
         view.pan(0.25, -0.5);
         view.set_view_flip(le::ViewFlip::HORIZONTAL);
     }
     const le::ViewState state = ctx.read().view();
-    EXPECT_EQ(state.layout, le::ext::from_c(le_current_layout(c_handle)));
+    EXPECT_EQ(state.layout, c_handle.read().current_layout());
     EXPECT_FALSE(state.abstract.valid());
     EXPECT_EQ(ctx.current_layout(), state.layout) << "Tcl's current Layout moves with the view";
     EXPECT_EQ(state.flip, le::ViewFlip::HORIZONTAL);
     EXPECT_EQ(state.width_px, 800);
     EXPECT_EQ(state.height_px, 600);
-    const le::ext::ExtensionContext c_ctx(c_handle, "test_ext");
+    const le::ext::ExtensionContext c_ctx(c_handle.handle, "test_ext");
     const le::ViewState c_state = c_ctx.read().view();
     EXPECT_DOUBLE_EQ(state.scale, c_state.scale);
     EXPECT_EQ(state.visible_area.ll.x, c_state.visible_area.ll.x);
@@ -959,15 +915,12 @@ TEST(SessionView, MatchesTheCApi)
 
         view.fit_view(0);
     }
-    le_fit_scene(c_handle, 0);
+    c_handle.write().fit_view(0);
     EXPECT_DOUBLE_EQ(ctx.read().view().scale, c_ctx.read().view().scale);
-    le_destroy(c_handle);
-    le_destroy(handle);
 }
 
-TEST(SessionRulers, AddedRulersMatchTheCApi)
+TEST_F(SessionRulers, AddedRulersAreTheSessionsRulers)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write();
@@ -980,30 +933,28 @@ TEST(SessionRulers, AddedRulersMatchTheCApi)
         ASSERT_EQ(view.rulers().size(), 1u);
         EXPECT_TRUE(view.rulers()[0].finished);
     }
-    ASSERT_EQ(le_ruler_count(handle), 1);
-    ASSERT_EQ(le_ruler_point_count(handle, 0), 3);
-    EXPECT_DOUBLE_EQ(le_ruler_point_at(handle, 0, 1).x_um, 1.5);
-    EXPECT_DOUBLE_EQ(le_ruler_point_at(handle, 0, 2).y_um, 2.0);
+    ASSERT_EQ(static_cast<int>(read().rulers().size()), 1);
+    ASSERT_EQ(ruler_point_count(0), 3);
+    EXPECT_DOUBLE_EQ(ruler_point_at(0, 1).x, 1.5);
+    EXPECT_DOUBLE_EQ(ruler_point_at(0, 2).y, 2.0);
 
     {
         le::ext::WriteView view = ctx.write();
         view.clear_rulers();
     }
-    EXPECT_EQ(le_ruler_count(handle), 0);
-    le_destroy(handle);
+    EXPECT_EQ(static_cast<int>(read().rulers().size()), 0);
 }
 
 // A ruler being drawn stays the one clicks append to.
-TEST(SessionRulers, AnAddedRulerGoesAheadOfTheOneBeingDrawn)
+TEST_F(SessionRulers, AnAddedRulerGoesAheadOfTheOneBeingDrawn)
 {
-    LeHandle *handle = le_create();
-    add_layout(handle);
-    le_set_viewport_size(handle, 200, 200);
-    le_set_mode(handle, LE_MODE_RULER);
-    le_set_mouse_position(handle, 100, 100);
-    le_mouse_down(handle, 100, 100);
-    le_mouse_up(handle, 100, 100);
-    ASSERT_EQ(le_ruler_count(handle), 1);
+    add_layout(*this);
+    write().set_viewport_size(200, 200);
+    write().set_mode(le::InteractionMode::RULER);
+    write().set_mouse_position(100, 100);
+    write().mouse_down(100, 100);
+    write().mouse_up(100, 100);
+    ASSERT_EQ(static_cast<int>(read().rulers().size()), 1);
 
     le::ext::ExtensionContext ctx(handle, "test_ext");
     {
@@ -1015,17 +966,16 @@ TEST(SessionRulers, AnAddedRulerGoesAheadOfTheOneBeingDrawn)
         view.finish_ruler();
         EXPECT_TRUE(view.rulers()[1].finished);
     }
-    le_destroy(handle);
 }
 
-TEST(SessionFiles, ReadsMatchTheCApiAndUndo)
+TEST_F(SessionFiles, ReadsMatchSeparateReadsAndUndo)
 {
-    LeHandle *c_handle = le_create();
-    ASSERT_EQ(le_read_lef(c_handle, fixture("testcell.lef").c_str(), "cells"), 0);
-    ASSERT_EQ(le_read_def(c_handle, fixture("testcell.def").c_str(), "top"), 0);
+    le::test::SessionHelpers c_handle;
+    ASSERT_TRUE(c_handle.read_lef(fixture("testcell.lef"), "cells"));
+    ASSERT_TRUE(c_handle.read_def(fixture("testcell.def"), "top"));
 
-    LeHandle *handle = le_create();
-    le::ext::ExtensionContext ctx(handle, "test_ext");
+    le::test::SessionHelpers session;
+    le::ext::ExtensionContext ctx(session.handle, "test_ext");
     {
         le::ext::WriteView view = ctx.write("read");
         const auto lef = view.read_lef(fixture("testcell.lef"), "cells");
@@ -1034,19 +984,16 @@ TEST(SessionFiles, ReadsMatchTheCApiAndUndo)
         ASSERT_TRUE(def) << def.error();
         EXPECT_TRUE(view.current_technology().valid());
     }
-    EXPECT_EQ(le_design_count(handle), le_design_count(c_handle));
-    EXPECT_EQ(le_layer_count(handle), le_layer_count(c_handle));
-    EXPECT_GT(le_design_count(handle), 0);
+    EXPECT_EQ(session.design_count(), c_handle.design_count());
+    EXPECT_EQ(session.read().layer_rows().size(), c_handle.read().layer_rows().size());
+    EXPECT_GT(session.design_count(), 0u);
 
-    ASSERT_EQ(le_undo(handle), 1);
-    EXPECT_EQ(le_design_count(handle), 0) << "both reads were one undo step";
-    le_destroy(c_handle);
-    le_destroy(handle);
+    ASSERT_EQ(session.write().undo(), true);
+    EXPECT_EQ(session.design_count(), 0u) << "both reads were one undo step";
 }
 
-TEST(SessionFiles, ErrorsComeBackAsValues)
+TEST_F(SessionFiles, ErrorsComeBackAsValues)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     le::ext::WriteView view = ctx.write();
 
@@ -1068,9 +1015,8 @@ TEST(SessionFiles, ErrorsComeBackAsValues)
     EXPECT_EQ(not_empty.error(), "the database already has data in it - read_db only loads into an empty session");
 }
 
-TEST(SessionFiles, WritesRoundTrip)
+TEST_F(SessionFiles, WritesRoundTrip)
 {
-    LeHandle *handle = le_create();
     le::ext::ExtensionContext ctx(handle, "test_ext");
     const std::string lef = le::test::scratch_path("written.lef");
     const std::string db = le::test::scratch_path("written.led");
@@ -1084,22 +1030,19 @@ TEST(SessionFiles, WritesRoundTrip)
         const auto saved = view.write_db(db);
         ASSERT_TRUE(saved) << saved.error();
     }
-    EXPECT_EQ(le_has_unsaved_database_changes(handle), 0);
-    EXPECT_STREQ(le_db_path(handle), db.c_str());
+    EXPECT_EQ(read().has_unsaved_database(), 0);
+    EXPECT_EQ(read().db_path(), db);
 
-    LeHandle *reread = le_create();
-    le::ext::ExtensionContext reread_ctx(reread, "test_ext");
+    le::test::SessionHelpers reread;
+    le::ext::ExtensionContext reread_ctx(reread.handle, "test_ext");
     {
         le::ext::WriteView view = reread_ctx.write();
         const auto loaded = view.read_db(db);
         ASSERT_TRUE(loaded) << loaded.error();
     }
-    EXPECT_EQ(le_design_count(reread), le_design_count(handle));
+    EXPECT_EQ(static_cast<int>(reread.design_count()), static_cast<int>(design_count()));
 
-    LeHandle *from_lef = le_create();
-    ASSERT_EQ(le_read_lef(from_lef, lef.c_str(), "cells"), 0);
-    EXPECT_EQ(le_design_count(from_lef), le_design_count(handle));
-    le_destroy(from_lef);
-    le_destroy(reread);
-    le_destroy(handle);
+    le::test::SessionHelpers from_lef;
+    ASSERT_TRUE(from_lef.read_lef(lef.c_str(), "cells"));
+    EXPECT_EQ(static_cast<int>(from_lef.design_count()), static_cast<int>(design_count()));
 }

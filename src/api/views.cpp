@@ -28,7 +28,7 @@ namespace le
     {
     }
 
-    // Opens the step under this view's lock, as le_begin_command does
+    // Opens the step under this view's lock, as begin_command does
     // under its own.
     WriteView::WriteView(LeHandle *handle, const std::string &label) : WriteView(handle)
     {

@@ -22,10 +22,10 @@
 namespace le
 {
     /// @brief Raw RGBA8888 pixel view into a RasterizedFrame's own
-    /// `pixel_data` - mirrors api.hpp's LePixelBuffer contract exactly
+    /// `pixel_data` - the same layout as RenderedFrame (views.hpp)
     /// (top-left origin, y increasing downward, premultiplied alpha,
     /// row_bytes possibly exceeding width * 4 - always index by it) so
-    /// wiring this up to le_render_pixel_buffer() later needs no format
+    /// wiring this up to Renderer::render() later needs no format
     /// translation. `data` is a non-owning view into `pixel_data`'s own
     /// backing memory - never valid on its own, see RasterizedFrame.
     struct PixelBuffer
@@ -206,7 +206,7 @@ namespace le
 
             // Blend2D's own BL_FORMAT_PRGB32 is premultiplied BGRA in
             // memory on this little-endian target, while the external
-            // LePixelBuffer contract (api.hpp's own doc comment) requires
+            // RenderedFrame contract (views.hpp) requires
             // literal RGBA order - so an explicit per-pixel channel swap is
             // unavoidable here; there's no BLFormat that natively yields
             // RGBA order to sidestep it with a format choice alone.

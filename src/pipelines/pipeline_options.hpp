@@ -21,7 +21,7 @@ class BLContext;
 namespace le
 {
     /// @brief The widest or tallest image a node is rasterized to, and the
-    /// largest viewport (le_set_viewport_size). A node bigger than this at
+    /// largest viewport (set_viewport_size). A node bigger than this at
     /// the current zoom is drawn at the largest scale that fits.
     constexpr int kMaxImageDimensionPx = 8192;
 
@@ -278,7 +278,7 @@ namespace le
 
         /// @brief On-screen text size (px) for every ruler label -
         /// `LeHandle::ruler_label_size_px()`, runtime-configurable
-        /// (`le_ruler_label_size`/`le_set_ruler_label_size`).
+        /// (`ruler_label_size`/`set_ruler_label_size`).
         double ruler_label_size_px = 11.0;
 
         /// @brief Smallest / largest on-screen size (px) a shape or placement
@@ -311,7 +311,7 @@ namespace le
 
         /// @brief Where the axis lines cross, in dbu: the point the user
         /// sees as (0, 0) - the database origin, or in a mirrored view the
-        /// centre of the view's boundary (le_snapped_mouse_position's
+        /// centre of the view's boundary (snapped_mouse_position's
         /// coordinates). A boundary's centre can fall on a half dbu.
         std::array<double, 2> axis_origin_dbu{0.0, 0.0};
 

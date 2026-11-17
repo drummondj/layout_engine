@@ -25,7 +25,7 @@ namespace le::api_detail
     // Rebuilds handle->view_layers for its currently-selected Technology
     // and stamps view_layers_built_at_version so ensure_view_layers_current()
     // (below) can tell it's current again. The one place this used to
-    // happen inline (le_read_lef) now calls this too, so the two can't
+    // happen inline (read_lef) now calls this too, so the two can't
     // drift out of sync.
     void rebuild_view_layers(LeHandle *handle, le::TechnologyId technology_id)
     {
@@ -35,10 +35,10 @@ namespace le::api_detail
     }
 
     // Rebuilds handle->view_layers if Root has changed since it was last
-    // built - a layer created directly (le_create_layer, generated CRUD)
+    // built - a layer created directly (create_layer, generated CRUD)
     // rather than via a LEF read must still show up. Called at the top of
-    // le_layer_count/le_layer_at/le_purpose_count/le_purpose_at and of
-    // every hit-test entry point (le_mouse_up) -
+    // layer_rows()/layer_rows()/purposes()/purposes() and of
+    // every hit-test entry point (mouse_up) -
     // cheap when already current (one integer compare).
     void ensure_view_layers_current(LeHandle *handle)
     {
@@ -50,7 +50,7 @@ namespace le::api_detail
     }
 
     // The read-only half of ensure_view_layers_current's own staleness
-    // check, split out so le_layer_count/_at/le_purpose_count/_at (below)
+    // check, split out so layer_rows()/_at/purposes()/_at (below)
     // can use a double-checked locking pattern: check this under a
     // shared_lock first (the common case - view_layers only ever goes
     // stale right after a real edit, not during a steady render), and
@@ -90,20 +90,20 @@ namespace le::api_detail
 
 namespace
 {
-    // The values an LeObjectFilter offers; null for an unknown one.
-    const std::vector<std::string> *object_filter_values(const LeHandle *handle, int32_t filter)
+    // The values `filter` offers; null for an unknown one.
+    const std::vector<std::string> *object_filter_values(const LeHandle *handle, le::ObjectFilter filter)
     {
         switch (filter)
         {
-        case LE_OBJECT_FILTER_PLACEMENT_TYPE:
+        case le::ObjectFilter::PLACEMENT_TYPE:
             return &handle->placement_type_values();
-        case LE_OBJECT_FILTER_ROUTE_USE:
+        case le::ObjectFilter::ROUTE_USE:
             return &le::route_use_values();
-        case LE_OBJECT_FILTER_PLACEMENT_STATUS:
+        case le::ObjectFilter::PLACEMENT_STATUS:
             return &le::placement_status_values();
-        case LE_OBJECT_FILTER_ROUTING_STATUS:
+        case le::ObjectFilter::ROUTING_STATUS:
             return &le::routing_status_values();
-        case LE_OBJECT_FILTER_ROUTE_SHAPE:
+        case le::ObjectFilter::ROUTE_SHAPE:
             return &le::route_shape_values();
         default:
             return nullptr;
@@ -151,7 +151,7 @@ namespace
 namespace le::api_detail
 {
     // Builds a ViewRenderOptions snapshot of `handle`'s own current
-    // root/view state, for le_render_pixel_buffer's own
+    // root/view state, for Renderer::render's own
     // view_render_pipeline.run() call. LeHandle's own pan/scale/viewport-size convention
     // (pixel = (dbu - pan) * scale, LeHandle::pixel_to_dbu's own comment)
     // maps directly onto ViewRenderOptions::viewport/scale: pan is
@@ -294,13 +294,13 @@ namespace le::api_detail
         return options;
     }
 
-    // Lock-free bodies of le_zoom/le_pan/le_fit_scene - factored out so
-    // le_key_down's LE_KEY_ZOOM/FIT/PAN_* handling can call them directly
+    // Lock-free bodies of zoom/pan/fit_view - factored out so
+    // key_down's Key::ZOOM/FIT/PAN_* handling can call them directly
     // while it's already holding handle->mutex_ (std::mutex isn't
-    // recursive - calling back into le_zoom/le_pan/le_fit_scene itself
-    // from inside le_key_down would deadlock the calling thread against
+    // recursive - calling back into zoom/pan/fit_view itself
+    // from inside key_down would deadlock the calling thread against
     // itself). Callers must have already null-checked `handle` and locked
-    // its mutex; the public le_zoom/le_pan/le_fit_scene below do exactly
+    // its mutex; the public zoom/pan/fit_view below do exactly
     // that and then delegate here, so the real logic exists in exactly
     // one place either way.
     void zoom_unlocked(LeHandle *handle, double factor, int32_t x, int32_t y)
@@ -390,7 +390,7 @@ namespace le::api_detail
     }
 
     // The dbu point shown to the user as (0, 0): the centre of the view's
-    // boundary in a mirrored view (le_set_view_flip), so the boundary's
+    // boundary in a mirrored view (set_view_flip), so the boundary's
     // bottom-left on screen reads (-w/2, -h/2); else, or with no boundary,
     // the database origin.
     std::array<double, 2> display_origin_unlocked(const LeHandle *handle)
@@ -445,7 +445,7 @@ namespace
 
 namespace le::api_detail
 {
-    // LE_KEY_FIT's Ctrl-held branch - fits the viewport
+    // Key::FIT's Ctrl-held branch - fits the viewport
     // to the current selection's own combined bbox instead of the whole
     // design's. One Root::get_shape(selected.shape_id) lookup per
     // ShapePiece selection entry (owned by `root`, outlives this call, no
@@ -566,7 +566,7 @@ namespace
     // The value list of `filter`; empty for an unknown one.
     std::span<const std::string> filter_values_of(const LeHandle &handle, le::ObjectFilter filter)
     {
-        if (const std::vector<std::string> *values = object_filter_values(&handle, static_cast<int32_t>(filter)))
+        if (const std::vector<std::string> *values = object_filter_values(&handle, filter))
             return *values;
         return {};
     }
@@ -606,22 +606,22 @@ namespace le::edit
 
     bool object_filter_visible(const LeHandle &handle, ObjectFilter filter, const std::string &value)
     {
-        return handle.is_object_filter_visible(static_cast<int32_t>(filter), value);
+        return handle.is_object_filter_visible(filter, value);
     }
 
     void set_object_filter_visible(LeHandle &handle, ObjectFilter filter, const std::string &value, bool visible)
     {
-        handle.set_object_filter_visible(static_cast<int32_t>(filter), value, visible);
+        handle.set_object_filter_visible(filter, value, visible);
     }
 
     bool object_filter_selectable(const LeHandle &handle, ObjectFilter filter, const std::string &value)
     {
-        return handle.is_object_filter_selectable(static_cast<int32_t>(filter), value);
+        return handle.is_object_filter_selectable(filter, value);
     }
 
     void set_object_filter_selectable(LeHandle &handle, ObjectFilter filter, const std::string &value, bool selectable)
     {
-        handle.set_object_filter_selectable(static_cast<int32_t>(filter), value, selectable);
+        handle.set_object_filter_selectable(filter, value, selectable);
     }
 
     void set_viewport_size(LeHandle &handle, int width_px, int height_px) { handle.set_viewport_size(width_px, height_px); }
@@ -637,308 +637,5 @@ namespace le::edit
                                                     if (const ViewLayerData *data = view_layers.get(row.columns.front().id))
                                                         return data->style.outline_color;
                                             return std::nullopt; });
-    }
-}
-
-static_assert(LE_OBJECT_FILTER_PLACEMENT_TYPE == static_cast<int32_t>(le::ObjectFilter::PLACEMENT_TYPE) &&
-              LE_OBJECT_FILTER_ROUTE_USE == static_cast<int32_t>(le::ObjectFilter::ROUTE_USE) &&
-              LE_OBJECT_FILTER_PLACEMENT_STATUS == static_cast<int32_t>(le::ObjectFilter::PLACEMENT_STATUS) &&
-              LE_OBJECT_FILTER_ROUTING_STATUS == static_cast<int32_t>(le::ObjectFilter::ROUTING_STATUS) &&
-              LE_OBJECT_FILTER_ROUTE_SHAPE == static_cast<int32_t>(le::ObjectFilter::ROUTE_SHAPE));
-
-extern "C"
-{
-    int32_t le_hierarchy_depth(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::hierarchy_depth(*handle));
-    }
-
-    void le_set_hierarchy_depth(LeHandle *handle, int32_t depth)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_hierarchy_depth(*handle, depth);
-    }
-
-    int32_t le_layer_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        return read_view_layers(handle, [](const le::ViewLayerSet &view_layers)
-                                { return static_cast<int32_t>(view_layers.rows().size()); });
-    }
-
-    LeLayerRow le_layer_at(LeHandle *handle, int32_t row_index)
-    {
-        const LeLayerRow invalid{.name = nullptr, .color_r = 0, .color_g = 0, .color_b = 0, .has_physical_layer = 0};
-        if (!handle || row_index < 0)
-            return invalid;
-
-        // Shared by both the shared_lock fast path and the unique_lock
-        // slow path below (view_layers_already_current's own comment) -
-        // avoids the awkwardness of unlocking a shared_lock and
-        // re-locking it after a rebuild just to reuse this same
-        // read-only logic; each path just calls this under whichever
-        // lock it's already holding.
-        auto row_at = [&](const le::ViewLayerSet &view_layers) -> LeLayerRow
-        {
-            const auto &rows = view_layers.rows();
-            if (static_cast<size_t>(row_index) >= rows.size())
-                return invalid;
-            const le::ViewLayerRow &row = rows[static_cast<size_t>(row_index)];
-            const le::ViewLayerData *first_column = row.columns.empty() ? nullptr : view_layers.get(row.columns.front().id);
-            return LeLayerRow{
-                .name = hold_string("le_layer_at", row.name),
-                .color_r = first_column ? first_column->style.outline_color.r : uint8_t{0},
-                .color_g = first_column ? first_column->style.outline_color.g : uint8_t{0},
-                .color_b = first_column ? first_column->style.outline_color.b : uint8_t{0},
-                .has_physical_layer = (first_column && first_column->layer.valid()) ? 1 : 0,
-            };
-        };
-
-        return read_view_layers(handle, row_at);
-    }
-
-    int32_t le_purpose_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        return read_view_layers(handle, [](const le::ViewLayerSet &view_layers)
-                                { return static_cast<int32_t>(view_layers.purposes().size()); });
-    }
-
-    int32_t le_purpose_at(LeHandle *handle, int32_t index)
-    {
-        if (!handle || index < 0)
-            return -1;
-
-        // Shared by both lock paths - le_layer_at's own comment above.
-        auto purpose_at = [&](const le::ViewLayerSet &view_layers) -> int32_t
-        {
-            const auto purposes = view_layers.purposes();
-            if (static_cast<size_t>(index) >= purposes.size())
-                return -1;
-            return static_cast<int32_t>(purposes[static_cast<size_t>(index)]);
-        };
-
-        return read_view_layers(handle, purpose_at);
-    }
-
-    bool le_is_layer_name_visible(LeHandle *handle, const char *layer_name)
-    {
-        if (!handle || !layer_name)
-            return true;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::layer_visible(*handle, layer_name);
-    }
-
-    void le_set_layer_name_visible(LeHandle *handle, const char *layer_name, bool visible)
-    {
-        if (!handle || !layer_name)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_layer_visible(*handle, layer_name, visible);
-    }
-
-    int32_t le_is_purpose_visible(LeHandle *handle, int32_t purpose)
-    {
-        if (!handle)
-            return 1;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::purpose_visible(*handle, static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
-    }
-
-    void le_set_purpose_visible(LeHandle *handle, int32_t purpose, int32_t visible)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_purpose_visible(*handle, static_cast<le::ViewLayerPurpose>(purpose), visible != 0);
-    }
-
-    int32_t le_is_layer_name_selectable(LeHandle *handle, const char *layer_name)
-    {
-        if (!handle || !layer_name)
-            return 1;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::layer_selectable(*handle, layer_name) ? 1 : 0;
-    }
-
-    void le_set_layer_name_selectable(LeHandle *handle, const char *layer_name, int32_t selectable)
-    {
-        if (!handle || !layer_name)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_layer_selectable(*handle, layer_name, selectable != 0);
-    }
-
-    int32_t le_purpose_has_selectable_objects(int32_t purpose)
-    {
-        if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
-            return 0;
-        return le::purpose_has_selectable_objects(static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
-    }
-
-    int32_t le_purpose_kind_count(void) { return static_cast<int32_t>(le::kViewLayerPurposeCount); }
-
-    const char *le_purpose_name(int32_t purpose)
-    {
-        if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
-            return nullptr;
-        // Labels are string literals in the generated table, so their data
-        // is null-terminated and lives for the whole process.
-        return le::kViewLayerPurposes[static_cast<size_t>(purpose)].label.data();
-    }
-
-    int32_t le_purpose_visible_by_default(int32_t purpose)
-    {
-        if (purpose < 0 || static_cast<size_t>(purpose) >= le::kViewLayerPurposeCount)
-            return 0;
-        return le::kViewLayerPurposes[static_cast<size_t>(purpose)].visible_by_default ? 1 : 0;
-    }
-
-    int32_t le_is_purpose_selectable(LeHandle *handle, int32_t purpose)
-    {
-        if (!handle)
-            return 1;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::purpose_selectable(*handle, static_cast<le::ViewLayerPurpose>(purpose)) ? 1 : 0;
-    }
-
-    void le_set_purpose_selectable(LeHandle *handle, int32_t purpose, int32_t selectable)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_purpose_selectable(*handle, static_cast<le::ViewLayerPurpose>(purpose), selectable != 0);
-    }
-
-    int32_t le_object_filter_value_count(LeHandle *handle, int32_t filter)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::object_filter_values(*handle, static_cast<le::ObjectFilter>(filter)).size());
-    }
-
-    const char *le_object_filter_value_at(LeHandle *handle, int32_t filter, int32_t index)
-    {
-        if (!handle || index < 0)
-            return nullptr;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        const std::span<const std::string> values = le::edit::object_filter_values(*handle, static_cast<le::ObjectFilter>(filter));
-        if (static_cast<size_t>(index) >= values.size())
-            return nullptr;
-        return hold_string(__func__, values[static_cast<size_t>(index)]);
-    }
-
-    int32_t le_is_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value)
-    {
-        if (!handle || !value)
-            return 1;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::object_filter_visible(*handle, static_cast<le::ObjectFilter>(filter), value) ? 1 : 0;
-    }
-
-    void le_set_object_filter_value_visible(LeHandle *handle, int32_t filter, const char *value, int32_t visible)
-    {
-        if (!handle || !value)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_object_filter_visible(*handle, static_cast<le::ObjectFilter>(filter), value, visible != 0);
-    }
-
-    int32_t le_is_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value)
-    {
-        if (!handle || !value)
-            return 1;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::object_filter_selectable(*handle, static_cast<le::ObjectFilter>(filter), value) ? 1 : 0;
-    }
-
-    void le_set_object_filter_value_selectable(LeHandle *handle, int32_t filter, const char *value, int32_t selectable)
-    {
-        if (!handle || !value)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_object_filter_selectable(*handle, static_cast<le::ObjectFilter>(filter), value, selectable != 0);
-    }
-
-    void le_zoom(LeHandle *handle, double factor, int32_t x, int32_t y)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::zoom(*handle, factor, x, y);
-    }
-
-    void le_pan(LeHandle *handle, double x_factor, double y_factor)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::pan(*handle, x_factor, y_factor);
-    }
-
-    int32_t le_set_view_flip(LeHandle *handle, int32_t flip)
-    {
-        if (!handle || flip < LE_VIEW_FLIP_NONE || flip > LE_VIEW_FLIP_VERTICAL)
-            return 1;
-        HandleWriteLock lock(handle);
-        le::edit::set_view_flip(*handle, static_cast<le::ViewFlip>(flip));
-        return 0;
-    }
-
-    int32_t le_view_flip(LeHandle *handle)
-    {
-        if (!handle)
-            return LE_VIEW_FLIP_NONE;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::view_state(*handle).flip);
-    }
-
-    void le_set_viewport_size(LeHandle *handle, int32_t width_px, int32_t height_px)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_viewport_size(*handle, width_px, height_px);
-    }
-
-    int32_t le_viewport_width_px(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->viewport_width_px();
-    }
-
-    int32_t le_viewport_height_px(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return handle->viewport_height_px();
-    }
-
-    void le_fit_scene(LeHandle *handle, int32_t padding_px)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::fit_view(*handle, padding_px);
-    }
-
-    void le_fit_rect(LeHandle *handle, double ll_x_um, double ll_y_um, double ur_x_um, double ur_y_um, int32_t padding_px)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        const double dbu_per_um = display_dbu_per_um(handle->root);
-        le::edit::fit_rect(*handle, le::Rect{.ll = {.x = to_dbu(ll_x_um, dbu_per_um), .y = to_dbu(ll_y_um, dbu_per_um)}, .ur = {.x = to_dbu(ur_x_um, dbu_per_um), .y = to_dbu(ur_y_um, dbu_per_um)}}, padding_px);
     }
 }

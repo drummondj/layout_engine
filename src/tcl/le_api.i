@@ -7,11 +7,9 @@
 // so a Tcl caller passes a real (possibly nested) list rather than
 // pre-flattening into a raw C array by hand.
 //
-// Wraps le_tcl_shim.hpp, not api.hpp directly: api.hpp passes a handle on
-// every call, while the Tcl-facing surface has no visible handle and uses
-// domain verb names, not le_<verb>_<noun> ones. le_tcl_shim.hpp/.cpp
-// supplies both by calling into api.hpp underneath a hidden
-// process-global LeHandle*.
+// Wraps le_tcl_shim.hpp: the Tcl-facing surface has no visible handle and
+// uses domain verb names. le_tcl_shim.hpp/.cpp supplies both by opening
+// the C++ views (views.hpp) on a hidden process-global LeHandle*.
 //
 // AbstractId/DesignId cross this boundary packed into a plain `long
 // long`, not as a wrapped C struct - see le_tcl_shim.hpp's own "IDs"

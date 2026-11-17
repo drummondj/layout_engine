@@ -4,9 +4,8 @@
 # command names (read_lef, not le_read_lef), and a real -flag-style
 # command (set_viewport_size) parsed in Tcl (le_tcl_procs.tcl) before
 # reaching the positional SWIG-wrapped *_cmd form. Still nothing to do
-# with CRUD/filter-search - that's Phases 1-4 - this only re-shapes
-# calls api.hpp already supports (read_lef, design enumeration, viewport
-# size) into the ergonomics the eventual CRUD surface will also use.
+# with CRUD/filter-search - this only checks the basic commands (read_lef,
+# design enumeration, viewport size) through the procs' option parsing.
 #
 # argv: <path to le_tcl shared module> <path to le_tcl_procs.tcl>
 #       <path to testcell.lef fixture>

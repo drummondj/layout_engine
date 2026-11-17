@@ -1,18 +1,16 @@
 // Proves set_session_handle() actually redirects le_tcl_shim.cpp's
 // session() to an externally-owned LeHandle*, not just that the Tcl
-// command runs without error. le_shell relies on this: the handle its
-// GUI renders (created via le_create()) must be the one every Tcl
-// CRUD/search command operates on.
+// command runs without error. le_shell relies on this: the session its
+// GUI renders must be the one every Tcl CRUD/search command operates on.
 //
 // Two levels of proof, not one:
-// 1. A handle created and pre-loaded directly via api.hpp (no Tcl
-//    involved at all) is visible through Tcl once injected - rules out
-//    "Tcl silently fell back to its own fresh self-created handle and
+// 1. A session loaded directly through the C++ views (no Tcl involved
+//    at all) is visible through Tcl once injected - rules out "Tcl
+//    silently fell back to its own fresh self-created handle and
 //    happened to still return something plausible."
-// 2. A Terminal created *via a Tcl command* is visible through a
-//    *direct* api.hpp call on the same raw LeHandle* pointer afterward -
-//    the strongest possible proof this is genuinely one shared handle,
-//    not two handles that happen to agree on one read.
+// 2. A Terminal created *via a Tcl command* is visible through a view on
+//    the same session afterward - the strongest possible proof this is
+//    genuinely one shared handle, not two that happen to agree on one read.
 //
 // Each TEST() below runs as its own ctest case (gtest_discover_tests
 // invokes this binary once per test, with its own --gtest_filter - see
@@ -20,19 +18,20 @@
 
 #include <gtest/gtest.h>
 
-#include "api.hpp"
+#include "views.hpp"
 
 #include <tcl.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 TEST(SessionHandle, InjectedHandleIsSharedNotFresh)
 {
-    LeHandle *handle = le_create();
-    ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
-    ASSERT_EQ(le_design_count(handle), 1);
+    le::Session session;
+    LeHandle *handle = session.handle();
+    ASSERT_TRUE(session.write().read_lef(API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"));
+    ASSERT_EQ(session.read().root().get_design_ids().size(), 1u);
 
     Tcl_FindExecutable(nullptr);
     Tcl_Interp *interp = Tcl_CreateInterp();
@@ -72,12 +71,14 @@ TEST(SessionHandle, InjectedHandleIsSharedNotFresh)
         "create_terminal_cmd " + abstract_token + " SESSION_HANDLE_TEST INPUT {} {} {} {} {} {} {} {} 0 0 0 0 0 0 0 0";
     ASSERT_EQ(Tcl_Eval(interp, create_command.c_str()), TCL_OK) << Tcl_GetStringResult(interp);
 
-    // Proof 2: a Terminal created via Tcl is visible through a direct
-    // api.hpp call on the same raw pointer, bypassing Tcl entirely.
-    EXPECT_EQ(le_search_terminal(handle, ".name == SESSION_HANDLE_TEST"), 1);
+    // Proof 2: a Terminal created via Tcl is visible through a view on
+    // the same session, bypassing Tcl entirely.
+    const le::AbstractId abstract = session.read().root().get_design_abstract(session.read().root().get_design_ids().front());
+    const auto found = session.read().get_terminals({.of_abstract = abstract, .filter = ".name == SESSION_HANDLE_TEST"});
+    ASSERT_TRUE(found);
+    EXPECT_EQ(found->size(), 1u);
 
     Tcl_DeleteInterp(interp);
-    le_destroy(handle);
 }
 
 // Both this test binary (which links `api` - and transitively `io`'s
@@ -86,7 +87,7 @@ TEST(SessionHandle, InjectedHandleIsSharedNotFresh)
 // `api`/`io`/liblef.a) end up with two independently-compiled copies of
 // the vendored LEF parser's C++ code loaded into the *same* process.
 // This calls `read_lef` *through Tcl* (le_tcl.so's own copy of the
-// parser) *first*, with no prior direct api.hpp call in this process.
+// parser) *first*, with no prior direct read in this process.
 // Without le_tcl's -unexported_symbols_list (CMakeLists.txt), le_tcl.so's
 // internal call to LefDefParser::lefGetKeyword()'s function-local static
 // keyword-table std::map gets bound by dyld to this binary's own
@@ -113,7 +114,7 @@ TEST(SessionHandle, ReadLefThroughTclFirstDoesNotCrash)
 }
 
 // Covers the other reachable ordering: a LEF already read through this
-// process's own *direct* api.hpp copy, *then* a single Tcl_Interp (as in
+// process's own copy of the views, *then* a single Tcl_Interp (as in
 // le_shell - one Tcl_Interp, created once, reused for the whole session)
 // loads le_tcl.so and reads a LEF through it too. Exists
 // separately from ReadLefThroughTclFirstDoesNotCrash because gtest runs
@@ -141,9 +142,9 @@ TEST(SessionHandle, ReadLefThroughTclFirstDoesNotCrash)
 // Tcl first, matching "get_shapes on an open abstract" as reported.
 TEST(SessionHandle, GetShapesThroughTclDoesNotCrash)
 {
-    LeHandle *handle = le_create();
-    ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
+    le::Session session;
+    LeHandle *handle = session.handle();
+    ASSERT_TRUE(session.write().read_lef(API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"));
 
     Tcl_FindExecutable(nullptr);
     Tcl_Interp *interp = Tcl_CreateInterp();
@@ -169,15 +170,14 @@ TEST(SessionHandle, GetShapesThroughTclDoesNotCrash)
     ASSERT_EQ(Tcl_Eval(interp, "get_properties shape:0"), TCL_OK) << Tcl_GetStringResult(interp);
 
     Tcl_DeleteInterp(interp);
-    le_destroy(handle);
 }
 
 TEST(SessionHandle, DirectReadThenSingleTclInterpReadBothSucceed)
 {
-    LeHandle *handle = le_create();
-    ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
-    le_destroy(handle);
+    {
+        le::Session session;
+        ASSERT_TRUE(session.write().read_lef(API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"));
+    }
 
     Tcl_FindExecutable(nullptr);
     Tcl_Interp *interp = Tcl_CreateInterp();
@@ -194,22 +194,20 @@ TEST(SessionHandle, DirectReadThenSingleTclInterpReadBothSucceed)
     Tcl_DeleteInterp(interp);
 }
 
-// Regression check for src/gui/components/layer_manager.cpp's own
-// enqueue() (and the broader le_enqueue_tcl_command/
-// le_take_next_pending_tcl_command mechanism, api.hpp) - the whole
-// reason a GUI component queues a Tcl command instead of calling the
-// matching le_* function directly is so the action leaves a
-// command_history entry a user can see, same as a typed line would (see
-// le_enqueue_tcl_command's own doc comment). This drives the queue +
+// Regression check for the GUI's queued Tcl commands
+// (SessionRequests::enqueue_tcl_command/take_next_tcl_command) - the
+// whole reason a GUI component queues a Tcl command instead of calling
+// the matching view member directly is so the action leaves a
+// command_history entry a user can see, same as a typed line would. This drives the queue +
 // drain + le_repl_eval chain exactly like le_shell.cpp's own
 // drain_pending_gui_commands does (minus its own readline terminal-
 // display bookkeeping, irrelevant here - readline itself isn't under
 // test, just that draining actually applies the command and records it).
 TEST(SessionHandle, EnqueuedTclCommandDrainsThroughLeReplEvalAndRecordsHistory)
 {
-    LeHandle *handle = le_create();
-    ASSERT_NE(handle, nullptr);
-    ASSERT_EQ(le_read_lef(handle, API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"), 0);
+    le::Session session;
+    LeHandle *handle = session.handle();
+    ASSERT_TRUE(session.write().read_lef(API_TEST_FIXTURES_DIR "/testcell.lef", "testcell"));
 
     Tcl_FindExecutable(nullptr);
     Tcl_Interp *interp = Tcl_CreateInterp();
@@ -225,35 +223,33 @@ TEST(SessionHandle, EnqueuedTclCommandDrainsThroughLeReplEvalAndRecordsHistory)
 
     ASSERT_EQ(Tcl_Eval(interp, "source " LE_TCL_PROCS_PATH), TCL_OK) << Tcl_GetStringResult(interp);
 
-    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "nothing queued yet";
+    const le::SessionRequests requests = session.requests();
+    EXPECT_EQ(requests.take_next_tcl_command(), std::nullopt) << "nothing queued yet";
 
     // Simulates what a GUI component does (layer_manager.cpp's own
     // enqueue()) - queues the same command text a typed line would use
     // instead of evaluating it directly.
-    le_enqueue_tcl_command(handle, "set_layer_visible {M1} 0");
+    requests.enqueue_tcl_command("set_layer_visible {M1} 0");
 
     // Simulates le_shell.cpp's own drain_pending_gui_commands - drains
     // the queue and evaluates through le_repl_eval, same as a typed line.
-    const char *command = le_take_next_pending_tcl_command(handle);
-    ASSERT_NE(command, nullptr);
-    const std::string command_copy = command;
-    Tcl_SetVar(interp, "le_pending_command", command_copy.c_str(), TCL_GLOBAL_ONLY);
+    const std::optional<std::string> command = requests.take_next_tcl_command();
+    ASSERT_TRUE(command);
+    Tcl_SetVar(interp, "le_pending_command", command->c_str(), TCL_GLOBAL_ONLY);
     ASSERT_EQ(Tcl_Eval(interp, "le_repl_eval $le_pending_command"), TCL_OK) << Tcl_GetStringResult(interp);
 
-    EXPECT_EQ(le_take_next_pending_tcl_command(handle), nullptr) << "queue should be drained";
+    EXPECT_EQ(requests.take_next_tcl_command(), std::nullopt) << "queue should be drained";
 
     // The queued command actually took effect...
-    EXPECT_FALSE(le_is_layer_name_visible(handle, "M1"));
+    EXPECT_FALSE(session.read().layer_visible("M1"));
 
     // ...and left a command_history entry, same as if it had been typed
     // directly at the prompt - the entire point of routing this action
-    // through Tcl at all instead of a direct le_set_layer_name_visible()
-    // call.
+    // through Tcl at all instead of a direct set_layer_visible call.
     ASSERT_EQ(Tcl_Eval(interp, "command_history_count"), TCL_OK) << Tcl_GetStringResult(interp);
     EXPECT_STREQ(Tcl_GetStringResult(interp), "1");
     ASSERT_EQ(Tcl_Eval(interp, "command_history_at 0"), TCL_OK) << Tcl_GetStringResult(interp);
     EXPECT_STREQ(Tcl_GetStringResult(interp), "set_layer_visible {M1} 0");
 
     Tcl_DeleteInterp(interp);
-    le_destroy(handle);
 }

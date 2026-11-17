@@ -168,23 +168,3 @@ void dispatch_mutation_listeners(LeHandle *handle)
         }
     }
 }
-
-extern "C"
-{
-    int32_t le_extension_count(void)
-    {
-        return static_cast<int32_t>(le::ext::registry().extensions().size());
-    }
-
-    const char *le_extension_name(int32_t index)
-    {
-        const auto &extensions = le::ext::registry().extensions();
-        return index >= 0 && static_cast<size_t>(index) < extensions.size() ? extensions[static_cast<size_t>(index)].name.c_str() : nullptr;
-    }
-
-    const char *le_extension_version(int32_t index)
-    {
-        const auto &extensions = le::ext::registry().extensions();
-        return index >= 0 && static_cast<size_t>(index) < extensions.size() ? extensions[static_cast<size_t>(index)].version.c_str() : nullptr;
-    }
-}

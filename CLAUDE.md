@@ -145,31 +145,30 @@ fails on a temp path that isn't unique to its process.
   slot kept off the free list) and undo/redo `restore` it at the same id
   and child-list position; a transaction leaving the history releases
   its slots.
-- `src/api/` — `views.hpp`, the C++ API (`views.cpp`): `le::Session` owns
-  a `LeHandle`; `ReadView`/`WriteView` hold its lock shared/exclusive and
-  their members are the operations (over `le::edit`); `Transaction` groups
-  edits into one undo step; `Renderer` is the render thread's wait/render/
-  cancel, never opening a view. `interaction_types.hpp` holds the design
-  view's modes, keys and snap/orientation enums the views take. Every
-  front end calls it; `api.hpp`, the plain-C API, remains (for `src/api/tests`
-  and extensions' `handle()` calls) until it's removed, implemented by concern: `api.cpp` (I/O, design/library access,
-  properties and search, undo, shape ops, rendering), `input.cpp` (the
-  mouse/key state machine, modes, rulers, Move, Resize, Delete),
-  `selection.cpp` (hit candidates, click/drag select), `view_options.cpp`
-  (`ViewRenderOptions` from handle state, pan/zoom/fit, layer and filter
-  visibility), `settings.cpp` (settings JSON and its migration),
-  `session.cpp` (the `.led` session JSON); helpers they share are in
-  `api_internal.hpp` (`le::api_detail`). Its edits are a shim (C arguments, microns to dbu, locking, logging)
-  over `le::edit` (`edit_ops.hpp`/`edit_ops.cpp`): the generated
+- `src/api/` — `views.hpp`, the C++ API (`views.cpp`) every front end
+  calls: `le::Session` owns a `LeHandle`; `ReadView`/`WriteView` hold its
+  lock shared/exclusive and their members are the operations (over
+  `le::edit`); `Transaction` groups edits into one undo step; `Renderer` is
+  the render thread's wait/render/cancel, never opening a view;
+  `SessionRequests` passes show/close-GUI requests and queued Tcl commands
+  between threads. `interaction_types.hpp` holds the design view's modes,
+  keys and snap/orientation enums the views take. The operations are
+  implemented by concern: `api.cpp` (I/O, properties and paths, netlist
+  edits, undo), `input.cpp` (the mouse/key state machine, modes, rulers,
+  Move, Resize, Delete), `selection.cpp` (hit candidates, click/drag
+  select), `view_options.cpp` (`ViewRenderOptions` from handle state,
+  pan/zoom/fit, layer and filter visibility), `settings.cpp` (settings JSON
+  and its migration), `session.cpp` (the `.led` session JSON); helpers they
+  share are in `api_internal.hpp` (`le::api_detail`). Edits go through
+  `le::edit` (`edit_ops.hpp`/`edit_ops.cpp`): the generated
   create/update/delete per class (`generated/api/edit_ops_*.inc`, with
   `<Type>Changes` in `edit_types.hpp`) and the shape ops, in native types
   with `std::expected` errors, validating, bumping the mutation version
-  and recording undo; the caller holds the exclusive lock. The session
-  state ops live beside their C shims: selection (`selection.cpp`), the
-  open view and viewport (`view_options.cpp`), rulers (`input.cpp`), file
-  reads/writes and opening a view (`api.cpp`; they log as the C API always
-  has and return the error text too). Extensions reach them all through
-  `le::ext::WriteView`.
+  and recording undo; the caller holds the exclusive lock. Selection
+  (`selection.cpp`), the open view and viewport (`view_options.cpp`),
+  rulers (`input.cpp`), and file reads/writes and opening a view (`api.cpp`;
+  they log what they report and return the error text too) are `le::edit`
+  ops as well. Extensions reach them all through `le::ext::WriteView`.
   Its header-only helpers: `hit_test.hpp` (Placement, Row, Abstract-view
   and Layout-view hit-tests), `shape_ops.hpp` (the `shape_*` ops: resolve
   inputs, run the `Geometry` area op, store each result as a new Shape in
@@ -177,20 +176,19 @@ fails on a temp path that isn't unique to its process.
   otherwise - never written by `write_lef`/`write_def`), `placement_move.hpp`/`fin_grid.hpp` (Placement
   Move planning and snapping: SITE rows for CORE cells, fin grid,
   manufacturing grid), `shape_resize.hpp` (Resize handles and snapping;
-  also how Move snaps paths/vias). The C API has no `std::` types,
-  default arguments or overloads in public declarations. `LeHandle` (`le_handle.hpp`, never included by `api.hpp`)
-  owns one `Root`, `ViewLayerSet`, `ViewRenderPipeline`, `CommandHistory`,
-  and all view/interaction state, grouped in private `view_`/
-  `interaction_`/`selection_`/`settings_` structs behind its methods:
-  current Abstract *or* Layout (mutually
+  also how Move snaps paths/vias). `LeHandle` (`le_handle.hpp`, opaque
+  outside the api module) owns one `Root`, `ViewLayerSet`,
+  `ViewRenderPipeline`, `CommandHistory`, and all view/interaction state,
+  grouped in private `view_`/`interaction_`/`selection_`/`settings_`
+  structs behind its methods: current Abstract *or* Layout (mutually
   exclusive by convention), pan/scale, visibility/selectability, selection
   (`SelectedObject` = `std::variant<ShapePiece, RowId, PlacementId,
   RegionId>`), rulers, Move/Resize state, mode (`SELECT`/`EDIT`/`RULER`;
-  only Select changes the selection). Every function null-checks its
-  handle. Read-only calls take the handle's `shared_mutex` shared so the
-  GUI stays live during a render; mutations take it exclusive. Vias and
-  via arrays are selectable pieces hit-tested in selection.cpp (their geometry
-  comes from `pipelines/via_shapes.hpp`, which `core` can't depend on).
+  only Select changes the selection). Renders and `ReadView`s take the
+  handle's `shared_mutex` shared so the GUI stays live during a render;
+  edits take it exclusive. Vias and via arrays are selectable pieces
+  hit-tested in selection.cpp (their geometry comes from
+  `pipelines/via_shapes.hpp`, which `core` can't depend on).
 - `src/tcl/` — the Tcl surface: `le_api.i` (SWIG) wraps `le_tcl_shim` into
   `le_tcl.so` (every command, generated or hand-written, calls the C++
   views and keeps a failure's reason for `last_error_cmd`); `le_tcl_procs.tcl` parses `-flag value` syntax (`_parse_options`/
@@ -230,8 +228,8 @@ fails on a temp path that isn't unique to its process.
   automated coverage of the render/input loop itself.
 - `src/extension/` — the extension SDK header, `le/extension.hpp`
   (`le::ext::Registry`, `ExtensionContext` with `read()`/`write()`/
-  `write(label)`/`transaction()`/`data<T>()`/`current_<type>()`, generated
-  `to_c`/`from_c` id conversions; the views are `api/views.hpp`'s, aliased
+  `write(label)`/`transaction()`/`data<T>()`/`current_<type>()`; the views
+  are `api/views.hpp`'s, aliased
   into `le::ext`: `WriteView`'s undoable
   `create_/update_/delete_<type>`, the views' `shape_*` ops, selection,
   view, ruler and file members over `le::edit`, and micron helpers (`units()`, `build_shape`); implemented in `src/api/extension.cpp` and `views.cpp`),
@@ -334,7 +332,8 @@ fails on a temp path that isn't unique to its process.
 [cmg](https://github.com/johndru-astrophysics/cmg) (INDEXED_POOLS export
 style). `codegen/codegen/schema.py`'s `Klass`/`Field` are the model and
 its derived queries; `codegen/codegen/emitters/` holds the code emitted
-from it (C API, `le::edit` ops, `Root::update_<type>`, the Tcl procs), which
+from it (`le::edit` ops, `Root::update_<type>`, the Tcl shim's native
+create/update bodies, the Tcl procs), which
 templates call as `emit.<module>.<function>(klass)`, each with unit tests
 in `codegen/tests/test_emitters.py`. Every `Klass` in `schema.py`
 becomes an `XxxData` struct, an `XxxId` `{index, generation}` handle,
@@ -350,7 +349,7 @@ unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
 - `Klass.create_check`/`update_check` name hand-written `le::edit`
   functions (`api/edit_ops.hpp`, given the `Root`) the generated
   `create_<type>`/`update_<type>` edit ops call before changing anything,
-  so Tcl, the C API and extensions share one rule (e.g. Placement's
+  so Tcl, the GUI and extensions share one rule (e.g. Placement's
   `check_placement_update`: a FIXED/COVER placement keeps its location and
   orientation until unlocked; Instance's checks refuse a recursive
   hierarchy).
@@ -362,8 +361,7 @@ unless `has_pool=False` (an embedded value type like `Point`/`Rect`).
   so at most one is set. Read them with accessors (`shape.route()`), build
   one with `ShapeOwner::route(id)`, and move a Shape with
   `Root::set_shape_owner`; Tcl flags and filter hops keep the field names.
-  The C API takes the owner as one `LeShapeOwner` (kind constant plus id,
-  `le_shape_owner_route(id)`); Tcl keeps a flag per owner. An extension
+  Tcl keeps a flag per owner. An extension
   class owning Shapes (`owner=True` on its child list) gets a synthesized
   owner option, which just adds a kind.
 - `Root` keeps a change log (`change_log()`, a fixed ring): every
@@ -398,9 +396,9 @@ readable `Klass` gets a property table, friendly-id resolution, `is_child`
 enumeration, `get_<type>`, and `create_<type>`/`update_<type>`/
 `delete_<type>`. `get_<type>` is C++ first (`le::edit::get_<plural>` and
 `ReadView::get_<plural>` over a `<Type>Query`, `search_defs.inc`, under
-the shared lock); `le_get_<type>` is a shim that caches its result.
-`le::ObjectId` (`edit_types.hpp`) is a variant of every readable class's
-id, in `LeObjectKind` order.
+the shared lock). `le::ObjectId` (`edit_types.hpp`) is a variant of every
+readable class's id, in schema order (`object_dispatch.inc`'s
+`kObjectKinds` names each).
 
 - `Klass.tcl_category` puts a class's generated commands in that section
   of the command reference (`docs/TCL_COMMANDS.md`: Technology, Abstract,

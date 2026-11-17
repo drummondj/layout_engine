@@ -306,7 +306,7 @@ namespace le::gui
         // menus/toolbars (mentioned as later work) start sharing the
         // window with the design view. `scale_x`/`scale_y` convert from
         // ImGui's own logical/window coordinate space into the backend's
-        // own pixel space (matching le_set_viewport_size's own
+        // own pixel space (matching set_viewport_size's own
         // framebuffer-pixel units) - they differ on a HiDPI/Retina
         // display, where the framebuffer has more real pixels than
         // logical points. Returns `hovered` - the caller also gates
@@ -366,7 +366,7 @@ namespace le::gui
                 }
             }
 
-            // A signed fractional step per wheel tick, matching le_zoom's
+            // A signed fractional step per wheel tick, matching zoom's
             // own "positive zooms in, negative zooms out" convention -
             // smaller than the GUI toolbar's own fixed 0.3-per-keypress
             // step, since a scroll
@@ -1103,7 +1103,7 @@ namespace le::gui
             // (resizing a sidebar) changes this panel's own content
             // region *every single frame* for the whole drag, and acting
             // on each one immediately would mean a full synchronous
-            // rasterize per frame (le_set_viewport_size's own cost - a
+            // rasterize per frame (set_viewport_size's own cost - a
             // real design can take seconds cold),
             // stalling the drag itself rather than just following it.
             // pending_viewport_width/height/pending_viewport_change_time
@@ -1213,7 +1213,7 @@ namespace le::gui
                 // showing each of those would flicker the spinner while
                 // the mouse moves.
                 // A Tcl command holds renders until it ends
-                // (le_begin_command), so without this the view would sit
+                // (begin_command), so without this the view would sit
                 // still with no feedback; it gets the same overlay,
                 // labelled "running...".
                 const double now = glfwGetTime();
@@ -1330,7 +1330,7 @@ namespace le::gui
                 // (asymmetric padding), not cosmetic preference.
                 ImGui::BeginChild("mode_selector_column", ImVec2(kModeSelectorWidth, full_panel_height), ImGuiChildFlags_AlwaysUseWindowPadding);
                 // Called unconditionally - draw_mode_selector's own
-                // le_get_mode call is std::shared_lock now (panels.draw()'s
+                // mode() call is std::shared_lock now (panels.draw()'s
                 // own comment further up).
                 draw_mode_selector(provider);
                 draw_child_edge(ImGuiDir_Right);
@@ -1362,7 +1362,7 @@ namespace le::gui
                 // top/bottom).
                 ImGui::BeginChild("mode_toolbar_row", ImVec2(0.0f, kModeToolbarHeight), ImGuiChildFlags_AlwaysUseWindowPadding);
                 // Called unconditionally - draw_mode_toolbar's own
-                // le_get_mode/le_is_move_armed calls are std::shared_lock
+                // mode()/move_armed calls are std::shared_lock
                 // now (panels.draw()'s comment further up).
                 draw_mode_toolbar(provider, [&provider, handle] { draw_extension_toolbar_buttons(provider, handle); });
                 draw_child_edge(ImGuiDir_Down);
@@ -1375,7 +1375,7 @@ namespace le::gui
                 // and now also ModeSelector/ModeToolbar's own fixed
                 // sizes above - not the whole GLFW window - converted to
                 // framebuffer pixels via scale_x/scale_y for
-                // le_set_viewport_size, which (like every other le_*
+                // set_viewport_size, which (like every other le_*
                 // pixel-space call) works in real framebuffer pixels,
                 // not logical points.
                 const ImVec2 panel_avail = ImGui::GetContentRegionAvail();
@@ -1422,7 +1422,7 @@ namespace le::gui
                         pending_viewport_change_time = glfwGetTime();
                     }
                     constexpr double kResizeDebounceSeconds = 0.15;
-                    // !is_rendering - le_set_viewport_size is
+                    // !is_rendering - set_viewport_size is
                     // handle->mutex_-locked (see this frame's own
                     // is_rendering doc comment further up), so a resize
                     // that lands while a render is in flight (the render
@@ -1476,7 +1476,7 @@ namespace le::gui
                     }
                 }
 
-                // is_rendering (the spinner signal, le_is_rendering)
+                // is_rendering (the spinner signal, Renderer::is_rendering)
                 // covers the very first, potentially multi-second cold
                 // render just as much as any later one - computed once,
                 // up at the top of this frame (this function's own
@@ -1508,7 +1508,7 @@ namespace le::gui
                         static_cast<ImTextureID>(static_cast<intptr_t>(texture_id)),
                         ImVec2(panel_width, image_win_height));
                     // forward_mouse_input is handle->mutex_-locked
-                    // (le_set_mouse_position/le_mouse_down/up/...) - see
+                    // (set_mouse_position/mouse_down/up/...) - see
                     // this frame's own is_rendering doc comment further
                     // up. IsItemHovered() alone needs no handle call, so
                     // hover (and therefore the spinner/hidden-cursor
@@ -1641,14 +1641,14 @@ namespace le::gui
                 }
 
                 // !input_blocked - forward_keyboard_input calls
-                // le_key_down/_up/le_clear_all_keys, all
+                // key_down/_up/clear_keys, all
                 // handle->mutex_-locked (see this frame's own
                 // is_rendering doc comment further up); layout_view_hovered
                 // already stays false while is_rendering (the
                 // have_content block above only sets it in the
                 // !is_rendering branch), so skipping the call outright
                 // here (rather than just passing `active=false` through)
-                // avoids it still calling le_clear_all_keys, which is
+                // avoids it still calling clear_keys, which is
                 // itself just as locked. Whatever was held down when
                 // rendering started stays "held" from the backend's own
                 // point of view until this resumes running once the
@@ -1665,8 +1665,8 @@ namespace le::gui
                 }
 
                 // Called unconditionally - draw_status_bar's own
-                // le_get_mode/le_tooltip_message/le_snapped_mouse_position/
-                // le_selection_count calls are all std::shared_lock now
+                // mode()/tooltip/snapped_mouse_position/
+                // selection() calls are all std::shared_lock now
                 // (panels.draw()'s comment further up).
                 draw_status_bar(provider, panel_width);
 

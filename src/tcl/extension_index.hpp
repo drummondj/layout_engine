@@ -43,7 +43,7 @@ namespace le
 
     /// @brief Reads and checks `file` against the running binary: its
     /// layout_engine version and extension API, and `compiled` (the names of
-    /// the compiled extensions the binary was built with, le_extension_name)
+    /// the compiled extensions the binary was built with, from the registry)
     /// - every compiled entry must be in the binary and every compiled
     /// extension in the index, so a stale index can't load another build's
     /// procs. Every procs file must exist. Returns why not on failure.

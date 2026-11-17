@@ -1,11 +1,10 @@
 #pragma once
 
-// Helpers the C API's translation units (api.cpp, input.cpp,
+// Helpers the session's translation units (api.cpp, input.cpp,
 // selection.cpp, session.cpp, settings.cpp, view_options.cpp) share.
 // Each is defined in the TU of its concern. An `_unlocked` helper expects
 // the caller to hold the handle's lock already.
 
-#include "api.hpp"
 #include "le_handle.hpp"
 
 #include "../database/database.hpp"
@@ -27,15 +26,6 @@ namespace le::api_detail
 {
     // --- api.cpp ---
 
-    /// @brief Logs the exception being handled. The entry points that parse,
-    /// read, write, link or render catch everything with it, so no exception
-    /// crosses the C boundary.
-    void log_exception(const char *function) noexcept;
-
-    /// @brief Copies `value` into `function`'s string for this thread: valid
-    /// until that function's next call on this thread.
-    const char *hold_string(std::string_view function, std::string_view value);
-
     /// @brief The Technology's dbu per micron; nullopt if none has been read
     /// yet or it has no usable scale.
     std::optional<double> database_units_microns(const le::Root &root);
@@ -54,28 +44,6 @@ namespace le::api_detail
     /// nullopt for an empty one.
     std::expected<std::optional<le::FilterExpr>, std::string> parse_search_filter(const std::string &root_class, const std::string &filter);
 
-    /// @brief replay_outcome as 1 (replayed), 0 (nothing to replay) or -1 (steps failed).
-    int32_t report_replay(LeHandle *handle, const le::editing::ReplayResult &result, std::string_view verb);
-
-    inline LeObjectRef invalid_object_ref()
-    {
-        return LeObjectRef{.kind = LE_OBJECT_KIND_LIBRARY, .index = UINT32_MAX, .generation = 0};
-    }
-
-    // A ref's `index`/`generation` pair is its class's LeXxxId fields, so
-    // converting is a bare field copy.
-    template <typename IdT>
-    IdT id_from_ref(LeObjectRef ref)
-    {
-        return IdT{.index = ref.index, .generation = ref.generation};
-    }
-
-    template <typename IdT>
-    LeObjectRef ref_from_id(LeObjectKind kind, IdT id)
-    {
-        return LeObjectRef{.kind = kind, .index = id.index, .generation = id.generation};
-    }
-
     // --- view_options.cpp ---
 
     /// @brief Rebuilds handle->view_layers for `technology_id`.
@@ -88,39 +56,11 @@ namespace le::api_detail
     /// @brief Whether handle->view_layers is up to date, without rebuilding.
     bool view_layers_already_current(const LeHandle *handle);
 
-    // The GUI's per-frame layer-list reads (le_layer_count/_at,
-    // le_purpose_count/_at): current view_layers under a shared_lock when
-    // they're up to date; otherwise rebuild them under the write lock - but
-    // only if it's free right now. A render in progress holds a shared_lock
-    // for its whole (possibly multi-second) run, and waiting for the write
-    // lock behind it froze the GUI thread for all of it - no frames, so no
-    // progress spinner, whenever a render followed any database change
-    // (e.g. the first render after read_def). Then the current, slightly
-    // stale layer list is read instead, and a later frame rebuilds it. No
-    // notify_render_needed(): the render graph builds its own layer set.
-    template <typename Read>
-    auto read_view_layers(LeHandle *handle, Read read)
-    {
-        {
-            std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-            if (view_layers_already_current(handle))
-                return read(handle->view_layers);
-        }
-        std::unique_lock<std::shared_mutex> write_lock(handle->mutex_, std::try_to_lock);
-        if (write_lock.owns_lock())
-        {
-            ensure_view_layers_current(handle);
-            return read(handle->view_layers);
-        }
-        std::shared_lock<std::shared_mutex> read_lock(handle->mutex_);
-        return read(handle->view_layers);
-    }
-
     /// @brief The Technology's dbu per micron, 0.0 if unavailable.
     double technology_dbu_per_um(const le::Root &root);
 
     /// @brief A ViewRenderOptions snapshot of the handle's root and view
-    /// state, for le_render_pixel_buffer.
+    /// state, for Renderer::render.
     le::ViewRenderOptions view_render_options_for(const LeHandle *handle);
 
     void zoom_unlocked(LeHandle *handle, double factor, int32_t x, int32_t y);
@@ -149,9 +89,9 @@ namespace le::api_detail
     /// @brief Every PlacementId in the current selection, in selection order.
     std::vector<le::PlacementId> selected_placements_unlocked(const LeHandle *handle);
 
-    /// @brief le_mouse_up's Select-mode click at dbu `p`.
+    /// @brief mouse_up's Select-mode click at dbu `p`.
     void click_select_unlocked(LeHandle *handle, le::Point p, const std::vector<LeHandle::SelectedObject> &previous, bool shift);
-    /// @brief le_mouse_up's Select-mode drag-select, released at pixel (x, y).
+    /// @brief mouse_up's Select-mode drag-select, released at pixel (x, y).
     void select_in_abstract_view_unlocked(LeHandle *handle, int32_t x, int32_t y);
     void select_in_layout_view_unlocked(LeHandle *handle, int32_t x, int32_t y);
 

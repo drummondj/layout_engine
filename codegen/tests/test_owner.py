@@ -107,14 +107,9 @@ class TestOwnerApi(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as out:
             self.assertEqual(tcl_generator.generate(_schema(), out, logging.getLogger("test")), 0)
-            declarations = (Path(out) / "api" / "declarations.inc").read_text()
             shim = (Path(out) / "tcl" / "le_tcl_shim_generated.inc").read_text()
             procs = (Path(out) / "tcl" / "le_tcl_procs_generated.tcl").read_text()
-        self.assertIn("} LeItemOwner;", declarations)
-        self.assertIn("LE_ITEM_OWNER_ROOT = 1,", declarations)
-        self.assertIn("LE_ITEM_OWNER_HOLDER = 2,", declarations)
-        self.assertIn("static inline LeItemOwner le_item_owner_holder(LeHolderId id)", declarations)
-        self.assertIn("LeItemId le_create_item(LeHandle *handle, LeItemOwner owner, int32_t size)", declarations)
+        self.assertIn("create_item_native(le::WriteView &view, le::ItemOwner owner, int32_t size)", shim)
         self.assertIn("resolve_item_owner(lk, owner_kind, owner_id)", shim)
         self.assertIn("return le::ItemOwner::holder(resolve_holder_id(lk, id));", shim)
         # Tcl keeps a flag per owner and passes the given one's name and token.

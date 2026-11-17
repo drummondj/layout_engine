@@ -53,7 +53,7 @@ namespace le
         bool finished = false;
     };
 
-    /// @brief How the view is mirrored on screen (le_set_view_flip): about
+    /// @brief How the view is mirrored on screen (WriteView::set_view_flip): about
     /// the frame's vertical centre line (HORIZONTAL, left and right swap)
     /// or its horizontal one (VERTICAL, top and bottom swap). The same dbu
     /// area shows either way.

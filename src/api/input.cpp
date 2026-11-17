@@ -293,7 +293,7 @@ namespace
 {
     void update_resize_hover_unlocked(LeHandle *handle);
 
-    // arm_resize/le_arm_resize's body - Edit mode, with at least one
+    // arm_resize/arm_resize's body - Edit mode, with at least one
     // selected piece (Row/Placement/Region selections have no edges to
     // drag).
     void arm_resize_unlocked(LeHandle *handle)
@@ -341,7 +341,7 @@ namespace
         return best;
     }
 
-    // le_set_mouse_position with Resize armed and nothing grabbed: the
+    // set_mouse_position with Resize armed and nothing grabbed: the
     // hover indicator for whatever is now under the mouse.
     void update_resize_hover_unlocked(LeHandle *handle)
     {
@@ -367,7 +367,7 @@ namespace
         handle->root.bump_mutation_version();
     }
 
-    // le_mouse_up's Edit-mode click with Resize armed - Resize's two-click
+    // mouse_up's Edit-mode click with Resize armed - Resize's two-click
     // gesture: the first click grabs the edge/segment under it (a click
     // on nothing grabbable does nothing), the second commits the ghost.
     // Returns false if Resize isn't armed, so the click falls through to
@@ -389,8 +389,8 @@ namespace
         return true;
     }
 
-    // le_placement_orientation_ops_enabled's own body - a bit (1 << op)
-    // per LeOrientationOp that every selected placement allows right now:
+    // placement_orientation_ops_enabled's own body - a bit (1 << op)
+    // per le::OrientationOp that every selected placement allows right now:
     // none while a Move is under way - anchored by its first click, ghost
     // showing (merely arming Move doesn't count) - or outside a Layout view; otherwise each op the
     // PlacementSnapper permits for every one of them (only ever restricted
@@ -426,7 +426,7 @@ namespace
         return mask;
     }
 
-    // Below this many pixels of down-to-up movement, le_mouse_up treats a
+    // Below this many pixels of down-to-up movement, mouse_up treats a
     // gesture as a click rather than a drag-select - small enough that an
     // intended click with a little hand tremor still registers as one,
     // large enough that a real rubber-band drag never gets misread as a
@@ -435,14 +435,14 @@ namespace
     constexpr int32_t kClickDragThresholdPx = 4;
 
     // Fixed step sizes for the keyboard-triggered canvas-navigation
-    // commands (le_key_down's LE_KEY_ZOOM/LE_KEY_FIT/LE_KEY_PAN_*) - not
+    // commands (key_down's Key::ZOOM/Key::FIT/Key::PAN_*) - not
     // exposed/configurable, same reasoning as kClickDragThresholdPx.
     constexpr double kKeyZoomFactor = 0.3;
     constexpr int32_t kKeyFitPaddingPx = 10;
     constexpr double kKeyPanFactor = 0.25;
 
     // The tooltip's text, one per InteractionMode. Edit mode lists
-    // every key le_key_down acts on in that mode, separated by a blank
+    // every key key_down acts on in that mode, separated by a blank
     // line ("\n\n"); the Info panel wraps each to its width.
     constexpr const char *kSelectModeTooltip =
         "Left click to select. Shift for multi-select. Left click and drag for rectangle multi-select.";
@@ -499,9 +499,9 @@ namespace
                                                           }));
     }
 
-    // LE_KEY_MOVE/le_arm_move's own body - unlocked
+    // Key::MOVE/arm_move's own body - unlocked
     // variant, same reasoning as fit_selected_unlocked
-    // below (called from inside le_key_down, which already holds
+    // below (called from inside key_down, which already holds
     // handle->mutex_). Only meaningful in Edit mode with a non-empty
     // selection - the Mode::EDIT check lives here rather than inside
     // LeHandle::arm_move itself (LeHandle's own Move state stays mode-
@@ -540,7 +540,7 @@ namespace
 
 namespace le::api_detail
 {
-    // le_undo/le_redo's own follow-up - unlocked
+    // undo/redo's own follow-up - unlocked
     // variant, called right after handle->command_history.undo()/redo()
     // succeeds. If Move is currently armed (including the "stays armed
     // after a commit" case - see move_click_unlocked), the moving
@@ -569,15 +569,15 @@ namespace
     // placement just given it doesn't disappear.
     void reveal_placement_status_unlocked(LeHandle *handle, le::PlacementStatus status)
     {
-        if (!handle->is_object_filter_visible(LE_OBJECT_FILTER_PLACEMENT_STATUS, le::to_string(status)))
-            handle->set_object_filter_visible(LE_OBJECT_FILTER_PLACEMENT_STATUS, le::to_string(status), true);
+        if (!handle->is_object_filter_visible(le::ObjectFilter::PLACEMENT_STATUS, le::to_string(status)))
+            handle->set_object_filter_visible(le::ObjectFilter::PLACEMENT_STATUS, le::to_string(status), true);
     }
 
-    // le_mouse_up's Edit-mode branch - unlocked
+    // mouse_up's Edit-mode branch - unlocked
     // variant, called with handle->mutex_ already held. First click (no
     // anchor yet) sets the move's anchor (LeHandle::move_set_anchor, which
     // - like LeHandle::add_ruler_point's own click handling just below in
-    // le_mouse_up - reads the separately-tracked *stored* mouse position,
+    // mouse_up - reads the separately-tracked *stored* mouse position,
     // not an x/y passed in here); second click (anchor already set)
     // computes the delta and commits: for each moving *piece*, re-fetches
     // its owning Shape's *current* full geometry from Root (not the
@@ -585,14 +585,14 @@ namespace
     // arm_move_unlocked), translates only that one piece in place
     // (Geometry::transform_piece_in_place - leaving every sibling piece,
     // including other entries of the same owning Shape, untouched),
-    // applies it via Root::update_shape (bypassing the micron-conversion
-    // C API layer - Move already works in dbu), and records the whole
+    // applies it via Root::update_shape (Move already works in dbu), and
+    // records the whole
     // set as one undo/redo transaction. A no-op if Move isn't armed.
     //
     // Stays armed after a successful commit (re-arms with each moved
     // piece's now-current geometry, ready for an immediate follow-up
     // move) rather than fully clearing Move state - only Escape
-    // (le_cancel_move/LE_KEY_FINISH_RULER) or leaving Edit mode
+    // (cancel_move/Key::FINISH_RULER) or leaving Edit mode
     // (LeHandle::set_mode's own end_move() call) actually disarms it, so a
     // user moving several pieces in sequence doesn't have to re-press
     // the Move button/Ctrl-M between each one.
@@ -710,7 +710,7 @@ namespace
                shape.path_iterates.empty() && shape.vias.empty() && shape.via_iterates.empty();
     }
 
-    // le_delete_selected_pieces / LE_KEY_DELETE - unlocked. Pieces of one
+    // delete_selected_pieces / Key::DELETE - unlocked. Pieces of one
     // Shape or Wire are removed highest index
     // first per kind, so earlier deletions don't shift later ones. A Shape
     // or Wire left with no geometry is deleted too (its owner stays); undo
@@ -766,7 +766,7 @@ namespace
     }
 
     // Every ROUTING-type layer in `technology_id`'s own declaration
-    // order - LE_KEY_1 maps to index 0 here, LE_KEY_2
+    // order - Key::DIGIT_1 maps to index 0 here, Key::DIGIT_2
     // to index 1, etc.
     std::vector<le::LayerId> ordered_routing_layers(const le::Root &root, le::TechnologyId technology_id)
     {
@@ -817,11 +817,11 @@ namespace
         return result;
     }
 
-    // LE_KEY_0..LE_KEY_9's own body - unlocked-style
-    // helper (already inside le_key_down's held mutex, matches the other
+    // Key::DIGIT_0..Key::DIGIT_9's own body - unlocked-style
+    // helper (already inside key_down's held mutex, matches the other
     // *_unlocked helpers' own convention above). `routing_index` is
-    // 0-based (e.g. LE_KEY_1 with Ctrl not held -> 0, LE_KEY_1 with Ctrl
-    // held -> 10, LE_KEY_0 -> 9 - see le_key_down's own switch for the
+    // 0-based (e.g. Key::DIGIT_1 with Ctrl not held -> 0, Key::DIGIT_1 with Ctrl
+    // held -> 10, Key::DIGIT_0 -> 9 - see key_down's own switch for the
     // full mapping). No-op if there's no ROUTING layer at that index or
     // no Technology has been read yet.
     void toggle_routing_layer_visibility_unlocked(LeHandle *handle, int routing_index)
@@ -841,7 +841,7 @@ namespace
         handle->set_layer_name_visible(toggled->name, !handle->is_layer_name_visible(toggled->name));
 
         // Only on this keyboard path (never from a direct
-        // le_set_layer_name_visible() call) - re-check every adjacent
+        // set_layer_visible() call) - re-check every adjacent
         // routing-layer pair and sync the CUT layer(s) between them to
         // "both visible". Recomputed as a full pass,
         // not just the pairs touching the just-toggled layer - simpler
@@ -1091,9 +1091,9 @@ namespace le::edit
             if (ctrl)
             {
                 if (shift)
-                    report_replay(h, handle.command_history.redo(), "redo");
+                    (void)replay_outcome(h, handle.command_history.redo(), "redo");
                 else
-                    report_replay(h, handle.command_history.undo(), "undo");
+                    (void)replay_outcome(h, handle.command_history.undo(), "undo");
                 refresh_armed_move_geometry_unlocked(h);
                 break;
             }
@@ -1278,390 +1278,5 @@ namespace le::edit
             break;
         }
         handle.end_drag();
-    }
-}
-
-// The C API's values are the C++ enums'.
-static_assert(LE_MODE_SELECT == static_cast<int32_t>(le::InteractionMode::SELECT) && LE_MODE_EDIT == static_cast<int32_t>(le::InteractionMode::EDIT) &&
-              LE_MODE_RULER == static_cast<int32_t>(le::InteractionMode::RULER));
-static_assert(LE_KEY_SHIFT == static_cast<int32_t>(le::Key::SHIFT) && LE_KEY_ZOOM == static_cast<int32_t>(le::Key::ZOOM) &&
-              LE_KEY_FIT == static_cast<int32_t>(le::Key::FIT) && LE_KEY_PAN_LEFT == static_cast<int32_t>(le::Key::PAN_LEFT) &&
-              LE_KEY_PAN_RIGHT == static_cast<int32_t>(le::Key::PAN_RIGHT) && LE_KEY_PAN_UP == static_cast<int32_t>(le::Key::PAN_UP) &&
-              LE_KEY_PAN_DOWN == static_cast<int32_t>(le::Key::PAN_DOWN) && LE_KEY_CTRL == static_cast<int32_t>(le::Key::CTRL) &&
-              LE_KEY_1 == static_cast<int32_t>(le::Key::DIGIT_1) && LE_KEY_9 == static_cast<int32_t>(le::Key::DIGIT_9) &&
-              LE_KEY_DESELECT_ALL == static_cast<int32_t>(le::Key::DESELECT_ALL) && LE_KEY_0 == static_cast<int32_t>(le::Key::DIGIT_0) &&
-              LE_KEY_SELECT_MODE == static_cast<int32_t>(le::Key::SELECT_MODE) && LE_KEY_EDIT_MODE == static_cast<int32_t>(le::Key::EDIT_MODE) &&
-              LE_KEY_RULER_MODE == static_cast<int32_t>(le::Key::RULER_MODE) && LE_KEY_FINISH_RULER == static_cast<int32_t>(le::Key::FINISH_RULER) &&
-              LE_KEY_MOVE == static_cast<int32_t>(le::Key::MOVE) && LE_KEY_DELETE == static_cast<int32_t>(le::Key::DELETE));
-static_assert(LE_PLACEMENT_SNAP_NONE == static_cast<int32_t>(le::PlacementSnapMode::NONE) &&
-              LE_PLACEMENT_SNAP_MANUFACTURING_GRID == static_cast<int32_t>(le::PlacementSnapMode::MANUFACTURING_GRID));
-static_assert(LE_ORIENTATION_OP_ROTATE_CCW == static_cast<int32_t>(le::OrientationOp::ROTATE_CCW) &&
-              LE_ORIENTATION_OP_FLIP_VERTICAL == static_cast<int32_t>(le::OrientationOp::FLIP_VERTICAL));
-static_assert(LE_SHAPE_SNAP_NONE == static_cast<int32_t>(le::ShapeSnapMode::NONE) && LE_SHAPE_SNAP_TRACKS == static_cast<int32_t>(le::ShapeSnapMode::TRACKS));
-static_assert(LE_PIECE_KIND_RECT == static_cast<int32_t>(le::PieceKind::RECT) && LE_PIECE_KIND_VIA_ITERATE == static_cast<int32_t>(le::PieceKind::VIA_ITERATE));
-
-namespace
-{
-    bool valid_piece_kind(int32_t kind) { return kind >= LE_PIECE_KIND_RECT && kind <= LE_PIECE_KIND_VIA_ITERATE; }
-    bool valid_shape_snap_mode(int32_t mode) { return mode >= LE_SHAPE_SNAP_NONE && mode <= LE_SHAPE_SNAP_TRACKS; }
-    bool valid_placement_snap_mode(int32_t mode) { return mode >= LE_PLACEMENT_SNAP_NONE && mode <= LE_PLACEMENT_SNAP_MANUFACTURING_GRID; }
-}
-
-extern "C"
-{
-    int32_t le_get_mode(LeHandle *handle)
-    {
-        if (!handle)
-            return LE_MODE_SELECT;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::mode(*handle));
-    }
-
-    void le_set_mode(LeHandle *handle, int32_t mode)
-    {
-        if (!handle || mode < LE_MODE_SELECT || mode > LE_MODE_RULER)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_mode(*handle, static_cast<le::InteractionMode>(mode));
-    }
-
-    int32_t le_ruler_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(handle->rulers().size());
-    }
-
-    int32_t le_ruler_point_count(LeHandle *handle, int32_t ruler_index)
-    {
-        if (!handle || ruler_index < 0)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        const auto &rulers = handle->rulers();
-        if (static_cast<size_t>(ruler_index) >= rulers.size())
-            return 0;
-        return static_cast<int32_t>(rulers[ruler_index].points.size());
-    }
-
-    LeRulerPoint le_ruler_point_at(LeHandle *handle, int32_t ruler_index, int32_t point_index)
-    {
-        constexpr LeRulerPoint kInvalid{.x_um = 0.0, .y_um = 0.0};
-        if (!handle || ruler_index < 0 || point_index < 0)
-            return kInvalid;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        const auto &rulers = handle->rulers();
-        if (static_cast<size_t>(ruler_index) >= rulers.size())
-            return kInvalid;
-        const auto &points = rulers[ruler_index].points;
-        if (static_cast<size_t>(point_index) >= points.size())
-            return kInvalid;
-        const std::optional<double> dbu_per_um = database_units_microns(handle->root);
-        if (!dbu_per_um)
-            return kInvalid;
-        const le::Point &p = points[point_index];
-        return LeRulerPoint{.x_um = static_cast<double>(p.x) / *dbu_per_um, .y_um = static_cast<double>(p.y) / *dbu_per_um};
-    }
-
-    void le_finish_ruler(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::finish_ruler(*handle);
-    }
-
-    void le_clear_rulers(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::clear_rulers(*handle);
-    }
-
-    void le_arm_move(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::arm_move(*handle);
-    }
-
-    void le_cancel_move(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::cancel_move(*handle);
-    }
-
-    int32_t le_is_move_armed(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::move_armed(*handle) ? 1 : 0;
-    }
-
-    int32_t le_is_move_anchored(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::move_anchored(*handle) ? 1 : 0;
-    }
-
-    void le_set_placement_snap_mode(LeHandle *handle, int32_t mode)
-    {
-        if (!handle || !valid_placement_snap_mode(mode))
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_placement_snap_mode(*handle, static_cast<le::PlacementSnapMode>(mode));
-    }
-
-    int32_t le_get_placement_snap_mode(LeHandle *handle)
-    {
-        if (!handle)
-            return LE_PLACEMENT_SNAP_SITE;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::placement_snap_mode(*handle));
-    }
-
-    int32_t le_is_placement_snap_mode_available(LeHandle *handle, int32_t mode)
-    {
-        if (!handle || !valid_placement_snap_mode(mode))
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::placement_snap_mode_available(*handle, static_cast<le::PlacementSnapMode>(mode)) ? 1 : 0;
-    }
-
-    int32_t le_delete_selected_pieces(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        HandleWriteLock lock(handle);
-        return static_cast<int32_t>(le::edit::delete_selected_pieces(*handle));
-    }
-
-    int32_t le_selected_locked_placement_count(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::selected_locked_placement_count(*handle));
-    }
-
-    int32_t le_selected_placements_all_fixed(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::selected_placements_all_fixed(*handle) ? 1 : 0;
-    }
-
-    int32_t le_placement_orientation_ops_enabled(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::placement_orientation_ops_enabled(*handle));
-    }
-
-    int32_t le_apply_placement_orientation_op(LeHandle *handle, int32_t op)
-    {
-        if (!handle || op < LE_ORIENTATION_OP_ROTATE_CCW || op > LE_ORIENTATION_OP_FLIP_VERTICAL)
-            return -1;
-        HandleWriteLock lock(handle);
-        const std::expected<void, le::OrientationOpError> applied = le::edit::apply_placement_orientation_op(*handle, static_cast<le::OrientationOp>(op));
-        if (applied)
-            return 0;
-        switch (applied.error())
-        {
-        case le::OrientationOpError::NOTHING_SELECTED:
-            return 1;
-        case le::OrientationOpError::NOT_AVAILABLE:
-            return 2;
-        case le::OrientationOpError::LOCKED:
-            return 3;
-        }
-        return -1;
-    }
-
-    void le_arm_resize(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::arm_resize(*handle);
-    }
-
-    int32_t le_is_resize_armed(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::resize_armed(*handle) ? 1 : 0;
-    }
-
-    int32_t le_resize_hover_axis(LeHandle *handle)
-    {
-        if (!handle)
-            return LE_RESIZE_AXIS_NONE;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        const std::optional<le::ResizeAxis> axis = le::edit::resize_hover_axis(*handle);
-        if (!axis)
-            return LE_RESIZE_AXIS_NONE;
-        switch (*axis)
-        {
-        case le::ResizeAxis::X:
-            return LE_RESIZE_AXIS_X;
-        case le::ResizeAxis::Y:
-            return LE_RESIZE_AXIS_Y;
-        case le::ResizeAxis::BOTH:
-            return LE_RESIZE_AXIS_BOTH;
-        }
-        return LE_RESIZE_AXIS_NONE;
-    }
-
-    void le_set_shape_snap_mode(LeHandle *handle, int32_t kind, int32_t mode)
-    {
-        if (!handle || !valid_piece_kind(kind) || !valid_shape_snap_mode(mode))
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_shape_snap_mode(*handle, static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode));
-    }
-
-    int32_t le_get_shape_snap_mode(LeHandle *handle, int32_t kind)
-    {
-        if (!handle || !valid_piece_kind(kind))
-            return LE_SHAPE_SNAP_USER_GRID;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::shape_snap_mode(*handle, static_cast<le::PieceKind>(kind)));
-    }
-
-    int32_t le_is_shape_snap_mode_available(LeHandle *handle, int32_t kind, int32_t mode)
-    {
-        if (!handle || !valid_piece_kind(kind) || !valid_shape_snap_mode(mode))
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::shape_snap_mode_available(*handle, static_cast<le::PieceKind>(kind), static_cast<le::ShapeSnapMode>(mode)) ? 1 : 0;
-    }
-
-    int32_t le_selected_piece_kinds(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::selected_piece_kinds(*handle));
-    }
-
-    int32_t le_selected_move_snap_piece_kinds(LeHandle *handle)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return static_cast<int32_t>(le::edit::selected_move_snap_piece_kinds(*handle));
-    }
-
-    void le_set_mouse_position(LeHandle *handle, int32_t x, int32_t y)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::set_mouse_position(*handle, x, y);
-    }
-
-    void le_clear_mouse_position(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::clear_mouse_position(*handle);
-    }
-
-    LeSnappedMousePosition le_snapped_mouse_position(LeHandle *handle)
-    {
-        constexpr LeSnappedMousePosition kNone{.x_um = 0.0, .y_um = 0.0, .has_position = 0};
-        if (!handle)
-            return kNone;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        const std::optional<le::Point> snapped = le::edit::snapped_mouse_position(*handle);
-        const std::optional<double> dbu_per_um = database_units_microns(handle->root);
-        if (!snapped || !dbu_per_um)
-            return kNone;
-        const auto [x, y] = display_point_unlocked(handle, *snapped);
-        return LeSnappedMousePosition{.x_um = x / *dbu_per_um, .y_um = y / *dbu_per_um, .has_position = 1};
-    }
-
-    void le_key_down(LeHandle *handle, int32_t key_code)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::key_down(*handle, static_cast<le::Key>(key_code));
-    }
-
-    void le_key_up(LeHandle *handle, int32_t key_code)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::key_up(*handle, static_cast<le::Key>(key_code));
-    }
-
-    int32_t le_is_key_held(LeHandle *handle, int32_t key_code)
-    {
-        if (!handle)
-            return 0;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::key_held(*handle, static_cast<le::Key>(key_code)) ? 1 : 0;
-    }
-
-    void le_clear_all_keys(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::clear_keys(*handle);
-    }
-
-    void le_mouse_down(LeHandle *handle, int32_t x, int32_t y)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::mouse_down(*handle, x, y);
-    }
-
-    void le_cancel_drag(LeHandle *handle)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::cancel_drag(*handle);
-    }
-
-    void le_zoom_drag_down(LeHandle *handle, int32_t x, int32_t y)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::zoom_drag_down(*handle, x, y);
-    }
-
-    void le_mouse_up(LeHandle *handle, int32_t x, int32_t y)
-    {
-        if (!handle)
-            return;
-        HandleWriteLock lock(handle);
-        le::edit::mouse_up(*handle, x, y);
-    }
-
-    const char *le_tooltip_message(LeHandle *handle)
-    {
-        if (!handle)
-            return nullptr;
-        std::shared_lock<std::shared_mutex> lock(handle->mutex_);
-        return le::edit::tooltip(*handle).data(); // static storage, null-terminated
     }
 }

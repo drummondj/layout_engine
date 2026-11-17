@@ -416,7 +416,7 @@ TEST(LEFReaderErrors, MalformedFileReturnsTwo)
     EXPECT_FALSE(reader.messages().empty());
 }
 
-// LEFReader::messages() - the queue api.cpp's le_read_lef drains into a
+// LEFReader::messages() - the queue api.cpp's read_lef drains into a
 // persistent, ever-growing handle-owned list for the GUI. A distinct
 // suite from LEFReaderErrors above since these
 // tests are about message *content*, not read_lef's own return code.
@@ -447,7 +447,7 @@ TEST(LEFReaderMessages, ObsoleteCurrentdenStatementProducesAWarningOnAnOtherwise
 
 // messages_ is cleared at the top of every read_lef() call (not
 // accumulated across calls on a reused instance) - api.cpp's
-// le_read_lef is what accumulates these into a persistent queue, not
+// read_lef is what accumulates these into a persistent queue, not
 // LEFReader itself.
 TEST(LEFReaderMessages, MessagesAreClearedNotAccumulatedAcrossReusedReaderCalls)
 {
