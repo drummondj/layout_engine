@@ -485,13 +485,14 @@ namespace le
             const bool is_placed = port->location.has_value();
             const Point location = port->location.value_or(Point{});
             const std::string orient = port->orientation ? le::to_string(*port->orientation) : std::string{};
+            const std::string use = port->use ? le::to_string(*port->use) : std::string{};
             if (port->direction == SignalDirection::OUTPUT_TRISTATE)
                 spdlog::warn("PIN {}: DEF has no OUTPUT TRISTATE direction - written as OUTPUT.", port->name);
 
             status = defwPinStr(port->name.c_str(), port->net_name ? port->net_name->c_str() : "",
                                  0, // special
                                  signal_direction_to_string(port->direction.value_or(SignalDirection::NONE)),
-                                 port->use ? port->use->c_str() : nullptr,
+                                 port->use ? use.c_str() : nullptr,
                                  is_placed && port->placement_status ? placement_status_to_string(*port->placement_status) : nullptr,
                                  static_cast<int>(location.x), static_cast<int>(location.y),
                                  is_placed && !orient.empty() ? orient.c_str() : nullptr,
@@ -1018,7 +1019,7 @@ namespace le
                     return status;
                 if (route->use)
                 {
-                    status = defwSpecialNetUse(route->use->c_str());
+                    status = defwSpecialNetUse(le::to_string(*route->use).c_str());
                     if (status)
                         return status;
                 }
@@ -1076,7 +1077,7 @@ namespace le
                     return status;
                 if (route->use)
                 {
-                    status = defwNetUse(route->use->c_str());
+                    status = defwNetUse(le::to_string(*route->use).c_str());
                     if (status)
                         return status;
                 }

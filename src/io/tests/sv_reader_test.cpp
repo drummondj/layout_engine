@@ -565,3 +565,57 @@ TEST(SVReader, AParameterVariantFillsInAnExistingDesignOfItsName)
     EXPECT_TRUE(root.get_design_schematic(macro).valid());
     EXPECT_EQ(root.get_design(macro)->base_design, find_design_by_name(root, "fifo"));
 }
+
+namespace
+{
+    std::optional<SignalUse> net_use(const Root &root, SchematicId schematic, const std::string &name)
+    {
+        const NetData *net = root.get_net(root.get_net_by_name(schematic, name));
+        EXPECT_NE(net, nullptr) << name;
+        return net ? net->use : std::nullopt;
+    }
+
+    std::optional<SignalUse> port_use(const Root &root, SchematicId schematic, const std::string &name)
+    {
+        const PortData *port = root.get_port(root.get_port_by_name(schematic, name));
+        EXPECT_NE(port, nullptr) << name;
+        return port ? port->use : std::nullopt;
+    }
+}
+
+TEST(SVReader, NetlistSupplyNetsArePowerAndGroundAndTheirPortsFollow)
+{
+    Root root;
+    ASSERT_EQ(SVReader().read_netlist({fixture_path("supply_nets.v")}, root, "test_lib"), 0);
+    const SchematicId top = root.get_design_schematic(find_design_by_name(root, "top"));
+    ASSERT_TRUE(top.valid());
+    EXPECT_EQ(net_use(root, top, "VDD"), SignalUse::POWER);
+    EXPECT_EQ(net_use(root, top, "VSS"), SignalUse::GROUND);
+    EXPECT_EQ(net_use(root, top, "gnd_int"), SignalUse::GROUND);
+    EXPECT_EQ(net_use(root, top, "vb[0]"), SignalUse::POWER);
+    EXPECT_EQ(net_use(root, top, "vb[1]"), SignalUse::POWER);
+    EXPECT_EQ(net_use(root, top, "n1"), std::nullopt);
+    EXPECT_EQ(net_use(root, top, "a"), std::nullopt);
+    EXPECT_EQ(port_use(root, top, "VDD"), SignalUse::POWER);
+    EXPECT_EQ(port_use(root, top, "VSS"), SignalUse::GROUND);
+    EXPECT_EQ(port_use(root, top, "a"), std::nullopt);
+}
+
+TEST(SVReader, RtlSupplyNetsArePowerAndGroundAndTheirPortsFollow)
+{
+    Root root;
+    ASSERT_EQ(SVReader().read_rtl({fixture_path("supply_nets.v")}, root, "test_lib"), 0);
+    const SchematicId top = root.get_design_schematic(find_design_by_name(root, "top"));
+    ASSERT_TRUE(top.valid());
+    EXPECT_EQ(net_use(root, top, "VDD"), SignalUse::POWER);
+    EXPECT_EQ(net_use(root, top, "VSS"), SignalUse::GROUND);
+    EXPECT_EQ(net_use(root, top, "gnd_int"), SignalUse::GROUND);
+    EXPECT_EQ(net_use(root, top, "n1"), std::nullopt);
+    EXPECT_EQ(port_use(root, top, "VDD"), SignalUse::POWER);
+    EXPECT_EQ(port_use(root, top, "VSS"), SignalUse::GROUND);
+    EXPECT_EQ(port_use(root, top, "y"), std::nullopt);
+    // A supply declaration is read, not kept as a logic cloud.
+    for (const InstanceId id : root.get_schematic_instances(top))
+        if (const std::optional<std::string> &text = root.get_instance(id)->rtl_text)
+            EXPECT_EQ(text->find("supply"), std::string::npos) << *text;
+}

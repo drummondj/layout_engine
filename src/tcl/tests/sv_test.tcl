@@ -8,13 +8,13 @@
 # already cover.
 #
 # argv: <path to le_tcl shared module> <path to le_tcl_procs.tcl>
-#       <path to gate_netlist_clean.v fixture>
+#       <path to gate_netlist_clean.v fixture> <path to supply_nets.v fixture>
 
-if {[llength $argv] != 3} {
-    puts stderr "usage: sv_test.tcl <le_tcl.so> <le_tcl_procs.tcl> <gate_netlist_clean.v>"
+if {[llength $argv] != 4} {
+    puts stderr "usage: sv_test.tcl <le_tcl.so> <le_tcl_procs.tcl> <gate_netlist_clean.v> <supply_nets.v>"
     exit 2
 }
-lassign $argv module_path procs_path sv_path
+lassign $argv module_path procs_path sv_path supply_path
 
 proc check {what expected actual} {
     if {$expected ne $actual} {
@@ -84,5 +84,17 @@ check "u_and0/nonexistent - a leaf instance has no nested Schematic, resolves to
     [get_instances -of $schematic_token u_and0/nonexistent]
 check "** combined with -filter still narrows the result" {instance:u_and0} \
     [get_instances -of $schematic_token ** -filter {.name == u_and0}]
+
+# Signal use: supply1 nets are POWER, supply0 GROUND, a port follows its net.
+check "read_verilog supply_nets.v return code" 0 [read_verilog -netlist -library supply_lib $supply_path]
+set supply_schematic [get_schematics -of [get_designs -filter {.library.name == supply_lib && .name == top}]]
+current_schematic $supply_schematic
+check "get_nets -filter .use == POWER" {net:VDD {net:vb[0]} {net:vb[1]}} [lsort [get_nets -filter {.use == POWER}]]
+check "get_ports -filter .use == GROUND" {port:VSS} [get_ports -filter {.use == GROUND}]
+check "update_net -use" net:n1 [update_net net:n1 -use CLOCK]
+check "get_nets -filter .use == CLOCK" {net:n1} [get_nets -filter {.use == CLOCK}]
+check "update_net -use rejects an unknown use" 1 [catch {update_net net:n1 -use BOGUS}]
+set port_a [create_port -name a2 -direction INPUT -use RESET]
+check "create_port -use" RESET [get_properties $port_a .use]
 
 puts "ok: SystemVerilog TCL wiring round trip"

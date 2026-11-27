@@ -1876,9 +1876,16 @@ namespace le
         }
         if (terminal->use)
         {
-            status = lefwMacroPinUse(terminal->use->c_str());
-            if (status)
-                return status;
+            // LEF PIN USE has no TIEOFF, SCAN or RESET (DEF-only uses).
+            const SignalUse use = *terminal->use;
+            if (use == SignalUse::TIEOFF || use == SignalUse::SCAN || use == SignalUse::RESET)
+                spdlog::warn("PIN {}: LEF has no USE {} - not written.", terminal->name, to_string(use));
+            else
+            {
+                status = lefwMacroPinUse(to_string(use).c_str());
+                if (status)
+                    return status;
+            }
         }
         if (terminal->shape)
         {

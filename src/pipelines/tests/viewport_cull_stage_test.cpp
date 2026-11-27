@@ -291,7 +291,7 @@ TEST_F(ViewportCullStageFixture, AHiddenPlacementTypeIsNeitherDescendedIntoNorDr
 
 TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksExactlyItsRoutesShapes)
 {
-    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = std::string("POWER")});
+    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = SignalUse::POWER});
     root.create_shape(ShapeData{.owner = le::ShapeOwner::route(power), .rects = {Rect{.ll = Point{0, 0}, .ur = Point{50, 5}}}});
     root.create_shape(ShapeData{.owner = le::ShapeOwner::route(power), .rects = {Rect{.ll = Point{0, 20}, .ur = Point{50, 25}}}});
     const RouteId signal = root.create_route(RouteData{.layout = top_layout, .name = "n1"});
@@ -309,11 +309,11 @@ TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksExactlyItsRoutesShapes)
 
 TEST_F(ViewportCullStageFixture, AHiddenRouteUseMasksItsWiresToo)
 {
-    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = std::string("POWER")});
+    const RouteId power = root.create_route(RouteData{.layout = top_layout, .name = "VDD", .use = SignalUse::POWER});
     WireBuilder builder(root, m1);
     ASSERT_TRUE(builder.add_path(Path{.width = 4, .polygon = {.points = {Point{0, 0}, Point{50, 0}}}}));
     root.create_wire(std::move(builder).build(power));
-    const RouteId signal = root.create_route(RouteData{.layout = top_layout, .name = "n1", .use = std::string("SIGNAL")});
+    const RouteId signal = root.create_route(RouteData{.layout = top_layout, .name = "n1", .use = SignalUse::SIGNAL});
     WireBuilder signal_builder(root, m1);
     ASSERT_TRUE(signal_builder.add_path(Path{.width = 4, .polygon = {.points = {Point{0, 10}, Point{50, 10}}}}));
     root.create_wire(std::move(signal_builder).build(signal));

@@ -64,7 +64,7 @@ TEST(ObjectFilters, RouteUsesDefaultToSignalAndHaveNoUnsetValue)
     ASSERT_FALSE(values.empty());
     EXPECT_EQ(values.front(), "SIGNAL");
     EXPECT_EQ(std::ranges::find(values, std::string(kUnsetFilterValue)), values.end());
-    EXPECT_EQ(route_use(RouteData{.use = std::string("clock")}), "CLOCK");
+    EXPECT_EQ(values.size(), all_signal_use_values.size());
+    EXPECT_EQ(route_use(RouteData{.use = SignalUse::CLOCK}), "CLOCK");
     EXPECT_EQ(route_use(RouteData{}), "SIGNAL");
-    EXPECT_EQ(route_use(RouteData{.use = std::string()}), "SIGNAL");
 }

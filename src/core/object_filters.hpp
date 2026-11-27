@@ -60,14 +60,18 @@ namespace le
     /// @brief A Route's use; unset means SIGNAL, DEF's default USE.
     inline std::string route_use(const RouteData &route)
     {
-        return route.use && !route.use->empty() ? to_filter_value(route.use) : std::string("SIGNAL");
+        return to_string(route.use.value_or(SignalUse::SIGNAL));
     }
 
-    /// @brief Every Route.use value the Layers panel offers: DEF NETS/
-    /// SPECIALNETS USE.
+    /// @brief Every Route.use value the Layers panel offers: every SignalUse.
     inline const std::vector<std::string> &route_use_values()
     {
-        static const std::vector<std::string> values{"SIGNAL", "POWER", "GROUND", "CLOCK", "TIEOFF", "ANALOG", "SCAN", "RESET"};
+        static const std::vector<std::string> values = [] {
+            std::vector<std::string> names;
+            for (const SignalUse use : all_signal_use_values)
+                names.push_back(to_string(use));
+            return names;
+        }();
         return values;
     }
 

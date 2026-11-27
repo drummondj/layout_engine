@@ -6744,7 +6744,7 @@ namespace
         const le::DesignId top_design = s.write().create_design({.library = top_library, .name = "TOP"}).value_or(le::DesignId{});
         const le::LayoutId layout = s.write().create_layout({.design = top_design}).value_or(le::LayoutId{});
         s.create_placement(layout, testcell_design.id, "U1", le::PointUm{0.0, 0.0}, le::Orientation::N, le::PlacementStatus::PLACED);
-        const le::RouteId route = s.write().create_route({.layout = layout, .name = "VDD", .use = "POWER"}).value_or(le::RouteId{});
+        const le::RouteId route = s.write().create_route({.layout = layout, .name = "VDD", .use = le::SignalUse::POWER}).value_or(le::RouteId{});
         const le::LayerId m1 = named_layer(s, "M1");
         const le::Rect rect = s.units().to_dbu(le::RectUm{{12.0, 2.0}, {18.0, 4.0}});
         ASSERT_TRUE(s.write().create_shape({.owner = le::ShapeOwner::route(route),

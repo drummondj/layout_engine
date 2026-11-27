@@ -1166,6 +1166,32 @@ namespace le::persistence
         EXPECT_EQ(incompatibility<std::optional<int>>(ft, true, false), "");
     }
 
+    TEST(NativeCodec, AStringReadsIntoAnEnumByNameIgnoringCase)
+    {
+        EncodeContext encode;
+        ByteWriter w;
+        for (const char *value : {"POWER", "clock", "bogus", "bogus"})
+            encode_value(w, std::optional<std::string>(value), encode);
+        std::vector<std::string_view> strings;
+        for (const auto &string : encode.strings())
+            strings.push_back(*string);
+
+        const FileType ft{.kind = FileType::Kind::Str, .name = "str", .presence = true};
+        EXPECT_EQ(incompatibility<std::optional<SignalUse>>(ft, true, false), "");
+        DecodeContext decode{.strings = &strings};
+        ByteReader r(w.bytes().data(), w.size(), "test");
+        std::optional<SignalUse> power, clock, bogus = SignalUse::SCAN;
+        decode_value(r, ft, true, false, power, decode);
+        decode_value(r, ft, true, false, clock, decode);
+        decode_value(r, ft, true, false, bogus, decode);
+        EXPECT_EQ(power, SignalUse::POWER);
+        EXPECT_EQ(clock, SignalUse::CLOCK);
+        EXPECT_EQ(bogus, std::nullopt); // an optional enum reads an unknown name as unset
+        SignalUse required = SignalUse::SIGNAL;
+        EXPECT_EQ(r.u8(), 1); // the presence byte
+        EXPECT_THROW(decode_value(r, ft, false, false, required, decode), FormatError); // a required one can't
+    }
+
     TEST(NativeCodec, IntegerOutOfRangeForANarrowerFieldIsAnError)
     {
         EncodeContext encode;

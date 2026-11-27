@@ -728,7 +728,11 @@ namespace le
             data.direction = *direction;
         }
         if (pin->hasUse())
-            data.use = pin->use();
+        {
+            data.use = signal_use_from_string(pin->use());
+            if (!data.use)
+                log_warning("PIN {} has an unrecognized USE '{}' - ignored.", pin->pinName(), pin->use());
+        }
         data.placement_status = placement_status_from_pin_like(pin);
         if (!fill_pin_like_placement(pin, pin->pinName(), reader->unit_scale_, data.location, data.orientation))
             return 0;
@@ -1029,11 +1033,14 @@ namespace le
         }
         if (net->hasUse())
         {
-            if (!route->use)
-                route->use = net->use();
-            else if (*route->use != net->use())
-                log_warning("{} {}: USE {} differs from the other section's USE {} - kept {}.", section, net->name(), net->use(), *route->use,
-                            *route->use);
+            const std::optional<SignalUse> use = signal_use_from_string(net->use());
+            if (!use)
+                log_warning("{} {} has an unrecognized USE '{}' - ignored.", section, net->name(), net->use());
+            else if (!route->use)
+                route->use = use;
+            else if (*route->use != *use)
+                log_warning("{} {}: USE {} differs from the other section's USE {} - kept {}.", section, net->name(), net->use(),
+                            to_string(*route->use), to_string(*route->use));
         }
         if (is_special && net->hasVoltage())
             route->voltage = net->voltage();

@@ -923,6 +923,7 @@ if(SWIG_FOUND AND TCL_FOUND)
             $<TARGET_FILE:le_tcl>
             ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
             ${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures/gate_netlist_clean.v
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/io/tests/fixtures/supply_nets.v
     )
 
     # Tokens for schematic objects below the current schematic
@@ -1312,6 +1313,7 @@ add_executable(backend_tests
     src/database/tests/filter_test.cpp
     src/database/tests/hierarchical_resolver_test.cpp
     src/database/tests/schematic_layout_linker_test.cpp
+    src/database/tests/signal_use_inference_test.cpp
     src/database/tests/schema_version_test.cpp
     src/database/tests/wire_helpers_test.cpp
     src/geometry/tests/geometry_test.cpp

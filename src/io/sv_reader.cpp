@@ -21,6 +21,8 @@
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/ParameterSymbols.h"
 #include "slang/ast/symbols/PortSymbols.h"
+#include "slang/ast/symbols/VariableSymbols.h"
+#include "slang/ast/types/NetType.h"
 #include "slang/ast/types/Type.h"
 #include "slang/diagnostics/DiagnosticEngine.h"
 #include "slang/numeric/ConstantValue.h"
@@ -242,7 +244,7 @@ namespace le
             const NetId id = get_or_create_net(root, schematic_id, name);
             const NetData *data = root.get_net(id);
             if (data && !data->bus.valid())
-                root.update_net(id, schematic_id, std::optional<NetBusId>(bus_id), std::nullopt,
+                root.update_net(id, schematic_id, std::optional<NetBusId>(bus_id), std::nullopt, std::nullopt,
                                 std::optional<int>(bit));
             return id;
         }
@@ -255,7 +257,7 @@ namespace le
             const PortData *data = root.get_port(id);
             if (data && !data->bus.valid())
                 root.update_port(id, schematic_id, std::optional<PortBusId>(bus_id), std::nullopt, std::nullopt,
-                                 std::nullopt, std::optional<int>(bit));
+                                 std::nullopt, std::nullopt, std::optional<int>(bit));
             return id;
         }
 
@@ -269,6 +271,69 @@ namespace le
             const auto range = type.getFixedRange();
             msb = range.left;
             lsb = range.right;
+        }
+
+        // Gives the Net named `name` in `schematic_id` the use `use`
+        // unless it already has one, creating it if needed.
+        void set_net_use(Root &root, SchematicId schematic_id, const std::string &name, SignalUse use)
+        {
+            NetData *net = root.get_net(get_or_create_net(root, schematic_id, name));
+            if (net && !net->use)
+                net->use = use;
+        }
+
+        // A supply0 net is GROUND, a supply1 net POWER.
+        std::optional<SignalUse> supply_net_use(slang::ast::NetType::NetKind kind)
+        {
+            if (kind == slang::ast::NetType::Supply0)
+                return SignalUse::GROUND;
+            if (kind == slang::ast::NetType::Supply1)
+                return SignalUse::POWER;
+            return std::nullopt;
+        }
+
+        std::optional<SignalUse> supply_net_use(slang::parsing::TokenKind kind)
+        {
+            if (kind == slang::parsing::TokenKind::Supply0Keyword)
+                return SignalUse::GROUND;
+            if (kind == slang::parsing::TokenKind::Supply1Keyword)
+                return SignalUse::POWER;
+            return std::nullopt;
+        }
+
+        // Every Port of `schematic_id` with no use of its own takes its Net's.
+        void ports_take_net_use(Root &root, SchematicId schematic_id)
+        {
+            for (const PortId port_id : root.get_schematic_ports(schematic_id))
+            {
+                PortData *port = root.get_port(port_id);
+                const NetData *net = port ? root.get_net(port->net) : nullptr;
+                if (port && !port->use && net && net->use)
+                    port->use = net->use;
+            }
+        }
+
+        // The supply nets (supply0/supply1, ports included) declared in a
+        // module's body, one Net per bit of a vector.
+        void set_supply_net_uses(Root &root, SchematicId schematic_id, const slang::ast::InstanceBodySymbol &body)
+        {
+            for (const auto &net : body.membersOfType<slang::ast::NetSymbol>())
+            {
+                const std::optional<SignalUse> use = supply_net_use(net.netType.netKind);
+                if (!use)
+                    continue;
+                const std::string name(net.name);
+                std::optional<int> msb, lsb;
+                bit_range_from_type(net.getType(), msb, lsb);
+                if (!msb || !lsb)
+                {
+                    set_net_use(root, schematic_id, name, *use);
+                    continue;
+                }
+                for (int bit = std::min(*msb, *lsb); bit <= std::max(*msb, *lsb); ++bit)
+                    set_net_use(root, schematic_id, fmt::format("{}[{}]", name, bit), *use);
+            }
+            ports_take_net_use(root, schematic_id);
         }
 
         std::string source_text(const slang::SourceManager &source_manager, slang::SourceRange range)
@@ -956,6 +1021,7 @@ namespace le
             if (processed_designs.insert(design_name).second)
             {
                 populate_ports(root, own_schematic_id, instance.body);
+                set_supply_net_uses(root, own_schematic_id, instance.body);
 
                 std::vector<std::pair<const slang::ast::InstanceSymbol *, std::string>> children;
                 collect_instance_children(instance.body, "", children);
@@ -1053,6 +1119,7 @@ namespace le
         {
             std::string name;
             SignalDirection direction;
+            std::optional<SignalUse> use; // a supply0/supply1 port's
         };
 
         // Extracts an ANSI port list's ports (name + direction only - see
@@ -1079,15 +1146,20 @@ namespace le
                 const auto &implicit_port = port_member->as<slang::syntax::ImplicitAnsiPortSyntax>();
 
                 slang::parsing::Token direction_token;
+                std::optional<SignalUse> use;
                 if (implicit_port.header->kind == slang::syntax::SyntaxKind::VariablePortHeader)
                     direction_token = implicit_port.header->as<slang::syntax::VariablePortHeaderSyntax>().direction;
                 else if (implicit_port.header->kind == slang::syntax::SyntaxKind::NetPortHeader)
-                    direction_token = implicit_port.header->as<slang::syntax::NetPortHeaderSyntax>().direction;
+                {
+                    const auto &net_header = implicit_port.header->as<slang::syntax::NetPortHeaderSyntax>();
+                    direction_token = net_header.direction;
+                    use = supply_net_use(net_header.netType.kind);
+                }
                 if (direction_token)
                     last_direction = direction_from_token_text(direction_token.valueText());
 
                 out.push_back(
-                    RtlPortInfo{std::string(implicit_port.declarator->name.valueText()), last_direction});
+                    RtlPortInfo{std::string(implicit_port.declarator->name.valueText()), last_direction, use});
             }
             return true;
         }
@@ -1168,6 +1240,18 @@ namespace le
             int logic_cloud_index = 0;
             for (const auto *member : module_syntax.members)
             {
+                // A clean supply0/supply1 declaration only says what its nets carry.
+                if (member->kind == slang::syntax::SyntaxKind::NetDeclaration && !range_has_diagnostic(diagnostics, member->sourceRange()))
+                {
+                    const auto &declaration = member->as<slang::syntax::NetDeclarationSyntax>();
+                    if (const std::optional<SignalUse> use = supply_net_use(declaration.netType.kind))
+                    {
+                        for (const auto *declarator : declaration.declarators)
+                            set_net_use(root, schematic_id, std::string(declarator->name.valueText()), *use);
+                        continue;
+                    }
+                }
+
                 if (member->kind == slang::syntax::SyntaxKind::HierarchyInstantiation)
                 {
                     const auto &instantiation_syntax = member->as<slang::syntax::HierarchyInstantiationSyntax>();
@@ -1287,10 +1371,13 @@ namespace le
                     // of this reader) for why the reference lives on Port.
                     const NetId net_id = get_or_create_net(root, schematic_id, port_info.name);
                     get_or_create_port(root, schematic_id, port_info.name, port_info.direction, net_id);
+                    if (port_info.use)
+                        set_net_use(root, schematic_id, port_info.name, *port_info.use);
                 }
             }
 
             process_module(root, schematic_id, *module_syntax, tree->diagnostics(), ports_by_module, source_manager);
+            ports_take_net_use(root, schematic_id);
         }
 
         for (const auto &tree : trees)

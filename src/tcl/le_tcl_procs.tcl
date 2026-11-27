@@ -1783,7 +1783,7 @@ proc link {} {
 }
 register_command_help link \
     "link - Re-resolves unlinked Instance references" \
-    "Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Returns the number of instances newly resolved." \
+    "Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Then matches each layout's placements, routes and pins to its schematic, and gives a net or port with no use one: a linked pin's (DEF PINS USE), else a linked route's (DEF NETS USE), else the one use every pin of the net reaches when that isn't SIGNAL (e.g. a net reaching only POWER cell pins is POWER). A port with no use takes its net's. A use already set is kept. Returns the number of instances newly resolved." \
     {}
 
 # write_lef/write_def - no `rename` dance
@@ -3261,9 +3261,9 @@ proc update_net {id args} {
     if {[llength $args] == 0} {
         error "update_net: at least one -flag is required"
     }
-    array set opts [_parse_options update_net {-schematic {} -bus {} -name {} -bit_index {}} $args]
+    array set opts [_parse_options update_net {-schematic {} -bus {} -name {} -use {} -bit_index {}} $args]
 
-    if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-bus) eq {} && $opts(-bit_index) eq {}} {
+    if {$opts(-name) ne {} && $opts(-schematic) eq {} && $opts(-bus) eq {} && $opts(-use) eq {} && $opts(-bit_index) eq {}} {
         set new_id [rename_net_cmd $id $opts(-name)]
         if {$new_id eq {}} {
             error [last_error_cmd]
@@ -3271,13 +3271,13 @@ proc update_net {id args} {
         return $new_id
     }
 
-    set new_id [update_net_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-bus) ne {} ? 1 : 0}] $opts(-bus) $opts(-name) [expr {$opts(-bit_index) ne {} ? 1 : 0}] [expr {$opts(-bit_index) ne {} ? $opts(-bit_index) : 0}]]
+    set new_id [update_net_cmd $id [expr {$opts(-schematic) ne {} ? 1 : 0}] $opts(-schematic) [expr {$opts(-bus) ne {} ? 1 : 0}] $opts(-bus) $opts(-name) $opts(-use) [expr {$opts(-bit_index) ne {} ? 1 : 0}] [expr {$opts(-bit_index) ne {} ? $opts(-bit_index) : 0}]]
     if {$new_id eq {}} {
         error [last_error_cmd]
     }
     return $new_id
 }
-register_command_help update_net "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus" "Changes the given fields of a net; omitted flags leave a field unchanged." {{-schematic {type token required 0 description {Move it to this schematic (token)}}} {-bus {type token required 0 description {The NetBus this Net is one bit of, if it is part of a multi-bit net}}} {-name {type str required 0 description {The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic}}} {-bit_index {type int required 0 description {Which bit of -bus this net is}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
+register_command_help update_net "update_net <id> \[-schematic <token>\] \[-bus <token>\] \[-name <str>\] \[-use <SignalUse>\] \[-bit_index <int>\] \[-help\] - Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus" "Changes the given fields of a net; omitted flags leave a field unchanged." {{-schematic {type token required 0 description {Move it to this schematic (token)}}} {-bus {type token required 0 description {The NetBus this Net is one bit of, if it is part of a multi-bit net}}} {-name {type str required 0 description {The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic}}} {-use {type SignalUse required 0 description {What the net carries - SIGNAL when unset}}} {-bit_index {type int required 0 description {Which bit of -bus this net is}}} {-help {type flag required 0 description {Show this usage message and return immediately}}}}
 
 proc update_instance {id args} {
     _return_usage_if_help update_instance [list $id {*}$args]
