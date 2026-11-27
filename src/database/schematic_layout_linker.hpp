@@ -27,6 +27,8 @@ namespace le
         size_t default_placements_created = 0;
         size_t routes_linked = 0;
         size_t physical_ports_linked = 0;
+        size_t uses_filled = 0; ///< Net and Port uses set from the layout
+
         /// @brief WARNING:/ERROR: prefixed messages, same convention as
         /// LEFReader/DEFReader/SVReader's own messages(): a Placement
         /// with no matching Instance is a WARNING (still a legitimate
@@ -222,6 +224,58 @@ namespace le
         }
     }
 
+    namespace physical_link_detail
+    {
+        inline void fill_net_use(Root &root, NetId net_id, SignalUse use, PhysicalLinkResult &result)
+        {
+            NetData *net = root.get_net(net_id);
+            if (!net || net->use)
+                return;
+            net->use = use;
+            root.note_net_changed(net_id);
+            ++result.uses_filled;
+        }
+
+        /// @brief Every Port of `schematic` with no use takes its Net's.
+        inline void ports_take_net_use(Root &root, SchematicId schematic, PhysicalLinkResult &result)
+        {
+            for (const PortId port_id : root.get_schematic_ports(schematic))
+            {
+                PortData *port = root.get_port(port_id);
+                const NetData *net = port ? root.get_net(port->net) : nullptr;
+                if (!port || port->use || !net || !net->use)
+                    continue;
+                port->use = net->use;
+                root.note_port_changed(port_id);
+                ++result.uses_filled;
+            }
+        }
+
+        /// @brief Gives each linked Net with no use its PhysicalPort's
+        /// (DEF PINS USE), else its Route's (DEF NETS USE), and then each
+        /// Port with none its Net's. A use already set is kept.
+        inline void fill_uses(Root &root, LayoutId layout_id, PhysicalLinkResult &result)
+        {
+            std::unordered_set<SchematicId> schematics;
+            for (const PhysicalPortId port_id : root.get_layout_physical_ports(layout_id))
+                if (const PhysicalPortData *port = root.get_physical_port(port_id); port && port->use && port->net.valid())
+                {
+                    fill_net_use(root, port->net, *port->use, result);
+                    if (const NetData *net = root.get_net(port->net))
+                        schematics.insert(net->schematic);
+                }
+            for (const RouteId route_id : root.get_layout_routes(layout_id))
+                if (const RouteData *route = root.get_route(route_id); route && route->use && route->net.valid())
+                {
+                    fill_net_use(root, route->net, *route->use, result);
+                    if (const NetData *net = root.get_net(route->net))
+                        schematics.insert(net->schematic);
+                }
+            for (const SchematicId schematic : schematics)
+                ports_take_net_use(root, schematic, result);
+        }
+    }
+
     /// @brief The physical-side half of the `link` step: for every Layout,
     /// matches its Placements/Routes/PhysicalPorts against the sibling
     /// Schematic reached via `Layout.design -> Design.schematic`, using
@@ -261,6 +315,7 @@ namespace le
                 std::unordered_set<SchematicId> ancestors;
                 physical_link_detail::create_default_placements(root, layout_id, top_schematic, "", result, ancestors);
                 physical_link_detail::link_routes_and_physical_ports(root, layout_id, top_schematic, result);
+                physical_link_detail::fill_uses(root, layout_id, result);
             });
         return result;
     }

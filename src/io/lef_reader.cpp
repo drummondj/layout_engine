@@ -1609,7 +1609,11 @@ namespace le
         if (lef_pin->hasShape())
             terminal.shape = lef_pin->shape();
         if (lef_pin->hasUse())
-            terminal.use = lef_pin->use();
+        {
+            terminal.use = signal_use_from_string(lef_pin->use());
+            if (!terminal.use)
+                log_warning("PIN {} has an unrecognized USE '{}' - ignored.", lef_pin->name(), lef_pin->use());
+        }
         if (lef_pin->hasMustjoin())
             terminal.must_join = lef_pin->mustjoin();
         if (lef_pin->hasNetExpr())

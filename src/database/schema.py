@@ -4,7 +4,7 @@ schema = Schema(
     name="layout_engine",
     description="Layout Engine Database Schema",
     namespace="le",
-    version="0.55.0",
+    version="0.56.0",
     classes=[
         Klass(
             name="Technology",
@@ -2205,8 +2205,8 @@ schema = Schema(
                 ),
                 Field(
                     name="use",
-                    description="SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG or SCAN (LEF PIN USE)",
-                    type="str",
+                    description="What the pin carries (LEF PIN USE) - SIGNAL when unset",
+                    type="SignalUse",
                     example="SIGNAL",
                     is_optional=True,
                 ),
@@ -2553,6 +2553,13 @@ schema = Schema(
                     type="SignalDirection",
                 ),
                 Field(
+                    name="use",
+                    description="What the port carries - SIGNAL when unset",
+                    type="SignalUse",
+                    example="GROUND",
+                    is_optional=True,
+                ),
+                Field(
                     name="bus",
                     description="The PortBus this Port is one bit of, if it is part of a multi-bit port",
                     type="PortBus",
@@ -2627,6 +2634,13 @@ schema = Schema(
                     example="n42",
                     index=True,
                     unique_per_parent=True,
+                ),
+                Field(
+                    name="use",
+                    description="What the net carries - SIGNAL when unset",
+                    type="SignalUse",
+                    example="POWER",
+                    is_optional=True,
                 ),
                 Field(
                     name="bus",
@@ -2724,6 +2738,22 @@ schema = Schema(
                     type="int",
                     value=5,
                 ),
+            ],
+        ),
+        Klass(
+            name="SignalUse",
+            description="What a net, port or pin carries (LEF PIN USE, DEF PINS/NETS USE)",
+            is_enum=True,
+            has_pool=False,
+            fields=[
+                Field(name="SIGNAL", description="An ordinary signal", type="int", value=0),
+                Field(name="POWER", description="A power supply", type="int", value=1),
+                Field(name="GROUND", description="A ground supply", type="int", value=2),
+                Field(name="CLOCK", description="A clock", type="int", value=3),
+                Field(name="ANALOG", description="An analog signal", type="int", value=4),
+                Field(name="TIEOFF", description="A tie-high or tie-low connection", type="int", value=5),
+                Field(name="SCAN", description="A scan chain", type="int", value=6),
+                Field(name="RESET", description="A reset", type="int", value=7),
             ],
         ),
         Klass(
@@ -2941,7 +2971,7 @@ schema = Schema(
                 Field(name="net_name", description="The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link", type="str", example="clk", is_optional=True),
                 Field(name="net", description="The logical Net this pin connects to, resolved by `link` against `net_name`", type="Net", is_optional=True),
                 Field(name="direction", example="OUTPUT", description="The direction of the pin", type="SignalDirection", is_optional=True),
-                Field(name="use", description="SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE)", type="str", example="SIGNAL", is_optional=True),
+                Field(name="use", description="What the pin carries (DEF PINS USE) - SIGNAL when unset", type="SignalUse", example="POWER", is_optional=True),
                 Field(name="placement_status", example="FIXED", description="Placement status", type="PlacementStatus", is_optional=True),
                 Field(name="location", example={"x": 0, "y": 500}, description="The pin's location, in database units", type="Point", is_optional=True),
                 Field(name="orientation", example="E", description="Placement orientation", type="Orientation", is_optional=True),
@@ -2995,7 +3025,7 @@ schema = Schema(
                 Field(name="net", description="The logical Net this routes, resolved by `link` against `name`", type="Net", is_optional=True),
                 Field(name="width", example=200, description="Routing width override, in database units (DEF SPECIALNETS WIDTH) - SPECIALNETS only", type="dbu", is_optional=True),
                 Field(name="voltage", example=1.8, description="Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only", type="double", is_optional=True),
-                Field(name="use", description="SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE)", type="str", example="POWER", is_optional=True),
+                Field(name="use", description="What the net carries (DEF NETS/SPECIALNETS USE) - SIGNAL when unset", type="SignalUse", example="POWER", is_optional=True),
                 Field(name="wires", description="Routed wiring and vias, one Wire per layer (DEF NETS/SPECIALNETS ROUTED/NEW)", type="Wire", is_list=True, is_child=True),
                 Field(name="shapes", description="Routed geometry a Wire can't hold: non-Manhattan or out-of-range segments, via arrays, vias that don't name a known via, and SPECIALNETS RECT and POLYGON shapes", type="Shape", is_list=True, is_child=True),
                 Field(name="shield_nets", description="The nets this route's SHIELD wiring shields (DEF SPECIALNETS SHIELD), indexed by a wire's or shape's shield_index", type="str", is_list=True),

@@ -3,6 +3,7 @@
 #include "generated/database/native_tables.hpp"
 
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <map>
@@ -279,6 +280,8 @@ namespace le::persistence
                 return ft.kind == K::Bool ? std::string{} : "was not a bool, now a bool";
             else if constexpr (std::is_enum_v<T>)
             {
+                if (ft.kind == K::Str)
+                    return {}; // read by name, see decode_value
                 if (ft.kind != K::Enum)
                     return "was not an enum, now " + std::string(nt::EnumInfo<T>::name);
                 if (ft.name != nt::EnumInfo<T>::name)
@@ -335,6 +338,17 @@ namespace le::persistence
         }
     };
 
+    /// @brief The enum value a string field retyped to an enum stored, matched
+    /// case-insensitively (strings weren't validated, enum names are upper case).
+    template <class E>
+    std::optional<E> enum_from_stored_string(std::string_view stored)
+    {
+        std::string upper(stored);
+        for (char &c : upper)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        return nt::EnumInfo<E>::from_name(upper);
+    }
+
     /// @brief Skip one value of the file's type (a struct member the current
     /// schema no longer has).
     void skip_value(ByteReader &r, const FileType &ft, bool presence, bool list, DecodeContext &ctx);
@@ -385,7 +399,16 @@ namespace le::persistence
                     return;
                 }
             }
-            typename IsOptional<T>::value_type value{};
+            using V = typename IsOptional<T>::value_type;
+            if constexpr (std::is_enum_v<V>)
+                if (ft.kind == K::Str)
+                {
+                    // A string retyped to an optional enum: a value that
+                    // names none of its values reads as unset.
+                    out = enum_from_stored_string<V>(ctx.string_at(r));
+                    return;
+                }
+            V value{};
             decode_value(r, ft, false, false, value, ctx);
             out = std::move(value);
         }
@@ -428,6 +451,15 @@ namespace le::persistence
         }
         else if constexpr (std::is_enum_v<T>)
         {
+            if (ft.kind == K::Str)
+            {
+                const std::string_view name = ctx.string_at(r);
+                const std::optional<T> value = enum_from_stored_string<T>(name);
+                if (!value)
+                    r.fail(std::string(nt::EnumInfo<T>::name) + " has no value " + std::string(name));
+                out = *value;
+                return;
+            }
             std::string_view name = ctx.string_at(r);
             if (ctx.enum_renames)
                 if (auto e = ctx.enum_renames->find(nt::EnumInfo<T>::name); e != ctx.enum_renames->end())

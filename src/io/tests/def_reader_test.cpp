@@ -296,7 +296,7 @@ namespace le
         ASSERT_TRUE(p0->direction.has_value());
         EXPECT_EQ(*p0->direction, SignalDirection::INPUT);
         ASSERT_TRUE(p0->use.has_value());
-        EXPECT_EQ(*p0->use, "SIGNAL");
+        EXPECT_EQ(*p0->use, SignalUse::SIGNAL);
         // No top-level placement statement - it's all per-PORT.
         EXPECT_FALSE(p0->location.has_value());
 
@@ -352,7 +352,7 @@ namespace le
         ASSERT_TRUE(p1->direction.has_value());
         EXPECT_EQ(*p1->direction, SignalDirection::OUTPUT);
         ASSERT_TRUE(p1->use.has_value());
-        EXPECT_EQ(*p1->use, "POWER");
+        EXPECT_EQ(*p1->use, SignalUse::POWER);
         ASSERT_TRUE(p1->placement_status.has_value());
         EXPECT_EQ(*p1->placement_status, PlacementStatus::PLACED);
         ASSERT_TRUE(p1->location.has_value());
@@ -395,7 +395,7 @@ namespace le
         ASSERT_TRUE(p3->direction.has_value());
         EXPECT_EQ(*p3->direction, SignalDirection::FEEDTHRU);
         ASSERT_TRUE(p3->use.has_value());
-        EXPECT_EQ(*p3->use, "CLOCK");
+        EXPECT_EQ(*p3->use, SignalUse::CLOCK);
         ASSERT_TRUE(p3->placement_status.has_value());
         EXPECT_EQ(*p3->placement_status, PlacementStatus::UNPLACED);
         EXPECT_FALSE(p3->location.has_value());
@@ -704,7 +704,7 @@ namespace le
         const RouteId n4_id = find_id_by_name_and_kind("N4", false);
         ASSERT_TRUE(n4_id.valid());
         ASSERT_TRUE(root.get_route(n4_id)->use.has_value());
-        EXPECT_EQ(*root.get_route(n4_id)->use, "GROUND");
+        EXPECT_EQ(*root.get_route(n4_id)->use, SignalUse::GROUND);
         const std::vector<ShapeData> n4_shapes = shapes_of(n4_id);
         bool found_via = false;
         for (const ShapeData &shape : n4_shapes)
@@ -1345,7 +1345,7 @@ namespace le
         const RouteId vdd = root.get_route_by_name(layout, "VDD");
         const RouteData *route = root.get_route(vdd);
         ASSERT_NE(route, nullptr);
-        EXPECT_EQ(route->use, std::optional<std::string>("POWER"));
+        EXPECT_EQ(route->use, std::optional<SignalUse>(SignalUse::POWER));
         EXPECT_EQ(route->shield_nets, (CompactVector<std::string>{"SIG"}));
 
         // SPECIALNETS: a STRIPE wire on M1, a SHIELD wire on M2, a RECT;
@@ -1419,6 +1419,6 @@ namespace le
         ASSERT_EQ(reader.read_def(path, root, "test_lib"), 0);
         EXPECT_TRUE(has_message(reader, "NET VDD: USE GROUND differs from the other section's USE POWER - kept POWER"));
         const LayoutId layout = root.get_design_layout(find_design_by_name(root, "use_mismatch"));
-        EXPECT_EQ(root.get_route(root.get_route_by_name(layout, "VDD"))->use, std::optional<std::string>("POWER"));
+        EXPECT_EQ(root.get_route(root.get_route_by_name(layout, "VDD"))->use, std::optional<SignalUse>(SignalUse::POWER));
     }
 }

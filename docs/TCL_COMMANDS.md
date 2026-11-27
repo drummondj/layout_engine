@@ -1401,7 +1401,7 @@ Creates a PinAntennaModel and returns its token. PinAntennaModel: One LEF PIN AN
 
 ### create_terminal
 
-`create_terminal -abstract <token> -name <str> -direction <SignalDirection> [-shape <str>] [-use <str>] [-must_join <str>] [-net_expr <str>] [-leq <str>] [-taper_rule <str>] [-supply_sensitivity <str>] [-ground_sensitivity <str>] [-rise_slew_limit <double>] [-fall_slew_limit <double>] [-max_load <double>] [-max_delay <double>] [-help]`
+`create_terminal -abstract <token> -name <str> -direction <SignalDirection> [-shape <str>] [-use <SignalUse>] [-must_join <str>] [-net_expr <str>] [-leq <str>] [-taper_rule <str>] [-supply_sensitivity <str>] [-ground_sensitivity <str>] [-rise_slew_limit <double>] [-fall_slew_limit <double>] [-max_load <double>] [-max_delay <double>] [-help]`
 
 Creates a Terminal and returns its token. Terminal: Top-level pin name of an abstract
 
@@ -1411,7 +1411,7 @@ Creates a Terminal and returns its token. Terminal: Top-level pin name of an abs
 | `-name` | `str` | yes | Name of the terminal - unique within its abstract |
 | `-direction` | `SignalDirection` | yes | The direction of the terminal |
 | `-shape` | `str` | no | ABUTMENT, RING or FEEDTHRU (LEF PIN SHAPE) |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG or SCAN (LEF PIN USE) |
+| `-use` | `SignalUse` | no | What the pin carries (LEF PIN USE) - SIGNAL when unset |
 | `-must_join` | `str` | no | The name of another pin this one must be joined with (LEF PIN MUSTJOIN) |
 | `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed |
 | `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq |
@@ -1708,7 +1708,7 @@ Changes the given fields of a PinAntennaModel; omitted flags leave a field uncha
 
 ### update_terminal
 
-`update_terminal <id> [-abstract <token>] [-name <str>] [-direction <SignalDirection>] [-shape <str>] [-use <str>] [-must_join <str>] [-net_expr <str>] [-leq <str>] [-taper_rule <str>] [-supply_sensitivity <str>] [-ground_sensitivity <str>] [-rise_slew_limit <double>] [-fall_slew_limit <double>] [-max_load <double>] [-max_delay <double>] [-help]`
+`update_terminal <id> [-abstract <token>] [-name <str>] [-direction <SignalDirection>] [-shape <str>] [-use <SignalUse>] [-must_join <str>] [-net_expr <str>] [-leq <str>] [-taper_rule <str>] [-supply_sensitivity <str>] [-ground_sensitivity <str>] [-rise_slew_limit <double>] [-fall_slew_limit <double>] [-max_load <double>] [-max_delay <double>] [-help]`
 
 Changes the given fields of a Terminal; omitted flags leave a field unchanged.
 
@@ -1718,7 +1718,7 @@ Changes the given fields of a Terminal; omitted flags leave a field unchanged.
 | `-name` | `str` | no | Name of the terminal - unique within its abstract |
 | `-direction` | `SignalDirection` | no | The direction of the terminal |
 | `-shape` | `str` | no | ABUTMENT, RING or FEEDTHRU (LEF PIN SHAPE) |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, TIEOFF, ANALOG or SCAN (LEF PIN USE) |
+| `-use` | `SignalUse` | no | What the pin carries (LEF PIN USE) - SIGNAL when unset |
 | `-must_join` | `str` | no | The name of another pin this one must be joined with (LEF PIN MUSTJOIN) |
 | `-net_expr` | `str` | no | A verbatim NETEXPR string (LEF 5.6), round-tripped as-is rather than parsed |
 | `-leq` | `str` | no | This pin's own logically-equivalent-pin name (LEF PIN LEQ) - distinct from the macro-level Abstract.leq |
@@ -1814,7 +1814,7 @@ Creates a LayoutVia and returns its token. LayoutVia: A design-scoped named via 
 
 ### create_physical_port
 
-`create_physical_port -layout <token> [-net <token>] -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+`create_physical_port -layout <token> [-net <token>] -name <str> [-net_name <str>] [-direction <SignalDirection>] [-use <SignalUse>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
 Creates a PhysicalPort and returns its token. PhysicalPort: A chip-boundary I/O pin (DEF PINS).
 
@@ -1825,7 +1825,7 @@ Creates a PhysicalPort and returns its token. PhysicalPort: A chip-boundary I/O 
 | `-name` | `str` | yes | The name of the pin - unique within its layout |
 | `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
 | `-direction` | `SignalDirection` | no | The direction of the pin |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
+| `-use` | `SignalUse` | no | What the pin carries (DEF PINS USE) - SIGNAL when unset |
 | `-placement_status` | `PlacementStatus` | no | Placement status |
 | `-location` | `Point` | no | The pin's location, in microns |
 | `-orientation` | `Orientation` | no | Placement orientation |
@@ -1877,7 +1877,7 @@ Creates a Region and returns its token. Region: A placement region (DEF REGIONS)
 
 ### create_route
 
-`create_route -layout <token> [-net <token>] -name <str> [-width <um>] [-voltage <double>] [-use <str>] [-help]`
+`create_route -layout <token> [-net <token>] -name <str> [-width <um>] [-voltage <double>] [-use <SignalUse>] [-help]`
 
 Creates a Route and returns its token. Route: The routing geometry of a net: its regular wiring (DEF NETS) and its special wiring (DEF SPECIALNETS).
 
@@ -1888,7 +1888,7 @@ Creates a Route and returns its token. Route: The routing geometry of a net: its
 | `-name` | `str` | yes | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
 | `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
+| `-use` | `SignalUse` | no | What the net carries (DEF NETS/SPECIALNETS USE) - SIGNAL when unset |
 
 ### create_row
 
@@ -2299,7 +2299,7 @@ Changes the given fields of a LayoutVia; omitted flags leave a field unchanged.
 
 ### update_physical_port
 
-`update_physical_port <id> [-layout <token>] [-net <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <str>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
+`update_physical_port <id> [-layout <token>] [-net <token>] [-name <str>] [-net_name <str>] [-direction <SignalDirection>] [-use <SignalUse>] [-placement_status <PlacementStatus>] [-location <Point>] [-orientation <Orientation>] [-help]`
 
 Changes the given fields of a PhysicalPort; omitted flags leave a field unchanged.
 
@@ -2310,7 +2310,7 @@ Changes the given fields of a PhysicalPort; omitted flags leave a field unchange
 | `-name` | `str` | no | The name of the pin - unique within its layout |
 | `-net_name` | `str` | no | The name of the net this pin connects to, as read (DEF PINS NET) - see `net` for the resolved link |
 | `-direction` | `SignalDirection` | no | The direction of the pin |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF PINS USE) |
+| `-use` | `SignalUse` | no | What the pin carries (DEF PINS USE) - SIGNAL when unset |
 | `-placement_status` | `PlacementStatus` | no | Placement status |
 | `-location` | `Point` | no | The pin's location, in microns |
 | `-orientation` | `Orientation` | no | Placement orientation |
@@ -2362,7 +2362,7 @@ Changes the given fields of a Region; omitted flags leave a field unchanged.
 
 ### update_route
 
-`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-width <um>] [-voltage <double>] [-use <str>] [-help]`
+`update_route <id> [-layout <token>] [-net <token>] [-name <str>] [-width <um>] [-voltage <double>] [-use <SignalUse>] [-help]`
 
 Changes the given fields of a Route; omitted flags leave a field unchanged.
 
@@ -2373,7 +2373,7 @@ Changes the given fields of a Route; omitted flags leave a field unchanged.
 | `-name` | `str` | no | The name of the net this routes, as read - unique within its layout. See net for the resolved link |
 | `-width` | `um` | no | Routing width override, in microns (DEF SPECIALNETS WIDTH) - SPECIALNETS only |
 | `-voltage` | `double` | no | Net voltage (DEF SPECIALNETS VOLTAGE) - SPECIALNETS only |
-| `-use` | `str` | no | SIGNAL, POWER, GROUND, CLOCK, ... (DEF NETS/SPECIALNETS USE) |
+| `-use` | `SignalUse` | no | What the net carries (DEF NETS/SPECIALNETS USE) - SIGNAL when unset |
 
 ### update_row
 
@@ -2458,7 +2458,7 @@ Creates a Instance and returns its token. Instance: An instance of another desig
 
 ### create_net
 
-`create_net -schematic <token> [-bus <token>] -name <str> [-bit_index <int>] [-help]`
+`create_net -schematic <token> [-bus <token>] -name <str> [-use <SignalUse>] [-bit_index <int>] [-help]`
 
 Creates a Net and returns its token. Net: Logical connectivity net within a Schematic (Verilog wire/reg/logic) - one Net per bit for a multi-bit net, see .bus
 
@@ -2467,6 +2467,7 @@ Creates a Net and returns its token. Net: Logical connectivity net within a Sche
 | `-schematic` | `token` | yes | Parent Schematic token |
 | `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
 | `-name` | `str` | yes | The name of the net - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit net, plain for a scalar net - unique within its schematic |
+| `-use` | `SignalUse` | no | What the net carries - SIGNAL when unset |
 | `-bit_index` | `int` | no | Which bit of .bus this Net represents |
 
 ### create_net_bus
@@ -2498,7 +2499,7 @@ Creates a Pin and returns its token. Pin: Logical connection point on an Instanc
 
 ### create_port
 
-`create_port -schematic <token> [-bus <token>] [-net <token>] -name <str> -direction <SignalDirection> [-bit_index <int>] [-help]`
+`create_port -schematic <token> [-bus <token>] [-net <token>] -name <str> -direction <SignalDirection> [-use <SignalUse>] [-bit_index <int>] [-help]`
 
 Creates a Port and returns its token. Port: Logical top-level port of a Schematic (Verilog module input/output/inout) - one Port per bit for a multi-bit port, see .bus
 
@@ -2509,6 +2510,7 @@ Creates a Port and returns its token. Port: Logical top-level port of a Schemati
 | `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
 | `-name` | `str` | yes | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
 | `-direction` | `SignalDirection` | yes | The direction of the port |
+| `-use` | `SignalUse` | no | What the port carries - SIGNAL when unset |
 | `-bit_index` | `int` | no | Which bit of .bus this Port represents |
 
 ### create_port_bus
@@ -2700,7 +2702,7 @@ Returns the Schematic objects matching the given names and filters, as tokens. S
 
 `link`
 
-Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Returns the number of instances newly resolved.
+Resolves instances whose design wasn't known when they were read - e.g. after a later read_lef supplies a cell a netlist uses. read_verilog does this automatically. Then matches each layout's placements, routes and pins to its schematic, and gives a net or port with no use one: a linked pin's (DEF PINS USE), else a linked route's (DEF NETS USE), else the one use every pin of the net reaches when that isn't SIGNAL (e.g. a net reaching only POWER cell pins is POWER). A port with no use takes its net's. A use already set is kept. Returns the number of instances newly resolved.
 
 ### read_verilog
 
@@ -2734,7 +2736,7 @@ Changes the given fields of an instance; omitted flags leave a field unchanged.
 
 ### update_net
 
-`update_net <id> [-schematic <token>] [-bus <token>] [-name <str>] [-bit_index <int>] [-help]`
+`update_net <id> [-schematic <token>] [-bus <token>] [-name <str>] [-use <SignalUse>] [-bit_index <int>] [-help]`
 
 Changes the given fields of a net; omitted flags leave a field unchanged.
 
@@ -2743,6 +2745,7 @@ Changes the given fields of a net; omitted flags leave a field unchanged.
 | `-schematic` | `token` | no | Move it to this schematic (token) |
 | `-bus` | `token` | no | The NetBus this Net is one bit of, if it is part of a multi-bit net |
 | `-name` | `str` | no | The net's name - bracketed ("address[7]") for one bit of a bus, plain otherwise; unique within its schematic |
+| `-use` | `SignalUse` | no | What the net carries - SIGNAL when unset |
 | `-bit_index` | `int` | no | Which bit of -bus this net is |
 
 ### update_net_bus
@@ -2774,7 +2777,7 @@ Changes the given fields of a Pin; omitted flags leave a field unchanged.
 
 ### update_port
 
-`update_port <id> [-schematic <token>] [-bus <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-bit_index <int>] [-help]`
+`update_port <id> [-schematic <token>] [-bus <token>] [-net <token>] [-name <str>] [-direction <SignalDirection>] [-use <SignalUse>] [-bit_index <int>] [-help]`
 
 Changes the given fields of a Port; omitted flags leave a field unchanged.
 
@@ -2785,6 +2788,7 @@ Changes the given fields of a Port; omitted flags leave a field unchanged.
 | `-net` | `token` | no | The net this port corresponds to, if any (Verilog gives every port an implicit net of the same name) - the matching per-bit Net for a multi-bit port |
 | `-name` | `str` | no | The name of the port - the DEF-style bracketed form ("address[7]") for one bit of a multi-bit port, plain for a scalar port - unique within its schematic |
 | `-direction` | `SignalDirection` | no | The direction of the port |
+| `-use` | `SignalUse` | no | What the port carries - SIGNAL when unset |
 | `-bit_index` | `int` | no | Which bit of .bus this Port represents |
 
 ### update_port_bus

@@ -178,6 +178,30 @@ TEST(SchematicLayoutLinker, LinksAPhysicalPortToItsMatchingNet)
     EXPECT_EQ(f.root.get_physical_port(f.port_clk)->net, f.net_topnet);
 }
 
+TEST(SchematicLayoutLinker, FillsUnsetNetAndPortUsesFromTheLayoutAndKeepsSetOnes)
+{
+    Fixture f;
+    Root &root = f.root;
+    root.get_route(f.route_n1)->use = SignalUse::POWER;          // DEF NETS USE
+    root.get_physical_port(f.port_clk)->use = SignalUse::CLOCK;  // DEF PINS USE
+    const PortId clk = root.create_port(PortData{.schematic = f.top_schematic, .name = "clk", .direction = SignalDirection::INPUT, .net = f.net_topnet});
+    const NetId kept = root.create_net(NetData{.schematic = f.top_schematic, .name = "kept", .use = SignalUse::GROUND});
+    const PortId kept_port =
+        root.create_port(PortData{.schematic = f.top_schematic, .name = "kept", .direction = SignalDirection::INOUT, .use = SignalUse::ANALOG, .net = kept});
+    root.create_route(RouteData{.layout = f.top_layout, .name = "kept", .use = SignalUse::POWER});
+
+    const PhysicalLinkResult result = link_physical(root);
+    EXPECT_EQ(root.get_net(f.net_n1)->use, SignalUse::POWER);
+    EXPECT_EQ(root.get_net(f.net_topnet)->use, SignalUse::CLOCK);
+    EXPECT_EQ(root.get_port(clk)->use, SignalUse::CLOCK);
+    EXPECT_EQ(root.get_net(kept)->use, SignalUse::GROUND);
+    EXPECT_EQ(root.get_port(kept_port)->use, SignalUse::ANALOG);
+    EXPECT_EQ(result.uses_filled, 3u);
+
+    // Re-running changes nothing more.
+    EXPECT_EQ(link_physical(root).uses_filled, 0u);
+}
+
 TEST(SchematicLayoutLinker, UnmatchedPhysicalPortLogsAWarningNotAnError)
 {
     Fixture f;

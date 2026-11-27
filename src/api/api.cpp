@@ -3,6 +3,7 @@
 #include "../database/hierarchical_resolver.hpp"
 #include "../database/library_helpers.hpp"
 #include "../database/schematic_layout_linker.hpp"
+#include "../database/signal_use_inference.hpp"
 #include "../database/rename_propagation.hpp"
 #include "../editing/editing.hpp"
 #include "../geometry/geometry.hpp"
@@ -660,6 +661,8 @@ namespace le::edit
         // Physical linking descends through Instances, so it runs once their
         // designs are resolved.
         link_physical(handle.root);
+        // After link_physical, so a use from the layout's DEF comes first.
+        infer_signal_uses(handle.root);
         handle.root.bump_mutation_version();
         clean.commit(&handle);
         return resolved;
@@ -707,7 +710,7 @@ namespace le::edit
                 if (!port || port->net != net_id)
                     continue;
                 const PortData before = *port;
-                root.update_port(port_id, SchematicId{}, std::nullopt, std::optional<NetId>(NetId{}), std::nullopt, std::nullopt, std::nullopt);
+                root.update_port(port_id, SchematicId{}, std::nullopt, std::optional<NetId>(NetId{}), std::nullopt, std::nullopt, std::nullopt, std::nullopt);
                 if (txn)
                     txn->record_update<PortId, PortData>(port_id, before, *root.get_port(port_id), &apply_port_snapshot);
             }
@@ -784,7 +787,7 @@ namespace le::edit
         editing::Transaction *txn = handle.command_history.current();
 
         const NetData before_net = *existing_net;
-        if (!root.update_net(net_id, SchematicId{}, std::nullopt, std::optional<std::string>(new_name), std::nullopt))
+        if (!root.update_net(net_id, SchematicId{}, std::nullopt, std::optional<std::string>(new_name), std::nullopt, std::nullopt))
         {
             step.fail();
             return std::unexpected("a sibling Net with this name already exists");

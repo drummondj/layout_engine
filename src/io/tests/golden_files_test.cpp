@@ -93,6 +93,16 @@ namespace le::persistence
                      EXPECT_EQ(i1->location->x, 2000);
                      EXPECT_EQ(i1->location->y, 2000);
                      EXPECT_EQ(i1->weight, 100.0);
+                     // USE values (strings before 0.56.0).
+                     const TerminalData *inv_a = root.get_terminal(root.get_terminal_by_name(root.get_design_abstract(find_design_by_name(root, "INV")), "A"));
+                     ASSERT_NE(inv_a, nullptr);
+                     EXPECT_EQ(inv_a->use, SignalUse::ANALOG);
+                     for (const auto &[pin, use] : {std::pair{"P1", SignalUse::POWER}, std::pair{"P7", SignalUse::RESET}})
+                     {
+                         const PhysicalPortData *port = root.get_physical_port(root.get_physical_port_by_name(root.get_design_layout(design), pin));
+                         ASSERT_NE(port, nullptr) << pin;
+                         EXPECT_EQ(port->use, use) << pin;
+                     }
                      // SPECIALNETS DUMMY's wiring is special, NETS N6's
                      // regular (a 0.53.0 file held this on the Route).
                      const LayoutId layout = root.get_design_layout(design);
