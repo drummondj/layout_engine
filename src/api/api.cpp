@@ -362,6 +362,84 @@ namespace le::edit
         return {};
     }
 
+    std::expected<DefPlacementsReport, std::string> read_def_placements(LeHandle &handle, const std::string &path, LayoutId layout)
+    {
+        Root &root = handle.root;
+        if (!layout.valid())
+            layout = handle.current_layout_id;
+        if (!root.get_layout(layout))
+            return logged_error("read_def", "no Layout given and no current Layout set");
+
+        const auto technology_ids = root.get_technology_ids();
+        const TechnologyData *technology = technology_ids.empty() ? nullptr : root.get_technology(technology_ids.front());
+        le::DEFReader reader;
+        std::vector<le::DefComponentPlacement> components;
+        if (const int result = reader.read_component_placements(path, technology ? technology->database_units_microns : 0, components);
+            result != 0)
+            return std::unexpected(io_failure("read_def", path, reader.messages(), result));
+
+        // Planned in full before anything changes.
+        DefPlacementsReport report;
+        std::vector<std::pair<PlacementId, PlacementChanges>> plan;
+        for (le::DefComponentPlacement &component : components)
+        {
+            const PlacementId id = root.get_placement_by_name(layout, component.name);
+            const PlacementData *placement = root.get_placement(id);
+            if (!placement)
+            {
+                report.unmatched.push_back(std::move(component.name));
+                continue;
+            }
+            const DesignData *cell = root.get_design(placement->reference_design);
+            if (!cell || cell->name != component.cell)
+                report.cell_mismatches.push_back(component.name);
+            const bool moves = component.location && (!placement->location || placement->location->x != component.location->x ||
+                                                       placement->location->y != component.location->y);
+            const bool turns = component.orientation && *component.orientation != placement->orientation;
+            if (!moves && !turns && component.status == placement->placement_status)
+                continue;
+            plan.emplace_back(id, PlacementChanges{.placement_status = component.status,
+                                                   .location = component.location,
+                                                   .orientation = component.orientation});
+        }
+
+        const auto names = [](const std::vector<std::string> &all)
+        {
+            constexpr size_t kShown = 10;
+            std::string text;
+            for (size_t i = 0; i < std::min(all.size(), kShown); ++i)
+                text += (i ? ", " : "") + all[i];
+            return all.size() > kShown ? fmt::format("{} and {} more", text, all.size() - kShown) : text;
+        };
+        if (!report.unmatched.empty())
+            spdlog::warn("read_def: {} component(s) match no placement: {}", report.unmatched.size(), names(report.unmatched));
+        if (!report.cell_mismatches.empty())
+            spdlog::warn("read_def: {} placement(s) place a different cell than their component: {}", report.cell_mismatches.size(),
+                         names(report.cell_mismatches));
+
+        api_detail::OwnStep step(handle, "read_def");
+        for (auto &[id, changes] : plan)
+        {
+            // The DEF's placement wins over a lock: unlock first, so the
+            // update may move it and lock it again.
+            const PlacementData before = *root.get_placement(id);
+            if (check_placement_update(root, before, changes))
+                if (const auto unlocked = update_placement(handle, id, PlacementChanges{.placement_status = PlacementStatus::PLACED}); !unlocked)
+                {
+                    step.fail();
+                    return logged_error("read_def", unlocked.error());
+                }
+            if (const auto updated = update_placement(handle, id, std::move(changes)); !updated)
+            {
+                step.fail();
+                return logged_error("read_def", updated.error());
+            }
+            ++report.updated;
+        }
+        spdlog::info("read_def: updated {} placement(s) from '{}'", report.updated, path);
+        return report;
+    }
+
     std::expected<void, std::string> read_verilog(LeHandle &handle, std::span<const std::string> files, bool netlist, const std::string &library)
     {
         LeHandle *const h = &handle;

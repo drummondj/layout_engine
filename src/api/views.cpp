@@ -460,6 +460,10 @@ namespace le
 
     std::expected<void, std::string> WriteView::read_lef(const std::string &path, const std::string &library) { return edit::read_lef(*handle_, path, library); }
     std::expected<void, std::string> WriteView::read_def(const std::string &path, const std::string &library) { return edit::read_def(*handle_, path, library); }
+    std::expected<DefPlacementsReport, std::string> WriteView::read_def_placements(const std::string &path, LayoutId layout)
+    {
+        return edit::read_def_placements(*handle_, path, layout);
+    }
     std::expected<void, std::string> WriteView::read_verilog(std::span<const std::string> files, bool netlist, const std::string &library)
     {
         return edit::read_verilog(*handle_, files, netlist, library);

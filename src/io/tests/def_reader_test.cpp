@@ -784,6 +784,81 @@ namespace le
         EXPECT_EQ(reader.read_def("/nonexistent/path.def", root, "test_lib"), 1);
     }
 
+    // read_component_placements: UNITS 2000 rescaled onto 1000, the
+    // repeated `a` ignored, and the malformed NETS after COMPONENTS never
+    // parsed.
+    TEST(DEFReaderComponentPlacements, ReadsOnlyComponentsRescaled)
+    {
+        DEFReader reader;
+        std::vector<DefComponentPlacement> placements;
+        ASSERT_EQ(reader.read_component_placements(std::string(IO_TEST_FIXTURES_DIR) + "/component_placements.def", 1000.0, placements), 0);
+        ASSERT_EQ(placements.size(), 3u);
+
+        EXPECT_EQ(placements[0].name, "a");
+        EXPECT_EQ(placements[0].cell, "CELL_A");
+        EXPECT_EQ(placements[0].status, PlacementStatus::FIXED);
+        ASSERT_TRUE(placements[0].location);
+        EXPECT_EQ(placements[0].location->x, 1000);
+        EXPECT_EQ(placements[0].location->y, 2000);
+        EXPECT_EQ(placements[0].orientation, Orientation::FS);
+
+        EXPECT_EQ(placements[1].name, "b");
+        EXPECT_EQ(placements[1].status, PlacementStatus::UNPLACED);
+        EXPECT_FALSE(placements[1].location);
+        EXPECT_FALSE(placements[1].orientation);
+
+        EXPECT_EQ(placements[2].name, "c");
+        EXPECT_FALSE(placements[2].location);
+        EXPECT_TRUE(std::ranges::any_of(reader.messages(), [](const std::string &m) { return m.find("COMPONENT a already exists") != std::string::npos; }));
+    }
+
+    // Each read registers only its own callbacks: a full read after a
+    // placements read reads past COMPONENTS, and a placements read after
+    // a full read creates nothing.
+    TEST(DEFReaderComponentPlacements, ReadsDoNotKeepEachOthersCallbacks)
+    {
+        Root root;
+        root.create_technology(TechnologyData{.database_units_microns = 1000.0});
+        root.create_design(DesignData{.library = root.create_library(LibraryData{.name = "lib"}), .name = "CELL_A"});
+        const std::filesystem::path path = std::filesystem::path(test::scratch_path("def_reader_callbacks")) / "full.def";
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream(path) << "VERSION 5.8 ;\nDESIGN top ;\nUNITS DISTANCE MICRONS 1000 ;\n"
+                               "COMPONENTS 1 ;\n- u1 CELL_A + PLACED ( 0 0 ) N ;\nEND COMPONENTS\n"
+                               "REGIONS 1 ;\n- r1 ( 0 0 ) ( 10 10 ) ;\nEND REGIONS\nEND DESIGN\n";
+
+        DEFReader reader;
+        std::vector<DefComponentPlacement> placements;
+        ASSERT_EQ(reader.read_component_placements(path.string(), 1000.0, placements), 0);
+        ASSERT_EQ(reader.read_def(path.string(), root, "lib"), 0);
+        const DesignId top = find_design_by_name(root, "top");
+        ASSERT_TRUE(top.valid());
+        EXPECT_EQ(root.get_layout_regions(root.get_design_layout(top)).size(), 1u) << "REGIONS after COMPONENTS were read";
+
+        const size_t designs = root.get_design_ids().size();
+        ASSERT_EQ(reader.read_component_placements(path.string(), 1000.0, placements), 0);
+        EXPECT_EQ(root.get_design_ids().size(), designs);
+        EXPECT_EQ(placements.size(), 1u);
+        std::filesystem::remove_all(path.parent_path());
+    }
+
+    TEST(DEFReaderComponentPlacements, UnknownTechnologyUnitsKeepTheFileValues)
+    {
+        DEFReader reader;
+        std::vector<DefComponentPlacement> placements;
+        ASSERT_EQ(reader.read_component_placements(std::string(IO_TEST_FIXTURES_DIR) + "/component_placements.def", 0, placements), 0);
+        ASSERT_FALSE(placements.empty());
+        ASSERT_TRUE(placements[0].location);
+        EXPECT_EQ(placements[0].location->x, 2000);
+    }
+
+    TEST(DEFReaderComponentPlacements, AMissingFileIsAnError)
+    {
+        DEFReader reader;
+        std::vector<DefComponentPlacement> placements;
+        EXPECT_EQ(reader.read_component_placements("/nonexistent/path.def", 1000.0, placements), 1);
+        EXPECT_TRUE(placements.empty());
+    }
+
     // unit_scale_mismatch.def declares UNITS DISTANCE MICRONS 500 - coarser
     // than the pre-existing Technology's own 1000 (as if a LEF tech file
     // had already been read) - DEFReader must rescale every raw value it

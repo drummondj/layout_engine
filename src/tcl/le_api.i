@@ -99,6 +99,7 @@
 
 int read_lef(const char *path, const char *library_name);
 int read_def(const char *path, const char *library_name);
+int read_def_placements_cmd(const char *path, const char *layout_token);
 int read_verilog_cmd(const char *paths, int is_netlist, const char *library_name);
 int link_unresolved_instances_cmd();
 int write_verilog_stubs_cmd(const char *path, const char *library_token);

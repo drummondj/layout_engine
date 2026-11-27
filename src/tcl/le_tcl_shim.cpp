@@ -473,6 +473,16 @@ int read_def(const char *path, const char *library_name)
     return status(write_view().read_def(path ? path : "", library_name ? library_name : ""));
 }
 
+int read_def_placements_cmd(const char *path, const char *layout_token)
+{
+    le::WriteView view = write_view();
+    const le::LayoutId layout = layout_token && *layout_token ? resolve_layout_id(lookup(view), layout_token) : le::LayoutId{};
+    if (layout_token && *layout_token && !layout.valid())
+        return fail(std::format("unknown layout '{}'", layout_token));
+    const auto report = view.read_def_placements(path ? path : "", layout);
+    return report ? 0 : fail(report.error());
+}
+
 // paths is a space-separated list of one or more filenames - same
 // plain-word-split convention write_lef_cmd's own abstract_tokens uses
 // above (no filename this project's own test fixtures/workflow uses

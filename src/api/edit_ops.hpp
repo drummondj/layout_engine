@@ -369,6 +369,11 @@ namespace le::edit
     std::expected<void, std::string> read_lef(LeHandle &handle, const std::string &path, const std::string &library);
     /// @brief Reads a DEF file, its DESIGN into the Library named `library`.
     std::expected<void, std::string> read_def(LeHandle &handle, const std::string &path, const std::string &library);
+    /// @brief Sets the status, location and orientation of each Placement
+    /// of `layout` (the current Layout if invalid) from the DEF component
+    /// of its name, reading only UNITS and COMPONENTS: one undo step,
+    /// locked placements included. Changes nothing else.
+    std::expected<DefPlacementsReport, std::string> read_def_placements(LeHandle &handle, const std::string &path, LayoutId layout);
     /// @brief Reads SystemVerilog/Verilog files into the Library named
     /// `library`: elaborated as a netlist, or syntax-only RTL.
     std::expected<void, std::string> read_verilog(LeHandle &handle, std::span<const std::string> files, bool netlist,

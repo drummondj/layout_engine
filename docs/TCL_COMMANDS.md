@@ -2219,13 +2219,15 @@ Returns the Wire objects matching the given names and filters, as tokens. Wire: 
 
 ### read_def
 
-`read_def -library <name> <path> [-help]`
+`read_def -library <name> <path> | -placements_only [-layout <token>] <path> [-help]`
 
-Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no layout (e.g. from read_verilog), that design gets the layout instead. A design in the -library library that already has a layout is an error. Each component's cell is looked up in the -library library first, then in whichever library alone has a cell of that name. Returns 0 on success, nonzero on an error (the details are printed).
+Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no layout (e.g. from read_verilog), that design gets the layout instead. A design in the -library library that already has a layout is an error. Each component's cell is looked up in the -library library first, then in whichever library alone has a cell of that name. With -placements_only, reads only the DEF's UNITS and COMPONENTS into the existing layout -layout (the current layout if omitted): each placement named by a component takes its status, location and orientation, even a FIXED or COVER one; nothing else changes. Components that name no placement, and placements whose cell differs from their component's (updated anyway), are reported as warnings. It is one undo step. Returns 0 on success, nonzero on an error (the details are printed).
 
 | Flag | Type | Required | Description |
 | --- | --- | --- | --- |
-| `-library` | `str` | yes | Library to read the DEF's design into - created if it doesn't exist |
+| `-library` | `str` | no | Library to read the DEF's design into - created if it doesn't exist; required unless -placements_only |
+| `-placements_only` | `flag` | no | Update an existing layout's placements from the DEF's COMPONENTS only |
+| `-layout` | `token` | no | With -placements_only, the layout to update - defaults to the current Layout |
 | `<path>` | `file` | yes | DEF file to read |
 
 ### rotate_placement

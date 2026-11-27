@@ -353,6 +353,7 @@ database change, except reading a file. Every read is on `ReadView` and
 | `rulers()` | Every `le::Ruler` (dbu points, and whether it's finished), the one being drawn last. |
 | `add_ruler(points)`, `finish_ruler()`, `clear_rulers()` | Adds a finished ruler (at least 2 points), finishes the one being drawn, or removes them all. |
 | `read_lef(path, library)`, `read_def(path, library)`, `read_verilog(files, netlist, library)`, `read_db(path, with_session)` | Read a file, as the Tcl commands do. A read is part of the open undo step and tells mutation listeners `everything`. |
+| `read_def_placements(path, layout)` | Sets each Placement of `layout` (the current Layout if invalid) that a DEF component names to the component's status, location and orientation, reading only UNITS and COMPONENTS. Returns a `le::DefPlacementsReport` (how many changed, unmatched components, cell mismatches); recorded like any edit, so mutation listeners see each changed Placement. |
 | `write_lef(path, abstracts, library, layers)`, `write_def(path, layout)`, `write_db(path, with_session)`, `write_verilog_stubs(path, library)` | Write one; leaving out the Abstracts, Layout or Library means the current one, as in Tcl. |
 
 The ones that can fail return `std::expected<void, std::string>`. A file
@@ -866,7 +867,8 @@ The first version.
   `open_layout`, `fit_view`, `fit_rect`, `zoom`, `pan`, `set_view_flip`),
   rulers (`rulers`, `add_ruler`, `finish_ruler`, `clear_rulers`) and files
   (`read_lef`, `read_def`, `read_verilog`, `read_db`, `write_lef`,
-  `write_def`, `write_db`, `write_verilog_stubs`). A `WriteView` no longer
+  `write_def`, `write_db`, `write_verilog_stubs`), and
+  `read_def_placements` with `DefPlacementsReport`. A `WriteView` no longer
   bumps the mutation version when it ends unless `unrecorded_root()` was
   used.
 - Settings: `Registry::add_settings`, `SettingsSection`; `ExtensionInfo::directory`
