@@ -372,7 +372,8 @@ namespace le::edit
     /// @brief Sets the status, location and orientation of each Placement
     /// of `layout` (the current Layout if invalid) from the DEF component
     /// of its name, reading only UNITS and COMPONENTS: one undo step,
-    /// locked placements included. Changes nothing else.
+    /// locked placements included. A component placing another cell is
+    /// logged as an error and left out. Changes nothing else.
     std::expected<DefPlacementsReport, std::string> read_def_placements(LeHandle &handle, const std::string &path, LayoutId layout);
     /// @brief Reads SystemVerilog/Verilog files into the Library named
     /// `library`: elaborated as a netlist, or syntax-only RTL.

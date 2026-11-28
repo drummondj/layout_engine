@@ -137,16 +137,20 @@ TEST_F(DefPlacements, UndoRestoresEveryPlacementInOneStepIncludingALockedOne)
     EXPECT_EQ(placement("a").location->x, 300);
 }
 
-TEST_F(DefPlacements, ACellMismatchIsReportedAndStillUpdated)
+TEST_F(DefPlacements, ACellMismatchIsAnErrorAndLeavesThatPlacementUnchanged)
 {
     const auto report = read_placements(def("placements.def", "UNITS DISTANCE MICRONS 1000 ;\n"
-                                                              "COMPONENTS 1 ;\n"
+                                                              "COMPONENTS 2 ;\n"
                                                               "- a OTHERCELL + PLACED ( 10 20 ) N ;\n"
+                                                              "- b TESTCELL + FIXED ( 30 40 ) S ;\n"
                                                               "END COMPONENTS\n"),
                                         layout);
     ASSERT_TRUE(report) << report.error();
     EXPECT_EQ(report->cell_mismatches, std::vector<std::string>{"a"});
-    EXPECT_EQ(placement("a").location->x, 10);
+    EXPECT_EQ(report->updated, 1u);
+    EXPECT_EQ(placement("a").location->x, 0);
+    EXPECT_EQ(placement("a").reference_design, design_named("TESTCELL"));
+    EXPECT_EQ(placement("b").location->x, 30) << "the other components still apply";
 }
 
 TEST_F(DefPlacements, TheChangeLogSeesEachUpdateWithoutSaturating)

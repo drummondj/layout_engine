@@ -493,7 +493,8 @@ namespace le
         /// @brief Reads a DEF file, its DESIGN into the Library named `library`.
         std::expected<void, std::string> read_def(const std::string &path, const std::string &library);
         /// @brief Updates `layout`'s (else the current Layout's) Placements
-        /// from the DEF COMPONENTS of the same names, changing nothing else.
+        /// from the DEF COMPONENTS of the same names and cells, changing
+        /// nothing else.
         std::expected<DefPlacementsReport, std::string> read_def_placements(const std::string &path, LayoutId layout);
         /// @brief Reads SystemVerilog/Verilog files into the Library named
         /// `library`: elaborated as a netlist, or syntax-only RTL.

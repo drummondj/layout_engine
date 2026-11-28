@@ -100,7 +100,7 @@ namespace le
         size_t updated = 0;
         /// @brief Components naming no Placement in the Layout; left out.
         std::vector<std::string> unmatched;
-        /// @brief Placements (updated anyway) whose cell isn't the component's.
+        /// @brief Components placing a different cell than their Placement; left unchanged.
         std::vector<std::string> cell_mismatches;
     };
 }

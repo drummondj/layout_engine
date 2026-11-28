@@ -378,7 +378,8 @@ namespace le::edit
             result != 0)
             return std::unexpected(io_failure("read_def", path, reader.messages(), result));
 
-        // Planned in full before anything changes.
+        // Planned in full before anything changes. A component placing a
+        // different cell than its placement is an error, and left out.
         DefPlacementsReport report;
         std::vector<std::pair<PlacementId, PlacementChanges>> plan;
         for (le::DefComponentPlacement &component : components)
@@ -392,7 +393,12 @@ namespace le::edit
             }
             const DesignData *cell = root.get_design(placement->reference_design);
             if (!cell || cell->name != component.cell)
-                report.cell_mismatches.push_back(component.name);
+            {
+                spdlog::error("read_def: COMPONENT {} places cell {}, but its placement places {} - left unchanged", component.name,
+                              component.cell, cell ? cell->name : "no cell");
+                report.cell_mismatches.push_back(std::move(component.name));
+                continue;
+            }
             const bool moves = component.location && (!placement->location || placement->location->x != component.location->x ||
                                                        placement->location->y != component.location->y);
             const bool turns = component.orientation && *component.orientation != placement->orientation;
@@ -413,10 +419,6 @@ namespace le::edit
         };
         if (!report.unmatched.empty())
             spdlog::warn("read_def: {} component(s) match no placement: {}", report.unmatched.size(), names(report.unmatched));
-        if (!report.cell_mismatches.empty())
-            spdlog::warn("read_def: {} placement(s) place a different cell than their component: {}", report.cell_mismatches.size(),
-                         names(report.cell_mismatches));
-
         api_detail::OwnStep step(handle, "read_def");
         for (auto &[id, changes] : plan)
         {
