@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <string>
 #include <vector>
 #include <memory>
@@ -11,6 +12,17 @@
 
 namespace le
 {
+    /// @brief One DEF COMPONENTS entry, as read_component_placements gives it.
+    struct DefComponentPlacement
+    {
+        std::string name; ///< the instance
+        std::string cell; ///< the macro it places
+        PlacementStatus status = PlacementStatus::UNPLACED;
+        /// In the requested database units; unset with no placement.
+        std::optional<Point> location;
+        std::optional<Orientation> orientation;
+    };
+
     // DEFReader: DESIGN/VERSION/UNITS/DIEAREA/ROW/TRACKS/GCELLGRID/
     // COMPONENTS/PINS/BLOCKAGES/VIAS/REGIONS/NETS/SPECIALNETS/
     // NONDEFAULTRULES. Mirrors
@@ -23,6 +35,10 @@ namespace le
     {
     public:
         int read_def(std::string filename, Root &root, std::string library_name);
+        /// @brief Reads only a DEF's UNITS and COMPONENTS into `placements`,
+        /// locations rescaled onto `database_units` (as given when 0),
+        /// touching no database. 0 on success, as read_def.
+        int read_component_placements(const std::string &filename, double database_units, std::vector<DefComponentPlacement> &placements);
 
         // See LEFReader::messages() - same contract, cleared and
         // repopulated at the start of every read_def() call.
@@ -50,6 +66,10 @@ namespace le
         // defiNet type (defrNetCbkFnType), only distinguished by which
         // callback fired.
         static int read_net(defiNet *net, void *user_data, bool is_special);
+        // read_component_placements' callbacks.
+        static int defrPlacementUnitsCbkFn(defrCallbackType_e typ, double units, void *user_data);
+        static int defrPlacementComponentCbkFn(defrCallbackType_e typ, defiComponent *component, void *user_data);
+        static int defrPlacementComponentEndCbkFn(defrCallbackType_e typ, void *data, void *user_data);
 
         // Registered for both defrSetLogFunction and
         // defrSetWarningLogFunction - see LEFReader::lefrLogFn's own
@@ -95,5 +115,12 @@ namespace le
         // both sections, but only once in each.
         std::unordered_set<std::string> nets_read_[2];
         std::vector<std::string> messages_;
+        // read_component_placements' state: the units to rescale onto,
+        // what it has read, and whether COMPONENTS ended (it then stops
+        // the parse, which defrRead reports as nonzero).
+        double target_units_ = 0;
+        std::vector<DefComponentPlacement> component_placements_;
+        std::unordered_set<std::string> components_seen_;
+        bool components_done_ = false;
     };
 }

@@ -53,6 +53,8 @@
 
 int read_lef(const char *path, const char *library_name);
 int read_def(const char *path, const char *library_name);
+/// @brief read_def -placements_only: `layout_token` empty means the current Layout.
+int read_def_placements_cmd(const char *path, const char *layout_token);
 /// @brief Reads every file in `paths` (space-separated) in one read, so a
 /// netlist elaborates together with the stub files its cells come from
 /// (verilog_stub_writer.hpp).

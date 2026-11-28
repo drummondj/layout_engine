@@ -959,6 +959,16 @@ if(SWIG_FOUND AND TCL_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
     )
 
+    # read_def -placements_only (src/tcl/tests/def_placements_test.tcl).
+    add_test(
+        NAME le_tcl_def_placements
+        COMMAND ${TCL_TCLSH}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/tests/def_placements_test.tcl
+            $<TARGET_FILE:le_tcl>
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tcl/le_tcl_procs.tcl
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/api/tests/fixtures/testcell.lef
+    )
+
     # Schematic<->Layout link mutation side-effect regression check
     # (src/tcl/tests/mutation_cascade_test.tcl) - delete_net cascade and update_net/
     # update_instance rename propagation, through the real TCL layer.
@@ -1340,6 +1350,7 @@ add_executable(backend_tests
     src/api/tests/native_db_api_test.cpp
     src/api/tests/read_rollback_test.cpp
     src/api/tests/read_undo_test.cpp
+    src/api/tests/def_placements_test.cpp
     src/api/tests/selection_test.cpp
     src/api/tests/power_grid_port_markers_test.cpp
     src/api/tests/delete_pieces_test.cpp

@@ -305,7 +305,12 @@ fails on a temp path that isn't unique to its process.
   NONDEFAULTRULES. NETS/SPECIALNETS carry routing geometry (with each
   path's routing status, SHAPE and shielded net, and SPECIALNETS RECT/
   POLYGON/VIA statements) only; connectivity comes from `link` against a
-  netlist.
+  netlist. `read_def -placements_only` (`DEFReader::read_component_placements`
+  -> `le::edit::read_def_placements`) instead reads only UNITS/COMPONENTS,
+  stopping the parse at END COMPONENTS, and updates an existing Layout's
+  same-named Placements as ordinary recorded edits (a component placing
+  another cell is an error and skipped). `defrInit` keeps an
+  earlier read's callbacks; each read calls `defrUnsetCallbacks` first.
 - Routed geometry is a compact `Wire` per (Route, layer, routing status,
   SHAPE, shielded net): 16-byte int32
   Manhattan segments (a `continues` flag keeps multi-point paths, a

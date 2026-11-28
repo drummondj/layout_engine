@@ -1,7 +1,7 @@
 #pragma once
 
 // Plain types for a session's state beyond the database - its selection,
-// rulers and view - and the file writers' options. Shared by LeHandle, the
+// rulers and view - and the file readers' results and writers' options. Shared by LeHandle, the
 // le::edit ops and the extension SDK, so they carry no dependencies beyond
 // the database's ids.
 
@@ -12,6 +12,7 @@
 #include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -90,5 +91,16 @@ namespace le
         INCLUDE_WITH_ABSTRACT,
         /// @brief The Technology's layers only; no MACRO.
         TECHNOLOGY_ONLY,
+    };
+
+    /// @brief What reading a DEF's placements into an existing Layout did.
+    struct DefPlacementsReport
+    {
+        /// @brief Placements whose status, location or orientation changed.
+        size_t updated = 0;
+        /// @brief Components naming no Placement in the Layout; left out.
+        std::vector<std::string> unmatched;
+        /// @brief Components placing a different cell than their Placement; left unchanged.
+        std::vector<std::string> cell_mismatches;
     };
 }

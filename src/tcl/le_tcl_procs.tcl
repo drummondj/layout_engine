@@ -1708,6 +1708,16 @@ register_command_help read_lef \
 rename read_def _read_def_cmd
 proc read_def {args} {
     _return_usage_if_help read_def $args
+    if {"-placements_only" in $args} {
+        array set opts [_parse_options read_def {-layout ""} $args {-placements_only} positional]
+        if {"-library" in $positional} {
+            error "read_def: -library and -placements_only are mutually exclusive"
+        }
+        if {[llength $positional] != 1} {
+            error "read_def: expected exactly one <path> argument, got \"$positional\""
+        }
+        return [read_def_placements_cmd [_expand_path [lindex $positional 0]] $opts(-layout)]
+    }
     lassign [_take_library_flag read_def $args] library positional
     if {[llength $positional] != 1} {
         error "read_def: expected exactly one <path> argument, got \"$positional\""
@@ -1715,10 +1725,12 @@ proc read_def {args} {
     return [_read_def_cmd [_expand_path [lindex $positional 0]] $library]
 }
 register_command_help read_def \
-    "read_def -library <name> <path> \[-help\] - Reads a DEF file into a new Layout in a named Library" \
-    "Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no layout (e.g. from read_verilog), that design gets the layout instead. A design in the -library library that already has a layout is an error. Each component's cell is looked up in the -library library first, then in whichever library alone has a cell of that name. Returns 0 on success, nonzero on an error (the details are printed)." \
+    "read_def -library <name> <path> | -placements_only \[-layout <token>\] <path> \[-help\] - Reads a DEF file into a new Layout, or its placements into an existing one" \
+    "Reads a DEF file as a layout. The technology and cells it uses must already be read with read_lef. The design goes into the -library library, which is created if it doesn't exist; if that library has no design of that name but another library has exactly one with no layout (e.g. from read_verilog), that design gets the layout instead. A design in the -library library that already has a layout is an error. Each component's cell is looked up in the -library library first, then in whichever library alone has a cell of that name. With -placements_only, reads only the DEF's UNITS and COMPONENTS into the existing layout -layout (the current layout if omitted): each placement named by a component takes its status, location and orientation, even a FIXED or COVER one; nothing else changes. A component that names no placement is reported as a warning; one whose cell differs from its placement's is an error, and that placement is left unchanged. It is one undo step. Returns 0 on success, nonzero on an error (the details are printed)." \
     {
-        {-library {type str required 1 description {Library to read the DEF's design into - created if it doesn't exist}}}
+        {-library {type str required 0 description {Library to read the DEF's design into - created if it doesn't exist; required unless -placements_only}}}
+        {-placements_only {type flag required 0 description {Update an existing layout's placements from the DEF's COMPONENTS only}}}
+        {-layout {type token required 0 description {With -placements_only, the layout to update - defaults to the current Layout}}}
         {<path> {type file required 1 description {DEF file to read}}}
     }
 

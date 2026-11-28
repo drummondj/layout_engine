@@ -46,6 +46,53 @@ namespace
         return le::PlacementStatus::UNPLACED;
     }
 
+    // A component's location and orientation, when it has a placement
+    // (PLACED/FIXED/COVER/SOFTFIXED). isUnplaced() is true only for an
+    // explicit UNPLACED keyword - a component with no placement statement
+    // at all (bare `- name macro ;`, common before a placer has run) is
+    // neither, and its empty placementOrientStr() would fail to parse.
+    // Returns false (with an error logged) only for an unrecognized
+    // orientation.
+    bool component_placement(defiComponent *component, double unit_scale, std::optional<le::Point> &location,
+                             std::optional<le::Orientation> &orientation)
+    {
+        if (!component->isPlaced() && !component->isFixed() && !component->isCover() && !component->isSoftfixed())
+            return true;
+        const std::optional<le::Orientation> parsed = le::orientation_from_string(component->placementOrientStr());
+        if (!parsed)
+        {
+            log_error("COMPONENT {} has an unrecognized orientation '{}' - ignored.", component->id(), component->placementOrientStr());
+            return false;
+        }
+        location = le::Point{.x = scale_dbu(component->placementX(), unit_scale), .y = scale_dbu(component->placementY(), unit_scale)};
+        orientation = parsed;
+        return true;
+    }
+
+    // The factor taking a DEF's UNITS DISTANCE MICRONS `def_units` onto
+    // `technology_units` (see DEFReader::unit_scale_), warning when they
+    // differ. 1.0 when either is unknown.
+    double unit_scale_onto(double technology_units, double def_units)
+    {
+        if (technology_units == 0 || def_units == 0 || technology_units == def_units)
+            return 1.0;
+        // The Technology's scale (typically from an earlier LEF read) is
+        // never overwritten by a later DEF's: every Shape already stored
+        // assumes it. This DEF's values are rescaled onto it instead.
+        const double scale = technology_units / def_units;
+        if (def_units < technology_units)
+        {
+            // Values scale up exactly (or round to the nearest technology
+            // grid position), but can't gain precision the file never had.
+            log_warning("DEF UNITS DISTANCE MICRONS {} is coarser than the current technology units {} - scaling DEF geometry up by {:.4g}x, but it cannot carry more precision than its own original {} units/micron.", def_units, technology_units, scale, def_units);
+        }
+        else
+        {
+            log_warning("DEF UNITS DISTANCE MICRONS {} does not equal current technology units {} - scaling DEF geometry by {:.4g}x to match.", def_units, technology_units, scale);
+        }
+        return scale;
+    }
+
     // Shared by defiPin and defiPinPort (5.7+ multi-port pins, each
     // independently placed via its own setPortPlacement - see
     // PhysicalPortSegment's own schema.py comment) - neither has
@@ -473,43 +520,8 @@ namespace le
         if (!technology)
             return 0;
         if (technology->database_units_microns == 0)
-        {
             technology->database_units_microns = units;
-            reader->unit_scale_ = 1.0;
-        }
-        else if (technology->database_units_microns != units)
-        {
-            // The shared Technology's own scale (typically established by
-            // an earlier LEF read) is never overwritten by a later DEF's
-            // disagreeing UNITS - every other already-created Shape was
-            // stored assuming that original scale. Instead, this DEF's own
-            // raw database-unit values (see unit_scale_'s own comment) get
-            // rescaled onto it via unit_scale_, so they land at the same
-            // real-world position rather than being silently misread at
-            // the wrong grid resolution.
-            reader->unit_scale_ = technology->database_units_microns / units;
-            if (units < technology->database_units_microns)
-            {
-                // DEF's own grid is coarser than the technology's - every
-                // value it expresses scales up exactly (technology units
-                // is always one of the fixed LEF/DEF UNITS values, though
-                // not necessarily an exact multiple of this DEF's own, in
-                // which case scaling can still round to the nearest
-                // technology-grid position) - but the DEF's own original
-                // authored precision can never exceed its own coarser
-                // grid to begin with, so this scaling can't manufacture
-                // detail the file never had.
-                log_warning("DEF UNITS DISTANCE MICRONS {} is coarser than the current technology units {} - scaling DEF geometry up by {:.4g}x, but it cannot carry more precision than its own original {} units/micron.", units, technology->database_units_microns, reader->unit_scale_, units);
-            }
-            else
-            {
-                log_warning("DEF UNITS DISTANCE MICRONS {} does not equal current technology units {} - scaling DEF geometry by {:.4g}x to match.", units, technology->database_units_microns, reader->unit_scale_);
-            }
-        }
-        else
-        {
-            reader->unit_scale_ = 1.0;
-        }
+        reader->unit_scale_ = unit_scale_onto(technology->database_units_microns, units);
         return 0;
     }
 
@@ -668,26 +680,8 @@ namespace le
             .reference_design = reference_design,
             .placement_status = placement_status_from_component(component),
         };
-        // isUnplaced() is true only for an explicit UNPLACED keyword - a
-        // component with no placement statement at all (bare `- name
-        // macro ;`, common before a placer has run) is neither placed nor
-        // "unplaced" by this accessor's own definition, so only read
-        // location/orientation when one of the genuinely-placed flags is
-        // true (testing !isUnplaced() instead would drop every
-        // no-placement-statement component: its empty
-        // placementOrientStr() fails orientation_from_string and hits the
-        // early return before create_placement runs).
-        if (component->isPlaced() || component->isFixed() || component->isCover() || component->isSoftfixed())
-        {
-            data.location = Point{.x = scale_dbu(component->placementX(), reader->unit_scale_), .y = scale_dbu(component->placementY(), reader->unit_scale_)};
-            const std::optional<Orientation> orientation = orientation_from_string(component->placementOrientStr());
-            if (!orientation)
-            {
-                log_error("COMPONENT {} has an unrecognized orientation '{}' - ignored.", component->id(), component->placementOrientStr());
-                return 0;
-            }
-            data.orientation = *orientation;
-        }
+        if (!component_placement(component, reader->unit_scale_, data.location, data.orientation))
+            return 0;
         if (component->hasWeight())
             data.weight = static_cast<double>(component->weight());
         if (component->hasSource())
@@ -1287,6 +1281,8 @@ namespace le
         spdlog::info("read_def: reading '{}'...", filename);
 
         defrInit();
+        // defrInit keeps the callbacks an earlier read registered.
+        defrUnsetCallbacks();
         messages_.clear();
         le::reader_messages::pending().clear();
 
@@ -1363,6 +1359,95 @@ namespace le
             root.get_layout_routes(layout_id_).size(), root.get_layout_regions(layout_id_).size(),
             root.get_layout_vias(layout_id_).size());
 
+        return 0;
+    }
+
+    int DEFReader::defrPlacementUnitsCbkFn(defrCallbackType_e /*typ*/, double units, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        reader->unit_scale_ = unit_scale_onto(reader->target_units_, units);
+        return 0;
+    }
+
+    int DEFReader::defrPlacementComponentCbkFn(defrCallbackType_e /*typ*/, defiComponent *component, void *user_data)
+    {
+        auto reader = static_cast<DEFReader *>(user_data);
+        if (!reader->components_seen_.insert(component->id()).second)
+        {
+            log_error("COMPONENT {} already exists - ignored.", component->id());
+            return 0;
+        }
+        // id() is the instance name, name() its macro (see
+        // defrComponentCbkFn).
+        DefComponentPlacement placement{
+            .name = component->id(),
+            .cell = component->name(),
+            .status = placement_status_from_component(component),
+        };
+        if (!component_placement(component, reader->unit_scale_, placement.location, placement.orientation))
+            return 0;
+        reader->component_placements_.push_back(std::move(placement));
+        return 0;
+    }
+
+    int DEFReader::defrPlacementComponentEndCbkFn(defrCallbackType_e /*typ*/, void * /*data*/, void *user_data)
+    {
+        // Nothing after COMPONENTS is read: stop before NETS, usually most
+        // of the file.
+        static_cast<DEFReader *>(user_data)->components_done_ = true;
+        return STOP_PARSE;
+    }
+
+    int DEFReader::read_component_placements(const std::string &filename, double database_units, std::vector<DefComponentPlacement> &placements)
+    {
+        const std::lock_guard<std::mutex> lefdef_lock(lefdef_mutex());
+        spdlog::info("read_def: reading the placements in '{}'...", filename);
+
+        defrInit();
+        defrUnsetCallbacks(); // as read_def_contents
+        messages_.clear();
+        le::reader_messages::pending().clear();
+        defrSetUnitsCbk(defrPlacementUnitsCbkFn);
+        defrSetComponentCbk(defrPlacementComponentCbkFn);
+        defrSetComponentEndCbk(defrPlacementComponentEndCbkFn);
+        defrSetLogFunction(&DEFReader::defrLogFn);
+        defrSetWarningLogFunction(&DEFReader::defrLogFn);
+
+        target_units_ = database_units;
+        unit_scale_ = 1.0;
+        components_done_ = false;
+        components_seen_.clear();
+        component_placements_.clear();
+
+        std::unique_ptr<FILE, int (*)(FILE *)> file(fopen(filename.c_str(), "r"), &fclose);
+        if (!file)
+        {
+            log_error("Could not open DEF file {}.", filename);
+            messages_ = std::move(le::reader_messages::pending());
+            return 1;
+        }
+
+        int result = 0;
+        try
+        {
+            result = defrRead(file.get(), filename.c_str(), (void *)this, 1);
+        }
+        catch (const std::exception &error)
+        {
+            log_error("Reading DEF file {} failed: {}", filename, error.what());
+            result = -1;
+        }
+        messages_ = std::move(le::reader_messages::pending());
+        if (result != 0 && !components_done_)
+        {
+            if (messages_.empty())
+                messages_.push_back(fmt::format("ERROR: Could not parse DEF file {}.", filename));
+            spdlog::error("Could not parse DEF file {}.", filename);
+            component_placements_.clear();
+            return 2;
+        }
+        placements = std::move(component_placements_);
+        component_placements_.clear();
         return 0;
     }
 }
